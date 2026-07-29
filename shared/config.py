@@ -48,6 +48,7 @@ class Settings(BaseSettings):
 
     free_explanations: int = 3
     admin_chat_ids: str = ""
+    support_contact: str = ""
 
     @property
     def bot_token(self) -> str:

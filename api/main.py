@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps import get_session
 from api.models import Question
-from api.routes import quiz, users
+from api.routes import figures, quiz, users
 from shared.config import settings
 
 app = FastAPI(
@@ -24,6 +24,7 @@ app = FastAPI(
 
 app.include_router(users.router)
 app.include_router(quiz.router)
+app.include_router(figures.router)
 
 
 @app.get("/health", tags=["ops"])

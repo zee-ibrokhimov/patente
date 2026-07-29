@@ -11,7 +11,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.models import Explanation, Question, Translation
+from api.models import Explanation, Figure, Question, Translation
 from api.services.entitlement import (
     Access,
     Entitlement,
@@ -69,6 +69,13 @@ async def question_payload(
     translation = await get_translation(session, question.id, user.lang)
     access = translation_access(entitlement, user, translation is not None)
 
+    # Non-null once this figure has been uploaded to Telegram at least once; the
+    # bot then re-sends by id instead of re-uploading the bytes (plan §6.4).
+    file_id = None
+    if question.image_path:
+        figure = await session.get(Figure, question.image_path)
+        file_id = figure.telegram_file_id if figure else None
+
     payload = {
         "id": question.id,
         "quesito_id": question.quesito_id,
@@ -76,6 +83,7 @@ async def question_payload(
         "statement_it": question.statement_it,
         "stem_it": question.stem_it,
         "image": question.image_path,
+        "image_file_id": file_id,
         "translation_state": access.value,
         "translation": None,
     }

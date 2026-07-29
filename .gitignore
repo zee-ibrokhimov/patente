@@ -28,6 +28,7 @@ questions/*.pdf
 # scratch
 scratch/
 *.log
+*.err
 
 # regenerated review artefact — `python content/verify_sample.py`
 content/out/verify.html

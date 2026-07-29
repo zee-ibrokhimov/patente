@@ -51,6 +51,9 @@ class QuestionOut(BaseModel):
     statement_it: str
     stem_it: str | None = None
     image: str | None = None
+    image_file_id: str | None = Field(
+        default=None, description="cached Telegram file_id; re-send by id, do not re-upload"
+    )
     translation_state: str
     translation: TranslationOut | None = None
 
