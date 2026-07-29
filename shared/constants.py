@@ -35,11 +35,33 @@ TIERS = tuple(TIER_DAYS)
 
 
 # --- Leitner boxes ----------------------------------------------------------
-# Box 1 is "just got it wrong", box 5 is "solid". A wrong answer always drops to
-# box 1 — the whole point is that wrong answers come back soon.
+# Box 1 is "just got it wrong", box 5 is "solid". A wrong answer always drops
+# straight back to box 1 — the whole point is that wrong answers come back soon.
+#
+# Box 1 is 10 minutes rather than 0 so a missed question returns within the same
+# study session but with roughly ten others in between. At 0 it would be the very
+# next question served, which teaches recall of the last screen, not the rule.
 LEITNER_BOXES = 5
-LEITNER_INTERVALS_HOURS = {1: 0, 2: 12, 3: 48, 4: 168, 5: 720}
 FIRST_BOX = 1
+LEITNER_INTERVALS_MINUTES = {
+    1: 10,        # same session
+    2: 12 * 60,
+    3: 2 * 24 * 60,
+    4: 7 * 24 * 60,
+    5: 30 * 24 * 60,
+}
+
+
+# --- Free vs paid -----------------------------------------------------------
+# Settled in plan §4.3: free is the plain Italian question, Vero/Falso and the
+# correct answer. Translations and explanations are paid, full stop.
+#
+# Spaced repetition and stats are listed there as *recommended* paid, not
+# decided. They are free for now: both cost nothing to serve, and a free user who
+# keeps coming back hits the explanation paywall far more often than one who
+# drills unsorted questions once and leaves. Flip these to gate them.
+REQUIRE_PASS_FOR_SPACED_REPETITION = False
+REQUIRE_PASS_FOR_STATS = False
 
 
 # --- Event log (plan §9) ----------------------------------------------------

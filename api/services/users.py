@@ -1,0 +1,87 @@
+"""User lifecycle, including the GDPR erasure path.
+
+What is stored is deliberately minimal: a Telegram chat id and an answer history.
+No names, no usernames, no message text (plan §5). That is what makes /delete a
+short, provable operation rather than a hunt.
+
+Erasure policy, per table:
+
+  users, progress, reports   deleted outright — this is the personal data
+  events                     chat_id set to NULL, rows kept. The person becomes
+                             unidentifiable while the aggregate metrics that
+                             every §9 number derives from stay intact. Deleting
+                             them would silently rewrite historical conversion.
+  purchases                  kept. Retained under the accounting obligation, and
+                             needed to honour a later refund webhook, which
+                             matches on the Tribute purchase id rather than on
+                             the person.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+
+from sqlalchemy import delete, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from api.models import Event, Progress, Report, User
+from api.services import events
+from shared.constants import DEFAULT_LANG, EV_SESSION_START, EV_USER_DELETED, UI_LANGUAGES
+
+
+async def get_or_create(
+    session: AsyncSession, chat_id: int, lang: str | None = None
+) -> tuple[User, bool]:
+    user = await session.get(User, chat_id)
+    if user is not None:
+        return user, False
+
+    user = User(chat_id=chat_id, lang=lang if lang in UI_LANGUAGES else DEFAULT_LANG)
+    session.add(user)
+    await session.flush()
+    await events.record(session, EV_SESSION_START, chat_id=chat_id, first_seen=True)
+    return user, True
+
+
+async def update_settings(
+    session: AsyncSession,
+    user: User,
+    lang: str | None = None,
+    translations_on: bool | None = None,
+    onboarded: bool | None = None,
+) -> User:
+    if lang is not None:
+        if lang not in UI_LANGUAGES:
+            raise ValueError(f"unsupported language {lang!r}")
+        user.lang = lang
+    if translations_on is not None:
+        user.translations_on = translations_on
+    if onboarded and user.onboarded_at is None:
+        user.onboarded_at = datetime.now(timezone.utc)
+    await session.flush()
+    return user
+
+
+async def delete_user(session: AsyncSession, chat_id: int) -> bool:
+    user = await session.get(User, chat_id)
+    if user is None:
+        return False
+
+    await events.record(session, EV_USER_DELETED, chat_id=chat_id)
+    await session.flush()
+
+    # Anonymise before deleting, so the erasure event itself carries no id either.
+    await session.execute(
+        update(Event).where(Event.chat_id == chat_id).values(chat_id=None)
+    )
+    await session.execute(delete(Report).where(Report.chat_id == chat_id))
+    await session.execute(delete(Progress).where(Progress.chat_id == chat_id))
+    await session.delete(user)
+    await session.flush()
+    return True
+
+
+async def count_progress(session: AsyncSession, chat_id: int) -> int:
+    return len((await session.scalars(
+        select(Progress.question_id).where(Progress.chat_id == chat_id)
+    )).all())
