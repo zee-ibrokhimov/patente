@@ -62,6 +62,21 @@ random rows plus rows drawn from the classes where a parser bug would hide.
 
 Seeding is diff-based: a reissued listato only touches what changed.
 
+```bash
+.venv/Scripts/python.exe content/cluster.py --report --sample
+```
+
+Groups statements into rule clusters and compares both strategies without writing.
+The cluster count is what sets the content budget — see [STATUS.md](STATUS.md) §2.
+
+```bash
+.venv/Scripts/python.exe content/fetch_norms.py --source both
+```
+
+Pulls the Codice della Strada and its Regolamento from Normattiva into
+`content/out/norms/`. Incremental — an interrupted run resumes. This is the
+grounding text explanations are generated from.
+
 ## Running
 
 ```bash
