@@ -531,6 +531,40 @@ correction rate. On the 3-cluster sample it was 1 in 3, which as a share of
 explanation requests answering "not available" would be poor for a paid feature.
 Worth measuring over a full topic before launch.
 
+**Decided:** serve `draft`, withhold `flagged`.
+
+**Translations move to demand too, and both languages come back in one call.** When a
+user is served a question, RU and EN are requested together and cached in the existing
+`translations` table — `(question_id, lang)` is already unique, so nothing changes in
+the schema. §3.3's "translate the *approved* Italian explanation" pipeline is dropped:
+`translate.py` is not being written.
+
+**The explanation call must see the question and its figure.** Not the cluster in the
+abstract — the actual statement, and the image where there is one. This is no longer an
+optional improvement (§12's task list had it as "highest-value open"): it is required,
+because a text-only model cannot resolve "il segnale raffigurato" at all, and the
+explanation is the thing being sold. All 409 figures are on disk and gpt-4o accepts
+them, so the change is contained to the call itself.
+
+Explanations stay keyed on `cluster_id` and that stays correct: under the figure
+strategy every member of a figure cluster shares one `image_path` — the figure *is* the
+cluster key — so "the image for this question" and "the image for this cluster" are the
+same picture. Text clusters have no image and lose nothing.
+
+**The hot path is the problem to solve first.** Explanations are user-initiated, so a
+few seconds of "sto preparando la spiegazione…" is fine. Translations are not: they
+belong to *serving a question*, which is every interaction. Nobody waits 3-5 seconds
+per question. Options, in the order I would try them:
+
+  1. Serve the Italian immediately and edit the message when the translation lands
+     (`editMessageText`); the user starts reading the question either way.
+  2. Pre-warm — translate the next few questions in the background while the user is
+     answering the current one. Selection already knows what is coming next.
+  3. Both. (1) covers a cold cache, (2) means it is almost never cold.
+
+Cost is small: ~7106 short calls if every question is eventually served, and
+translations are a paid feature (§4.3), so only entitled users trigger any of it.
+
 Mechanics that follow:
 
   · **The generation core has to move.** `content/` is one-off scripts and `api/` owns
