@@ -50,15 +50,47 @@ import unicodedata
 from pathlib import Path
 
 from rapidfuzz import fuzz, process
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from api.models import Cluster, Question, Topic  # noqa: E402
+from api.models import Cluster, Explanation, Question, Topic  # noqa: E402
 from shared.config import CONTENT_OUT  # noqa: E402
 from shared.db import sync_session_factory  # noqa: E402
 
 DEFAULT_THRESHOLD = 88
+
+# Figure clusters a human has read and judged to carry more than one rule, split
+# along the ministerial quesito — the Ministry's own grouping of statements, and
+# the only division of a figure cluster that is not guesswork.
+#
+# Keyed on (topic_id, image_path), which is unique across all 426 figure clusters.
+# Only one entry, and that is the finding rather than an omission: six independent
+# statistical criteria were measured against the two cases that matter — the
+# 53-member semaforo cluster, which genuinely spans red / green / yellow-fixed /
+# yellow-flashing, and the 34-member DIVIETO DI SORPASSO cluster, which is one
+# rule asked 34 ways. None separated them. Silhouette of 2-means on TF-IDF cosine
+# scored 0.144 vs 0.150; Sarle bimodality 0.40 vs 0.42; spectral conductance
+# 0.000 vs 0.234, where ~30 clusters score 0.000 only because one statement is
+# isolated. Mean pairwise similarity looks promising at 47.5 vs 62.1 until you
+# notice twelve other clusters below 53 that all hold a single rule. Divisive
+# splitting on text similarity does separate them, but it does so partly along
+# the *answer* column — producing an all-VERO "obligations" group and an all-FALSO
+# "distractors" group for the same rule — which is the one split that must never
+# happen, because a statement and its negation test the same thing.
+#
+# So the criterion is not in the text, and a size cap is worse than nothing: a cap
+# at 20 splits 34 clusters to catch this one, leaving 33 rules explained several
+# times over, each needing every copy corrected. The list stays hand-maintained
+# and `needs_split_review` below tells a reviewer which clusters to read hardest.
+SPLIT_BY_QUESITO = {
+    (17, "images/d603ba63c2155410.jpeg"),  # semaforo a tre luci: rosso, verde,
+                                           # giallo fisso, giallo lampeggiante
+}
+
+# Advisory only. Fires on 49 of 3382 clusters; the reviewer opens those rows in
+# the step-7 CSV anyway, so it costs no extra hours.
+FLAG_MIN_SIZE, FLAG_MIN_QUESITI = 20, 3
 STOPWORDS = {"il", "lo", "la", "i", "gli", "le", "un", "uno", "una", "di", "a", "da",
              "in", "con", "su", "per", "tra", "fra", "e", "che", "del", "della", "dei",
              "delle", "al", "alla", "ai", "alle", "dal", "dalla", "nel", "nella", "si"}
@@ -118,10 +150,27 @@ def cluster_by_text(statements: list[str], threshold: int) -> list[list[int]]:
     return connected_components(len(keys), edges)
 
 
-def build_clusters(rows: list[dict], strategy: str, threshold: int) -> dict[int, list[dict]]:
-    """rows -> {cluster index: [question rows]}. Topic is always a hard boundary."""
-    clusters: dict[int, list[dict]] = {}
-    next_id = 0
+def needs_split_review(members: list[dict]) -> bool:
+    """Says "read this one harder", never splits anything.
+
+    Size alone is a poor signal — the largest cluster left whole holds 34
+    statements about one sign — but a cluster drawn from three or more ministerial
+    quesiti is at least a place where the Ministry itself drew a line.
+    """
+    return (
+        len(members) >= FLAG_MIN_SIZE
+        or len({m.get("quesito") for m in members}) >= FLAG_MIN_QUESITI
+    )
+
+
+def build_clusters(rows: list[dict], strategy: str, threshold: int) -> dict[str, list[dict]]:
+    """rows -> {natural key: [question rows]}. Topic is always a hard boundary.
+
+    The key is what the cluster is *about*, not where it landed in a sort, so the
+    same rule keeps the same key — and therefore the same database id, and
+    therefore its explanation — across reruns. See Cluster.natural_key.
+    """
+    clusters: dict[str, list[dict]] = {}
 
     by_topic: dict[int, list[dict]] = collections.defaultdict(list)
     for row in rows:
@@ -136,16 +185,26 @@ def build_clusters(rows: list[dict], strategy: str, threshold: int) -> dict[int,
             for row in members:
                 (with_figure[row["image"]].append(row) if row["image"]
                  else without.append(row))
-            for _path, group in sorted(with_figure.items()):
-                clusters[next_id] = group
-                next_id += 1
+            for path, group in sorted(with_figure.items()):
+                if (topic_id, path) in SPLIT_BY_QUESITO:
+                    by_quesito: dict[object, list[dict]] = collections.defaultdict(list)
+                    for row in group:
+                        by_quesito[row.get("quesito")].append(row)
+                    for quesito in sorted(by_quesito, key=lambda q: (q is None, q)):
+                        clusters[f"t{topic_id}|fig:{path}|q{quesito}"] = by_quesito[quesito]
+                else:
+                    clusters[f"t{topic_id}|fig:{path}"] = group
             members = without
 
         if not members:
             continue
         for component in cluster_by_text([r["statement"] for r in members], threshold):
-            clusters[next_id] = [members[i] for i in component]
-            next_id += 1
+            group = [members[i] for i in component]
+            # The lowest ministerial statement number in the group. Not perfectly
+            # stable — a reissue that moves that statement elsewhere renames the
+            # cluster — but text clusters have no figure to key on, and losing one
+            # explanation to a genuine rewording beats losing all of them to a sort.
+            clusters[f"t{topic_id}|txt:{min(r['id'] for r in group)}"] = group
 
     return clusters
 
@@ -153,19 +212,20 @@ def build_clusters(rows: list[dict], strategy: str, threshold: int) -> dict[int,
 def load_rows(session) -> list[dict]:
     rows = session.execute(
         select(Question.id, Question.topic_id, Question.statement_it,
-               Question.image_path, Question.answer, Topic.name)
+               Question.image_path, Question.answer, Topic.name, Question.quesito_id)
         .join(Topic, Topic.id == Question.topic_id)
     ).all()
     return [
         {"id": qid, "topic_id": tid, "statement": text, "image": image,
-         "answer": answer, "topic": topic}
-        for qid, tid, text, image, answer, topic in rows
+         "answer": answer, "topic": topic, "quesito": quesito}
+        for qid, tid, text, image, answer, topic, quesito in rows
     ]
 
 
-def report(rows: list[dict], clusters: dict[int, list[dict]], label: str) -> dict:
+def report(rows: list[dict], clusters: dict[str, list[dict]], label: str) -> dict:
     sizes = sorted((len(v) for v in clusters.values()), reverse=True)
     singletons = sum(1 for s in sizes if s == 1)
+    flagged = [m for m in clusters.values() if needs_split_review(m)]
     total = len(rows)
     n = len(clusters)
 
@@ -174,11 +234,14 @@ def report(rows: list[dict], clusters: dict[int, list[dict]], label: str) -> dic
     print(f"    reduction         : {total / n:.1f}x  ({total} statements)")
     print(f"    singletons        : {singletons}  ({singletons / n:.0%} of clusters)")
     print(f"    median / largest  : {sizes[len(sizes) // 2]} / {sizes[0]}")
+    print(f"    flagged for a closer read : {len(flagged)} clusters, "
+          f"{sum(len(m) for m in flagged)} statements")
     for minutes in (3, 5):
         hours = n * minutes / 60
         print(f"    review at {minutes} min/cluster : {hours:.0f} h"
               f"  ({hours / 3:.0f} evenings at 3 h)")
-    return {"clusters": n, "singletons": singletons, "sizes": sizes}
+    return {"clusters": n, "singletons": singletons, "sizes": sizes,
+            "flagged": len(flagged)}
 
 
 def per_topic_table(clusters: dict[int, list[dict]]) -> None:
@@ -241,24 +304,56 @@ def write_sample(clusters: dict[int, list[dict]], path: Path, limit: int = 40) -
     print(f"\n  sample -> {path}")
 
 
-def persist(session, clusters: dict[int, list[dict]]) -> None:
+def persist(session, clusters: dict[str, list[dict]]) -> collections.Counter:
+    """Match clusters to the rows that already represent them, by natural key.
+
+    The previous version deleted every cluster and renumbered from 1. That is
+    fine exactly once. Afterwards it is a data-loss bug: `explanations.cluster_id`
+    is ON DELETE CASCADE and the connection runs with `PRAGMA foreign_keys=ON`,
+    so a second run took every approved explanation with it — and reported
+    nothing, because from its point of view it had simply written 3382 clusters.
+    """
+    stats: collections.Counter = collections.Counter()
+    existing = {c.natural_key: c for c in session.scalars(select(Cluster))}
+    next_id = max((c.id for c in existing.values()), default=0) + 1
+
+    # Detached first, reassigned below. Every statement lands in exactly one
+    # cluster, so nothing is left pointing at a rule it is no longer part of.
     session.execute(update(Question).values(cluster_id=None))
-    session.query(Cluster).delete()
     session.flush()
 
-    for index, members in enumerate(sorted(clusters.values(), key=lambda m: m[0]["id"]), 1):
+    for key, members in sorted(clusters.items(), key=lambda kv: min(m["id"] for m in kv[1])):
         # Longest statement as the provisional summary: it usually carries the
         # most complete phrasing of the rule. generate.py replaces it.
-        summary = max((m["statement"] for m in members), key=len)
-        session.add(Cluster(id=index, topic_id=members[0]["topic_id"],
-                            rule_summary=summary[:300]))
+        summary = max((m["statement"] for m in members), key=len)[:300]
+        cluster = existing.get(key)
+        if cluster is None:
+            cluster = Cluster(id=next_id, natural_key=key,
+                              topic_id=members[0]["topic_id"], rule_summary=summary)
+            session.add(cluster)
+            next_id += 1
+            stats["new"] += 1
+        else:
+            cluster.topic_id = members[0]["topic_id"]
+            cluster.rule_summary = summary
+            stats["kept"] += 1
         session.flush()
         session.execute(
             update(Question)
             .where(Question.id.in_([m["id"] for m in members]))
-            .values(cluster_id=index)
+            .values(cluster_id=cluster.id)
         )
+
+    # A key that no longer appears means the rule itself is gone from the listato.
+    # Deleting it is right, and it takes its explanations with it — which is why
+    # main() refuses to get here unsupervised once explanations exist.
+    for key, cluster in existing.items():
+        if key not in clusters:
+            session.delete(cluster)
+            stats["removed"] += 1
+
     session.flush()
+    return stats
 
 
 def main() -> int:
@@ -268,6 +363,8 @@ def main() -> int:
     ap.add_argument("--report", action="store_true", help="compare both, write nothing")
     ap.add_argument("--sample", action="store_true", help="also write an HTML sample")
     ap.add_argument("--write", action="store_true", help="persist clusters to the database")
+    ap.add_argument("--force", action="store_true",
+                    help="allow a write that deletes clusters carrying explanations")
     args = ap.parse_args()
 
     factory = sync_session_factory()
@@ -299,9 +396,26 @@ def main() -> int:
             write_sample(clusters, CONTENT_OUT / "clusters.html")
 
         if args.write:
-            persist(session, clusters)
+            # Clusters keep their ids across reruns, but a rule that has vanished
+            # from the listato still takes its explanations with it. That is the
+            # right outcome and it is not one to discover from a row count.
+            doomed = session.scalar(
+                select(func.count())
+                .select_from(Explanation)
+                .join(Cluster, Cluster.id == Explanation.cluster_id)
+                .where(Cluster.natural_key.notin_(list(clusters)))
+            )
+            if doomed and not args.force:
+                print(f"\nERROR: {doomed} explanations belong to clusters this run "
+                      f"would remove.\n  Their rules are no longer in the listato, or "
+                      f"SPLIT_BY_QUESITO changed under them.\n  Re-run with --force if "
+                      f"that is what you mean.", file=sys.stderr)
+                return 3
+
+            stats = persist(session, clusters)
             session.commit()
-            print(f"\ncommitted {len(clusters)} clusters")
+            print(f"\ncommitted {len(clusters)} clusters — "
+                  f"{stats['new']} new, {stats['kept']} kept, {stats['removed']} removed")
         else:
             print("\nnothing written — pass --write to persist")
     return 0

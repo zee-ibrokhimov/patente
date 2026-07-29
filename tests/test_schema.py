@@ -72,7 +72,7 @@ def test_progress_is_one_row_per_user_and_question(session):
 def test_one_explanation_per_cluster_and_language(session):
     from api.models import Cluster
 
-    session.add(Cluster(id=1, rule_summary="distanza di sicurezza"))
+    session.add(Cluster(id=1, natural_key="t1|txt:1", rule_summary="distanza di sicurezza"))
     session.flush()
     session.add(Explanation(cluster_id=1, lang="ru", text="a"))
     session.flush()

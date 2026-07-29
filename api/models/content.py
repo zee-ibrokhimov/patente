@@ -61,11 +61,25 @@ class Cluster(Base):
     cluster so one approved explanation serves every variant and a correction
     lands in exactly one row. Populated by content/cluster.py at build step 6;
     questions.cluster_id stays NULL until then.
+
+    `natural_key` is what makes re-clustering survivable. The id used to be
+    positional — `enumerate(sorted(...), 1)` over freshly built clusters — so
+    adding a single split moved 2692 of 3377 ids. That would be merely untidy if
+    `persist()` did not begin by deleting every cluster row, and if
+    `Explanation.cluster_id` were not `ON DELETE CASCADE` under
+    `PRAGMA foreign_keys=ON`: together they meant that re-running cluster.py
+    after generate.py destroyed every approved explanation in the database,
+    without saying so. Keying a cluster by what it is *about* rather than by
+    where it landed in a sort lets a rerun match a rule back to the row that
+    already explains it.
     """
 
     __tablename__ = "clusters"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # "t17|fig:images/d603ba63c2155410.jpeg", or "t4|txt:1893" for a text cluster
+    # keyed by its lowest ministerial statement number. Stable across reruns.
+    natural_key: Mapped[str] = mapped_column(Text, unique=True, index=True)
     topic_id: Mapped[int | None] = mapped_column(ForeignKey("topics.id"), index=True)
     rule_summary: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
@@ -143,6 +157,16 @@ class Explanation(Base):
 
     # See shared.constants.EXPLANATION_STATUSES. Only "approved" is ever served.
     status: Mapped[str] = mapped_column(Text, default="draft", index=True)
+
+    # Why generate.py flagged this draft, semicolon-separated. A property of the
+    # draft rather than of the run that produced it: at review time "contains a
+    # number" and "argues against the stored answer" send the reviewer to two
+    # completely different places — the second means the explanation, the article
+    # mapping, or the ministerial answer key is wrong, and only a person can say
+    # which. Keeping it in a CSV beside the database would lose it on the first
+    # regeneration.
+    flags: Mapped[str | None] = mapped_column(Text, default=None)
+
     reviewed_at: Mapped[datetime | None] = mapped_column(default=None)
     reviewer: Mapped[str | None] = mapped_column(Text, default=None)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)

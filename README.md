@@ -29,10 +29,14 @@ implementations of the Leitner rules that disagree with each other.
 ## Setup
 
 ```bash
-py -3.12 -m venv .venv
+py -3.12 -m venv .venv          # any 3.12+; tested on 3.12 and 3.14
 .venv/Scripts/python.exe -m pip install -e ".[content,dev]"
 cp .env.example .env    # then fill in BOT_TOKEN_DEV
 ```
+
+A venv is not portable between machines — `.venv/pyvenv.cfg` hardcodes the
+interpreter path it was built from. Moving the repo (OneDrive, a new laptop)
+means deleting `.venv` and redoing the two commands above, not repairing it.
 
 ## Content pipeline
 
@@ -64,10 +68,14 @@ Seeding is diff-based: a reissued listato only touches what changed.
 
 ```bash
 .venv/Scripts/python.exe content/cluster.py --report --sample
+.venv/Scripts/python.exe content/cluster.py --strategy figure --write
 ```
 
-Groups statements into rule clusters and compares both strategies without writing.
-The cluster count is what sets the content budget — see [STATUS.md](STATUS.md) §2.
+Groups statements into rule clusters. `--report` compares both strategies and
+writes nothing; the cluster count is what sets the content budget, see
+[STATUS.md](STATUS.md) §2. Clusters are keyed by what they are about rather than by
+sort position, so `--write` is idempotent and a rerun preserves the explanations
+already attached — see [STATUS.md](STATUS.md) §10 for why that matters.
 
 ```bash
 .venv/Scripts/python.exe content/fetch_norms.py --source both
@@ -75,7 +83,25 @@ The cluster count is what sets the content budget — see [STATUS.md](STATUS.md)
 
 Pulls the Codice della Strada and its Regolamento from Normattiva into
 `content/out/norms/`. Incremental — an interrupted run resumes. This is the
-grounding text explanations are generated from.
+grounding text explanations are generated from. Roughly 20 minutes for both
+statutes; run it in the foreground, it needs network.
+
+```bash
+.venv/Scripts/python.exe content/generate.py --topic "Segnali di precedenza" --dry-run
+.venv/Scripts/python.exe content/generate.py --topic "Segnali di precedenza"
+```
+
+Writes the canonical Italian explanation for each cluster in one topic, grounded on
+the articles `content/articles.py` maps that topic to. `--dry-run` prints the exact
+prompt and spends nothing.
+
+**The ministerial answer is withheld from the model and used to check it.** The model
+decides VERO/FALSO from the article text alone; disagreement with the stored key
+marks the cluster `flagged`, because it means either the explanation is wrong, the
+topic is mapped to the wrong article, or the answer key itself is wrong. So are
+explanations containing a number or a unit. Everything lands as `draft` or `flagged`
+and a review sheet is written to `content/out/generate_report.csv` — only a human
+sets `approved`, and only `approved` is ever served.
 
 ## Running
 

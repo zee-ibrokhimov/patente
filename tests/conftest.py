@@ -71,8 +71,8 @@ async def api_db(tmp_path):
             Topic(id=1, name="Segnali di divieto"),
             Topic(id=2, name="Distanza di sicurezza"),
             Figure(path="images/sign_a.jpeg", sha256="aa"),
-            Cluster(id=1, rule_summary="divieto di transito"),
-            Cluster(id=2, rule_summary="distanza di sicurezza"),
+            Cluster(id=1, natural_key="t1|fig:images/a.jpeg", rule_summary="divieto di transito"),
+            Cluster(id=2, natural_key="t2|txt:2", rule_summary="distanza di sicurezza"),
         ])
         await s.flush()
         s.add_all([

@@ -6,12 +6,23 @@ matrix and a report.
 
 import pytest
 
-from cluster import build_clusters, cluster_by_text, connected_components, normalise
+from cluster import (
+    SPLIT_BY_QUESITO,
+    build_clusters,
+    cluster_by_text,
+    connected_components,
+    needs_split_review,
+    normalise,
+    persist,
+)
+
+from api.models import Cluster, Explanation, Question, Quesito, Topic
 
 
-def row(qid, topic_id, statement, image=None, topic="T"):
+def row(qid, topic_id, statement, image=None, topic="T", quesito=None):
     return {"id": qid, "topic_id": topic_id, "statement": statement,
-            "image": image, "answer": True, "topic": topic}
+            "image": image, "answer": True, "topic": topic,
+            "quesito": quesito if quesito is not None else qid}
 
 
 # --- normalisation ---------------------------------------------------------
@@ -163,3 +174,95 @@ def test_no_statement_is_lost_by_either_strategy(strategy):
     clusters = build_clusters(rows, strategy=strategy, threshold=88)
     total = sum(len(v) for v in clusters.values())
     assert total == len(rows)
+
+
+# --- hand-listed splits ----------------------------------------------------
+
+def test_a_listed_figure_cluster_splits_along_the_ministerial_quesito():
+    """One traffic-light figure carries four different rules. No text statistic
+    separates that case from a sign asked thirty ways, so the split is a hand
+    list and the division is the Ministry's own grouping."""
+    topic_id, image = next(iter(SPLIT_BY_QUESITO))
+    rows = [
+        row(1, topic_id, "La luce rossa impone l'arresto", image=image, quesito=10),
+        row(2, topic_id, "La luce rossa vieta di proseguire", image=image, quesito=10),
+        row(3, topic_id, "La luce verde consente di proseguire", image=image, quesito=11),
+    ]
+    clusters = build_clusters(rows, strategy="figure", threshold=88)
+    assert sorted(len(v) for v in clusters.values()) == [1, 2]
+
+
+def test_an_unlisted_figure_cluster_is_never_split_by_size():
+    """The 34-member DIVIETO DI SORPASSO cluster is one rule asked 34 ways.
+    Splitting it would mean explaining that rule several times and correcting it
+    in several places — the thing clustering exists to prevent."""
+    rows = [row(i, 99, f"Il segnale raffigurato vieta il sorpasso, caso {i}",
+                image="images/sorpasso.jpeg", quesito=i) for i in range(40)]
+    clusters = build_clusters(rows, strategy="figure", threshold=88)
+    assert len(clusters) == 1
+
+
+def test_the_review_flag_is_advisory_and_does_not_split():
+    big = [row(i, 1, f"statement {i}", image="images/x.jpeg", quesito=1) for i in range(25)]
+    small = [row(i, 1, f"statement {i}", image="images/y.jpeg", quesito=1) for i in range(3)]
+    assert needs_split_review(big)
+    assert not needs_split_review(small)
+    assert len(build_clusters(big, strategy="figure", threshold=88)) == 1
+
+
+# --- cluster identity survives a rerun -------------------------------------
+
+def seed_two_questions(session):
+    session.add(Topic(id=1, name="Segnali di divieto"))
+    session.flush()
+    session.add(Quesito(id=1, topic_id=1, primary_image=None))
+    session.flush()
+    session.add_all([
+        Question(id=1, quesito_id=1, topic_id=1, statement_it="Il segnale vieta il transito",
+                 answer=True, image_path=None, source_version="v1"),
+        Question(id=2, quesito_id=1, topic_id=1, statement_it="La distanza dipende dalla velocità",
+                 answer=True, image_path=None, source_version="v1"),
+    ])
+    session.flush()
+    return [row(1, 1, "Il segnale vieta il transito", quesito=1),
+            row(2, 1, "La distanza dipende dalla velocità", quesito=1)]
+
+
+def test_rerunning_keeps_cluster_ids_and_their_explanations(session):
+    """The bug this guards: cluster ids used to be positional, `persist()` deleted
+    every row before rewriting, and `explanations.cluster_id` is ON DELETE CASCADE
+    under `PRAGMA foreign_keys=ON`. Re-running the clustering step after
+    generating explanations therefore destroyed all of them, and said nothing."""
+    rows = seed_two_questions(session)
+    clusters = build_clusters(rows, strategy="text", threshold=88)
+    persist(session, clusters)
+    session.flush()
+
+    approved = session.query(Cluster).order_by(Cluster.id).first()
+    session.add(Explanation(cluster_id=approved.id, lang="it",
+                            text="Il segnale vieta il transito a tutti i veicoli.",
+                            status="approved"))
+    session.flush()
+    keyed = {c.natural_key: c.id for c in session.query(Cluster)}
+
+    # Same input, run again — as would happen after any reseed.
+    stats = persist(session, build_clusters(rows, strategy="text", threshold=88))
+    session.flush()
+
+    assert stats["removed"] == 0 and stats["new"] == 0
+    assert {c.natural_key: c.id for c in session.query(Cluster)} == keyed
+    assert session.query(Explanation).count() == 1
+
+
+def test_a_rule_that_leaves_the_listato_takes_its_cluster_with_it(session):
+    """The opposite case, which must still work: a cluster whose rule is gone is
+    deleted, explanations included, because it now explains nothing."""
+    rows = seed_two_questions(session)
+    persist(session, build_clusters(rows, strategy="text", threshold=88))
+    session.flush()
+    assert session.query(Cluster).count() == 2
+
+    stats = persist(session, build_clusters(rows[:1], strategy="text", threshold=88))
+    session.flush()
+    assert stats["removed"] == 1
+    assert session.query(Cluster).count() == 1

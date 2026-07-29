@@ -22,12 +22,21 @@ content = [
     "pymupdf>=1.24",
     "openai>=1.57",
     "rapidfuzz>=3.10",
+    # rapidfuzz.process.cdist — the pairwise-similarity matrix cluster.py builds —
+    # imports numpy lazily, so it is a hard requirement without being declared as one.
+    "numpy>=2.1",
 ]
 dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
     "ruff>=0.8",
 ]
+
+# `content/` is a directory of one-off scripts run as `python content/x.py`, and
+# `questions/` holds the (gitignored) source PDF — neither is an importable
+# package, so autodiscovery must be told what the distribution actually contains.
+[tool.setuptools.packages.find]
+include = ["api*", "bot*", "shared*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

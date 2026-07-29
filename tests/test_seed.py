@@ -55,7 +55,7 @@ def test_telegram_file_id_survives_a_reseed(session, listato, figure_root):
 def test_changed_statement_detaches_its_cluster(session, listato, figure_root):
     """An explanation written for the old wording must not survive a rewording."""
     run(session, listato, figure_root)
-    session.add(Cluster(id=1, rule_summary="divieto di transito"))
+    session.add(Cluster(id=1, natural_key="t1|txt:1", rule_summary="divieto di transito"))
     session.flush()
     session.get(Question, 1).cluster_id = 1
     session.commit()
@@ -72,7 +72,7 @@ def test_changed_statement_detaches_its_cluster(session, listato, figure_root):
 def test_flipped_answer_detaches_its_cluster(session, listato, figure_root):
     """The severe case: the stored explanation now argues the opposite of the key."""
     run(session, listato, figure_root)
-    session.add(Cluster(id=1, rule_summary="distanza"))
+    session.add(Cluster(id=1, natural_key="t1|txt:1", rule_summary="distanza"))
     session.flush()
     session.get(Question, 3).cluster_id = 1
     session.commit()
@@ -89,7 +89,7 @@ def test_flipped_answer_detaches_its_cluster(session, listato, figure_root):
 def test_metadata_only_change_keeps_the_cluster(session, listato, figure_root):
     """Re-filing a question under another topic does not invalidate its explanation."""
     run(session, listato, figure_root)
-    session.add(Cluster(id=1, rule_summary="divieto"))
+    session.add(Cluster(id=1, natural_key="t1|txt:1", rule_summary="divieto"))
     session.flush()
     session.get(Question, 1).cluster_id = 1
     session.commit()

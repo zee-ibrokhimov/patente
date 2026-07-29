@@ -5,7 +5,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps import get_session, get_user
-from api.models import Cluster, Question, Report, Topic, User
+from api.models import Question, Report, Topic, User
 from api.schemas import AnswerIn, AnswerOut, QuestionOut, ReportIn, StatsOut, TopicOut
 from api.services import events, stats
 from api.services.answers import record_answer
