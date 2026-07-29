@@ -494,6 +494,60 @@ explanations, having got both right unaided. **The figure is the ground truth an
 409 images are on disk, so the real fix is a multimodal call** — that is the single
 highest-value open improvement, because sign topics are 54% of the bank.
 
+### Decided 29 July: generate on demand, not up front
+
+**New direction, and it reverses plan §3.3's "generate once, offline, never at
+runtime".** The flow becomes: user answers a question → asks for the explanation →
+the bot fetches it, serves it, and stores it so the next user pays nothing.
+
+**Why it is the right call.** The 169 hours of human review were about to become the
+launch gate for a product whose code is otherwise finished. Lazy generation removes
+that gate entirely, and gets two things free that the offline plan could not:
+
+  · **You only pay for clusters someone actually reaches.** Many of the 3382 will
+    never be requested. The €70-100 is a ceiling, not a bill — and because results
+    are cached per cluster it stays a ceiling no matter how many users arrive.
+  · **Review priority stops being guesswork.** §2 agonised over which topic to review
+    first. Demand answers it: review the clusters users actually hit, most-requested
+    first. That is a far better ordering than topic size, and it only exists in this
+    architecture.
+
+**What it costs, and this is the part to decide deliberately.** §3.3's release rule
+was "a topic goes live only when 100% of its explanations have been read by a human,"
+and the reasoning was that an absent explanation is acceptable while a confidently
+wrong one about a speed limit is not. On demand, **the first user to ask gets an
+explanation no human has read** — and the explanation is the paid feature. That is the
+one thing to get right; everything else here is mechanics.
+
+The principled line, and my recommendation: **serve `draft`, withhold `flagged`.**
+Anything that tripped a gate — argues against the ministerial answer, contains a
+number, low model confidence — never reaches a user unreviewed, and reads as
+`Access.UNAVAILABLE`, which `entitlement.py` already distinguishes from "pay for it"
+(§3 decisions). Anything that passed every gate is served, and a human upgrades it to
+`approved` later through the same step-7 loop.
+
+That makes **the flag rate the number that matters now**, where it used to be the
+correction rate. On the 3-cluster sample it was 1 in 3, which as a share of
+explanation requests answering "not available" would be poor for a paid feature.
+Worth measuring over a full topic before launch.
+
+Mechanics that follow:
+
+  · **The generation core has to move.** `content/` is one-off scripts and `api/` owns
+    all business logic (README, and the rule that keeps bot and webapp thin). Prompt
+    building, grounding and the gates belong in `api/services/`, with
+    `content/generate.py` becoming a batch caller of the same code — useful for
+    pre-warming a topic, no longer the only path.
+  · **Latency is 5-15s.** The bot needs a "sto preparando la spiegazione…" message,
+    and the API needs a per-cluster lock so ten users asking at once cause one call.
+  · **OpenAI becomes a runtime dependency.** A 401, a quota, or an outage is now
+    user-facing rather than a failed batch job. `is_fatal()` already classifies these;
+    the serving path must degrade to `unavailable` and log loudly, never to a stack
+    trace or a wrong answer.
+  · **Declines are ~1 in 3 and noisy** (§12). On a cache miss that decline is a user
+    staring at nothing, so retry once inline before giving up.
+  · Entitlement already gates the spend: 3 free explanations, then a pass.
+
 ### What the flag actually looks like
 
 The one flagged cluster is worth reading, because it is the design working:
@@ -507,3 +561,16 @@ answer is correct about the real world. This is the third category the docstring
 predicts — the statement is not governed by the article the topic maps to — and it
 clears in seconds once a human looks. Expect a meaningful share of flags to be this,
 not errors.
+
+**Two failure classes, and only one of them is a vision problem.** Worth separating
+before spending effort on §13's image work:
+
+  · **"Which sign is this?"** The statements say only "il segnale raffigurato" and the
+    model cannot see the figure. This is cluster 625's decline and the reason the
+    name-guessing hack was tempting. **Sending the image fixes it outright.**
+  · **"Is this fact about the sign true?"**, where the fact is not in the mapped
+    article. q20470 is this: the model identified the sign correctly and cited art. 106
+    accurately — the article simply does not mention motorway slip roads, and neither
+    does a picture of a triangle. **Vision does not fix this.** The lever is the article
+    map — sign topics probably want CdS 175-176 and 22 for autostrada placement — or
+    letting a human clear it.
