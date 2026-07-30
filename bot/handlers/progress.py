@@ -8,7 +8,7 @@ the subscription screen belongs here even though everything it unlocks is used t
 
 from __future__ import annotations
 
-from aiogram import Router
+from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
@@ -41,7 +41,7 @@ async def plan(message: Message, user: dict, lang: str):
     )
 
 
-@router.callback_query(Simple.filter(lambda c: c.action == "subscribe"))
+@router.callback_query(Simple.filter(F.action == "subscribe"))
 async def subscribe(query: CallbackQuery, lang: str):
     """Reachable only when Tribute is configured, since the button is otherwise not
     rendered. Until the checkout link is wired this says so plainly."""

@@ -235,6 +235,19 @@ async def deliver(
     """
     if not user.translations_on:
         return {"translation_state": Access.OFF.value, "translation": None}, Access.OFF
+
+    # A user reading in a language we do not translate INTO has nothing to fetch, and
+    # asking for one costs real money every single time. `ensure` would miss the cache,
+    # pay for a generation, and then `parsed_translations` would drop the result because
+    # the language is not in TRANSLATION_LANGUAGES — so nothing is ever written and the
+    # next view of the same question pays again. Unbounded, and invisible.
+    #
+    # Italian is the live case: it is a UI language but not a translation target, which
+    # is correct (the question is already Italian). entitlement.translation_offer has
+    # always had this guard; deliver did not, and the two disagreed.
+    if user.lang not in TRANSLATION_LANGUAGES:
+        return {"translation_state": Access.OFF.value, "translation": None}, Access.OFF
+
     if not entitlement.can_translate:
         return {"translation_state": Access.LOCKED.value, "translation": None}, Access.LOCKED
 

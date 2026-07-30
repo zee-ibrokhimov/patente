@@ -236,3 +236,60 @@ async def test_a_locked_user_is_not_warmed_for(client, api_db, fake_openai, untr
     body = (await client.get("/users/42/next-question?topic_id=1&exclude_id=2")).json()
     assert body["translation_state"] == "locked"
     assert fake_openai.calls == 0
+
+
+async def test_a_language_we_do_not_translate_into_never_pays_for_a_call(api_db, monkeypatch):
+    """The live money leak: an Italian-UI user asking for a translation.
+
+    `ensure` misses the cache, pays for a generation, and `parsed_translations` then
+    drops the result because 'it' is not in TRANSLATION_LANGUAGES - so no row is ever
+    written and the next view of the same question pays again. Unbounded.
+    """
+    from types import SimpleNamespace
+
+    from api.models import Question
+    from api.services import translations
+    from api.services.entitlement import Access
+
+    calls = []
+
+    async def explode(*a, **kw):
+        calls.append(1)
+        raise AssertionError("generate() must not be reached for a non-translated language")
+
+    monkeypatch.setattr(translations, "generate", explode)
+
+    async with api_db() as session:
+        question = await session.get(Question, 1)
+        user = SimpleNamespace(chat_id=1, lang="it", translations_on=True)
+        entitlement = SimpleNamespace(can_translate=True)
+        payload, access = await translations.deliver(session, question, user, entitlement)
+
+    assert access is Access.OFF
+    assert payload["translation"] is None
+    assert calls == []
+
+
+async def test_a_translated_language_still_reaches_generation(api_db, monkeypatch):
+    """The guard must not smother the normal path."""
+    from types import SimpleNamespace
+
+    from api.models import Question
+    from api.services import translations
+    from api.services.entitlement import Access
+
+    reached = []
+
+    async def fake_generate(session, question):
+        reached.append(question.id)
+
+    monkeypatch.setattr(translations, "generate", fake_generate)
+
+    async with api_db() as session:
+        question = await session.get(Question, 2)
+        user = SimpleNamespace(chat_id=1, lang="ru", translations_on=True)
+        entitlement = SimpleNamespace(can_translate=True)
+        _payload, access = await translations.deliver(session, question, user, entitlement)
+
+    assert reached == [2]
+    assert access is Access.UNAVAILABLE

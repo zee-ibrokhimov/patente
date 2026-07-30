@@ -99,3 +99,20 @@ def test_plan_omits_that_notice_once_payments_are_live():
 def test_plan_renders_in_every_language(lang):
     assert render.plan(ACTIVE, lang, can_subscribe=False)
     assert render.plan(LAPSED, lang, can_subscribe=True)
+
+
+# --- callback filters -------------------------------------------------------
+
+def test_the_subscribe_filter_is_a_magic_filter_not_a_lambda():
+    """aiogram calls .resolve() on a callback_data filter rule. A plain lambda has no
+    such attribute, so the handler raises AttributeError on every tap - and the button
+    is only rendered once Tribute is configured, so this would first fail on the day
+    payments went live."""
+    from aiogram import F
+
+    from bot.callbacks import Simple
+
+    rule = Simple.filter(F.action == "subscribe").rule
+    assert hasattr(rule, "resolve"), "filter rule must be a MagicFilter"
+    assert rule.resolve(Simple(action="subscribe"))
+    assert not rule.resolve(Simple(action="delete_yes"))
