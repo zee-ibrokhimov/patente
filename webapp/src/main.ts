@@ -1,6 +1,6 @@
 import { api, ApiError, sessions } from "./api";
 import { lang, setLang, t } from "./i18n";
-import { haptic, inTelegram, initTelegram } from "./telegram";
+import { haptic, inTelegram, initTelegram, tg } from "./telegram";
 import type {
   AnswerResult,
   ExamAnswer,
@@ -8,13 +8,14 @@ import type {
   Mode,
   PracticeAnswer,
   Question,
+  Profile,
   Session,
   SessionResults,
   Stats,
 } from "./types";
 import "./style.css";
 
-type Screen = "home" | "run" | "results" | "stats" | "settings";
+type Screen = "home" | "run" | "results" | "profile" | "stats" | "settings";
 
 /** A sitting in flight.
  *
@@ -41,7 +42,8 @@ const state: {
   run: Run | null;
   results: SessionResults | null;
   stats: Stats | null;
-} = { me: null, screen: "home", run: null, results: null, stats: null };
+  profile: Profile | null;
+} = { me: null, screen: "home", run: null, results: null, stats: null, profile: null };
 
 const root = document.getElementById("app")!;
 
@@ -211,6 +213,8 @@ async function finishRun(timedOut = false): Promise<void> {
     stopTicking();
     state.results = results;
     state.run = null;
+    state.profile = null;   // streak, readiness and history all just changed
+    state.stats = null;
     state.screen = "results";
     haptic(results.passed === false ? "error" : "success");
     render();
@@ -436,6 +440,121 @@ function resultsScreen(): HTMLElement {
   return wrap;
 }
 
+function profileScreen(): HTMLElement {
+  const wrap = el("section", "screen");
+  const p = state.profile;
+  if (!p) {
+    wrap.append(el("div", "spinner"));
+    void loadProfile();
+    return wrap;
+  }
+
+  // Identity comes from initDataUnsafe, which is fine for DISPLAY only — it is the
+  // unverified copy. Anything that matters is keyed off the signed blob server-side.
+  const tgUser = tg?.initDataUnsafe?.user;
+  const name = tgUser?.first_name ?? "";
+  const who = el("div", "who");
+  const avatar = el("div", "avatar");
+  if (tgUser?.photo_url) {
+    const img = el("img");
+    img.src = tgUser.photo_url;
+    img.alt = "";
+    avatar.append(img);
+  } else {
+    avatar.textContent = (name.trim()[0] ?? "?").toUpperCase();
+  }
+  const who_text = el("div");
+  who_text.append(el("div", "who-name", name || t("profile")));
+  if (p.streak_days > 0) {
+    const streak = el("div", "who-streak");
+    streak.append(el("b", "", `🔥 ${p.streak_days}`),
+                  document.createTextNode(` ${t("streak_days")}`));
+    who_text.append(streak);
+  }
+  who.append(avatar, who_text);
+  wrap.append(who);
+
+  // --- readiness ---
+  const pct = p.readiness == null ? null : Math.round(p.readiness * 100);
+  const ready = pct != null && p.readiness! >= p.pass_accuracy;
+  const gauge = el("div", `gauge ${pct == null ? "" : ready ? "ready" : "notyet"}`);
+  const head = el("div", "gauge-head");
+  head.append(el("div", "label", t("ready_title")));
+  head.append(el("div", "gauge-value", pct == null ? "—" : `${pct}%`));
+  gauge.append(head);
+
+  if (pct == null) {
+    // The server refuses to estimate below a minimum sample, and this renders that
+    // refusal rather than drawing a 0% bar that would read as "you know nothing".
+    gauge.append(el("p", "gauge-empty",
+      t("need_more", { n: p.readiness_min_sample })));
+  } else {
+    const track = el("div", "gauge-track");
+    const fill = el("div", "gauge-fill");
+    fill.style.width = `${pct}%`;
+    const mark = el("div", "gauge-mark");
+    mark.style.left = `${Math.round(p.pass_accuracy * 100)}%`;
+    track.append(fill, mark);
+    gauge.append(track);
+
+    const foot = el("div", "gauge-foot");
+    foot.append(el("span", "label", t("based_on", { n: p.readiness_sample })));
+    foot.append(el("span", "label",
+      t("pass_bar", { n: Math.round(p.pass_accuracy * 100) })));
+    gauge.append(foot);
+  }
+  wrap.append(gauge);
+
+  // --- exams ---
+  const grid = el("div", "grid");
+  const tile = (label: string, value: string) => {
+    const d = el("div", "tile");
+    d.append(el("div", "tile-value", value), el("div", "tile-label", label));
+    return d;
+  };
+  grid.append(
+    tile(t("exams_taken"), String(p.exams.taken)),
+    tile(t("exams_passed"), String(p.exams.passed)),
+    tile(t("avg_errors"), p.exams.avg_errors == null ? "—" : String(p.exams.avg_errors)),
+  );
+  wrap.append(el("h2", "", t("history")), grid);
+
+  if (!p.exams.recent.length) {
+    wrap.append(el("p", "hint", t("no_exams")));
+  } else {
+    const list = el("div", "history");
+    for (const run of p.exams.recent) {
+      const row = el("div", "run-row");
+      row.append(el("span", `run-badge ${run.passed ? "pass" : "fail"}`,
+        run.passed ? t("passed") : t("failed")));
+      const when = run.finished_at
+        ? new Date(run.finished_at).toLocaleDateString(lang())
+        : "";
+      row.append(el("span", "run-meta", when));
+      row.append(el("span", "run-score", `${run.wrong}/${run.question_count}`));
+      list.append(row);
+    }
+    wrap.append(list);
+  }
+
+  // The weakest topics live on Stats; pointing at them from here is the whole job of
+  // this screen - it is where someone decides what to do next.
+  const go = el("button", "btn ghost", t("by_topic"));
+  go.onclick = () => { state.screen = "stats"; render(); };
+  wrap.append(go);
+  return wrap;
+}
+
+async function loadProfile(): Promise<void> {
+  try {
+    state.profile = await api.profile();
+    render();
+  } catch (err) {
+    reportError(err);
+  }
+}
+
+
 function statsScreen(): HTMLElement {
   const wrap = el("section", "screen");
   if (!state.stats) {
@@ -540,6 +659,7 @@ function tabs(): HTMLElement {
     bar.append(b);
   };
   add("home", t("home"));
+  add("profile", t("profile"));
   add("stats", t("stats"));
   add("settings", t("settings"));
   return bar;
@@ -552,6 +672,7 @@ function render(): void {
   switch (state.screen) {
     case "run": screen = runScreen(); break;
     case "results": screen = resultsScreen(); break;
+    case "profile": screen = profileScreen(); break;
     case "stats": screen = statsScreen(); break;
     case "settings": screen = settingsScreen(); break;
     default: screen = homeScreen();

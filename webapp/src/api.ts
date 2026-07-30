@@ -10,6 +10,7 @@ import type {
   Me,
   Mode,
   PracticeAnswer,
+  Profile,
   Question,
   QuestionTranslation,
   Session,
@@ -79,6 +80,8 @@ export const api = {
     }),
 
   stats: () => request<Stats>("/stats"),
+
+  profile: () => request<Profile>("/profile"),
 
   /** Static, not under /webapp — an <img src> cannot carry the initData header, so a
    *  figure behind that auth is a guaranteed 401. nginx serves these directly. */

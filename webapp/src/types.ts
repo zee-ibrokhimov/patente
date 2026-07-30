@@ -137,3 +137,32 @@ export interface SessionResults {
   passed: boolean | null;
   items: SessionItem[];
 }
+
+/** --- profile ------------------------------------------------------------ */
+
+export interface ExamHistory {
+  id: number;
+  finished_at: string | null;
+  wrong: number;
+  answered: number;
+  question_count: number;
+  passed: boolean | null;
+  state: SessionState;
+}
+
+export interface Profile {
+  streak_days: number;
+  /** Null below `readiness_min_sample` answers. The server refuses to guess, and this
+   *  client must render that refusal rather than treating null as zero. */
+  readiness: number | null;
+  readiness_sample: number;
+  readiness_min_sample: number;
+  /** The real bar: 27 of 30 correct. Without it a percentage means nothing. */
+  pass_accuracy: number;
+  exams: {
+    taken: number;
+    passed: number;
+    avg_errors: number | null;
+    recent: ExamHistory[];
+  };
+}

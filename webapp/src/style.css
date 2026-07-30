@@ -418,3 +418,66 @@ h2 { font-size: 17px; font-weight: 700; margin: 26px 0 10px; letter-spacing: -.0
   border-radius: 50%; animation: spin .7s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* --- profile ---------------------------------------------------------- */
+
+.who { display: flex; align-items: center; gap: 13px; padding: 6px 0 20px; }
+
+.avatar {
+  width: 52px; height: 52px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: var(--sign-blue); color: #fff;
+  font-family: 'Bebas Neue', sans-serif; font-size: 24px; letter-spacing: .04em;
+  flex: none; overflow: hidden;
+}
+.avatar img { width: 100%; height: 100%; object-fit: cover; }
+
+.who-name { font-size: 18px; font-weight: 700; letter-spacing: -.01em; }
+.who-streak { color: var(--hint); font-size: 14px; margin-top: 1px; }
+.who-streak b { color: var(--sign-amber); font-weight: 700; }
+
+/* The readiness gauge. A single arc so the number has a shape, and a tick at the pass
+   threshold so the percentage is measured against something real rather than floating. */
+.gauge {
+  border: 1px solid var(--edge-strong);
+  border-radius: var(--r-lg);
+  padding: 18px;
+  background: var(--surface);
+}
+.gauge-head { display: flex; align-items: baseline; justify-content: space-between; }
+.gauge-value { font-family: 'Bebas Neue', sans-serif; font-size: 46px; line-height: .9; }
+.gauge.ready .gauge-value { color: var(--sign-green); }
+.gauge.notyet .gauge-value { color: var(--sign-amber); }
+
+.gauge-track {
+  position: relative; height: 10px; margin: 14px 0 8px;
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+  border-radius: 999px; overflow: hidden;
+}
+.gauge-fill {
+  position: absolute; inset: 0 auto 0 0;
+  background: var(--sign-amber); border-radius: 999px;
+  transition: width .6s var(--ease);
+}
+.gauge.ready .gauge-fill { background: var(--sign-green); }
+.gauge-mark {
+  position: absolute; top: -4px; bottom: -4px; width: 2px;
+  background: var(--text); opacity: .55;
+}
+.gauge-foot { display: flex; justify-content: space-between; }
+
+.gauge-empty { color: var(--hint); font-size: 15px; margin: 6px 0 0; }
+
+.history { display: flex; flex-direction: column; }
+.run-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 11px 0; border-bottom: 1px solid var(--edge);
+}
+.run-badge {
+  font-family: 'Bebas Neue', sans-serif; font-size: 13px; letter-spacing: .08em;
+  padding: 3px 9px; border-radius: 999px; color: #fff; flex: none;
+}
+.run-badge.pass { background: var(--sign-green); }
+.run-badge.fail { background: var(--sign-red); }
+.run-meta { color: var(--hint); font-size: 14px; }
+.run-score { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 700; }

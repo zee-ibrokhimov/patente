@@ -44,12 +44,20 @@ from api.schemas import (
     SessionOut,
     SessionResultsOut,
     StartSessionIn,
+    ProfileOut,
     StatsOut,
     TopicOut,
     UserOut,
     UserSettingsIn,
 )
-from api.services import content, quiz_sessions, telegram_auth, translations, users
+from api.services import (
+    content,
+    profile as profile_service,
+    quiz_sessions,
+    telegram_auth,
+    translations,
+    users,
+)
 from api.services.entitlement import evaluate
 from api.services.telegram_auth import InitDataRejected
 from shared.constants import MODE_EXAM, QUIZ_MODES, UI_LANGUAGES
@@ -162,6 +170,15 @@ async def explanation(
     return await quiz_route.read_explanation(
         question_id=question_id, user=user, session=session
     )
+
+
+@router.get("/profile", response_model=ProfileOut)
+async def profile(
+    user: User = Depends(webapp_user), session: AsyncSession = Depends(get_session)
+):
+    """Streak, readiness and exam history. Free, like stats — the screen that makes
+    someone come back tomorrow should never be behind the paywall it advertises."""
+    return ProfileOut(**await profile_service.user_profile(session, user.chat_id))
 
 
 @router.get("/stats", response_model=StatsOut)

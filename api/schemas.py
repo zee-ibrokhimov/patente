@@ -228,3 +228,35 @@ class StartSessionIn(BaseModel):
 class SessionAnswerIn(BaseModel):
     ordinal: int = Field(ge=1)
     answer: bool = Field(description="true = VERO, false = FALSO")
+
+
+# --- profile ----------------------------------------------------------------
+
+class ExamHistoryOut(BaseModel):
+    id: int
+    finished_at: datetime | None
+    wrong: int
+    answered: int
+    question_count: int
+    passed: bool | None
+    state: str
+
+
+class ExamSummaryOut(BaseModel):
+    taken: int
+    passed: int
+    avg_errors: float | None
+    recent: list[ExamHistoryOut]
+
+
+class ProfileOut(BaseModel):
+    """`readiness` is null below `readiness_min_sample` answers rather than a flattering
+    guess — see the module docstring in api/services/profile.py. The client must render
+    the null case, not treat it as zero."""
+
+    streak_days: int
+    readiness: float | None
+    readiness_sample: int
+    readiness_min_sample: int
+    pass_accuracy: float
+    exams: ExamSummaryOut

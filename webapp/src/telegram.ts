@@ -16,7 +16,7 @@ interface ThemeParams {
 
 interface WebApp {
   initData: string;
-  initDataUnsafe: { user?: { id: number; language_code?: string } };
+  initDataUnsafe: { user?: { id: number; language_code?: string; first_name?: string; username?: string; photo_url?: string } };
   colorScheme: "light" | "dark";
   themeParams: ThemeParams;
   ready(): void;
