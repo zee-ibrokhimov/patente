@@ -2,8 +2,6 @@
   "choose_language": "Choose your language:",
   "welcome": "Questions are shown <b>in Italian</b> — exactly as they appear in the exam.\n\nAnswer VERO or FALSO. Anything you get wrong comes back later until it sticks.",
   "disclaimer": "⚠️ A study aid, not an official ministry product. Defer to your autoscuola.",
-  "btn_settings": "⚙️ Settings",
-  "paywall": "🔒 <b>Why?</b>\nExplanations and translations need a pass.",
   "payments_not_live": "Payments aren't live yet — the bot is in closed testing. Message /support if you'd like access.",
   "stats_title": "📊 <b>Your stats</b>",
   "stats_summary": "Questions seen: <b>{seen}</b> of {total}\nAnswers: <b>{given}</b>, wrong: <b>{wrong}</b> ({rate}%)",
@@ -38,6 +36,7 @@
   "plan_active": "🔓 Active until <b>{date}</b>",
   "plan_none": "⚪ No active subscription",
   "plan_free_left": "Free explanations left: <b>{n}</b>",
-  "plan_perks": "Included: Russian and English translations, explanations grounded in the Codice della Strada.",
-  "btn_subscribe": "Subscribe"
+  "plan_perks": "Included: the question translated into your language, and an explanation grounded in the Codice della Strada.",
+  "btn_subscribe": "Subscribe",
+  "error_transient": "The service isn't responding. Try again in a moment."
 }

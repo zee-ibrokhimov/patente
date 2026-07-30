@@ -13,6 +13,7 @@ from __future__ import annotations
 import html
 
 from bot.i18n import t
+from shared.constants import TRANSLATION_LANGUAGES
 
 # Telegram's photo-caption limit. Statements run ~120 characters and explanations
 # two sentences, so this only ever bites on a pathological row — but silently
@@ -53,14 +54,21 @@ def stats(data: dict, lang: str, *, top: int = 5) -> str:
 
 
 def settings(user: dict, lang: str) -> str:
+    """Report the translation setting only where it can be true.
+
+    For a language we do not translate into, printing "Translations: on" is a lie the
+    settings screen tells about itself.
+    """
     from bot.i18n import LANGUAGE_NAMES
 
-    state = t(lang, "state_on" if user["translations_on"] else "state_off")
-    return "\n\n".join([
+    lines = [
         t(lang, "settings_title"),
         t(lang, "settings_language", lang=LANGUAGE_NAMES.get(user["lang"], user["lang"])),
-        t(lang, "settings_translations", state=state),
-    ])
+    ]
+    if user["lang"] in TRANSLATION_LANGUAGES:
+        state = t(lang, "state_on" if user["translations_on"] else "state_off")
+        lines.append(t(lang, "settings_translations", state=state))
+    return "\n\n".join(lines)
 
 
 def plan(user: dict, lang: str, *, can_subscribe: bool) -> str:

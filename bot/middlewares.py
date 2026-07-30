@@ -7,6 +7,7 @@ it — and keeps the "register on first contact" rule in exactly one place.
 from __future__ import annotations
 
 import logging
+import sys
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -58,12 +59,32 @@ class ErrorLoggingMiddleware(BaseMiddleware):
             log.exception("handler failed for %s", type(event).__name__)
             from bot.i18n import t
 
-            lang = data.get("lang", "en")
+            # This middleware is registered OUTER and UserMiddleware INNER, and aiogram
+            # gives the inner chain its own data dict — so `data["lang"]`, set by
+            # UserMiddleware, never reaches this except block. Reading only that meant
+            # every error message in this bot was English for every user, always, at the
+            # one moment a user has already lost confidence.
+            #
+            # Telegram's own client language is the right fallback: it rides on the
+            # event, it needs no API call (the API may be exactly what is broken), and
+            # it is what onboarding already uses for its first guess.
+            lang = data.get("lang")
+            if not lang:
+                tg_user: User | None = data.get("event_from_user")
+                lang = normalise(getattr(tg_user, "language_code", None))
+
+            # "The service is down, try in a minute" and "that request was invalid" are
+            # different messages. Saying the same thing for both teaches a user that the
+            # bot is flaky even when it is working correctly.
+            exc = sys.exc_info()[1]
+            key = "error_transient" if (
+                isinstance(exc, ApiError) and exc.is_transient
+            ) else "error"
             try:
                 if isinstance(event, CallbackQuery):
-                    await event.answer(t(lang, "error"), show_alert=True)
+                    await event.answer(t(lang, key), show_alert=True)
                 elif isinstance(event, Message):
-                    await event.answer(t(lang, "error"))
+                    await event.answer(t(lang, key))
             except Exception:
                 pass
             return None

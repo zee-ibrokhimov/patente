@@ -2,8 +2,6 @@
   "choose_language": "Scegli la lingua:",
   "welcome": "Le domande sono <b>in italiano</b> — esattamente come all'esame.\n\nRispondi VERO o FALSO. Gli errori tornano più avanti finché non li ricordi.",
   "disclaimer": "⚠️ Strumento di studio, non un prodotto ufficiale del Ministero. Fai riferimento alla tua autoscuola.",
-  "btn_settings": "⚙️ Impostazioni",
-  "paywall": "🔒 <b>Perché?</b>\nLe spiegazioni e le traduzioni richiedono un abbonamento.",
   "payments_not_live": "I pagamenti non sono ancora attivi — il bot è in test chiuso. Scrivi a /support per richiedere l'accesso.",
   "stats_title": "📊 <b>Le tue statistiche</b>",
   "stats_summary": "Domande viste: <b>{seen}</b> su {total}\nRisposte: <b>{given}</b>, errori: <b>{wrong}</b> ({rate}%)",
@@ -38,6 +36,7 @@
   "plan_active": "🔓 Attivo fino al <b>{date}</b>",
   "plan_none": "⚪ Nessun abbonamento attivo",
   "plan_free_left": "Spiegazioni gratuite rimaste: <b>{n}</b>",
-  "plan_perks": "Incluso: traduzioni in russo e inglese, spiegazioni basate sul Codice della Strada.",
-  "btn_subscribe": "Attiva abbonamento"
+  "plan_perks": "Incluso: la domanda tradotta nella tua lingua e la spiegazione basata sul Codice della Strada.",
+  "btn_subscribe": "Attiva abbonamento",
+  "error_transient": "Il servizio non risponde. Riprova tra un momento."
 }

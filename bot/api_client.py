@@ -26,6 +26,17 @@ class ApiError(RuntimeError):
         self.status = status
         self.detail = detail
 
+    @property
+    def is_transient(self) -> bool:
+        """Worth retrying, and worth telling the user so.
+
+        status 0 means the request never reached the API at all (DNS, connect, timeout);
+        5xx means it arrived and the API failed. Both are "try again in a moment". A 4xx
+        is not — retrying a bad request produces the same bad request, and telling a user
+        to retry teaches them the bot is flaky when it is actually working correctly.
+        """
+        return self.status == 0 or self.status >= 500
+
 
 class ApiClient:
     def __init__(self, base_url: str | None = None, client: httpx.AsyncClient | None = None):
@@ -37,7 +48,14 @@ class ApiClient:
         await self._client.aclose()
 
     async def _request(self, method: str, url: str, **kw) -> Any:
-        response = await self._client.request(method, url, **kw)
+        # httpx raises transport and timeout failures as its own exception types, which
+        # previously escaped this client untouched — so an API outage surfaced as a
+        # different exception than an API error and every caller had to know about both.
+        # status 0 marks "never got an answer".
+        try:
+            response = await self._client.request(method, url, **kw)
+        except httpx.HTTPError as exc:
+            raise ApiError(0, f"{type(exc).__name__}: {exc}") from exc
         if response.status_code >= 400:
             detail = response.text
             try:

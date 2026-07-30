@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
@@ -10,6 +12,8 @@ from bot import keyboards, render
 from bot.api_client import ApiClient, ApiError
 from bot.i18n import t
 from shared.config import settings as config
+
+log = logging.getLogger(__name__)
 
 router = Router(name="misc")
 
@@ -67,7 +71,13 @@ async def grant(message: Message, lang: str, api: ApiClient):
 
 @router.message(Command("help"))
 async def help_command(message: Message, lang: str):
-    await message.answer(t(lang, "help", disclaimer=t(lang, "disclaimer")))
+    """All three locales say "open it with the button below". They were telling the
+    truth about a button that was not attached — and since drilling moved to the Mini
+    App, that hand-off is the single most important affordance the bot has."""
+    await message.answer(
+        t(lang, "help", disclaimer=t(lang, "disclaimer")),
+        reply_markup=keyboards.open_app(lang),
+    )
 
 
 @router.message(Command("privacy"))
@@ -87,14 +97,37 @@ async def delete_prompt(message: Message, lang: str):
     await message.answer(t(lang, "delete_confirm"), reply_markup=keyboards.confirm_delete(lang))
 
 
+async def _replace(query: CallbackQuery, text: str) -> None:
+    """Edit the tapped message, or say it another way if that is impossible.
+
+    `query.message` may be an InaccessibleMessage — deleted, or older than a bot is
+    allowed to edit — and that type has no `edit_text`. An unguarded edit therefore
+    raises AFTER whatever the handler already did has committed, and the generic error
+    handler then tells the user it failed. For /delete that is the worst possible
+    ordering: the erasure succeeded, the user is told it did not, and the rational
+    response is to try again.
+    """
+    try:
+        await query.message.edit_text(text, reply_markup=None)
+    except Exception:
+        log.warning("could not edit the tapped message; answering instead", exc_info=True)
+        try:
+            await query.bot.send_message(query.from_user.id, text)
+        except Exception:
+            log.warning("could not message the user either", exc_info=True)
+
+
 @router.callback_query(F.data == "s:delete_yes")
 async def delete_confirmed(query: CallbackQuery, lang: str, api: ApiClient):
+    """Erasure is irreversible, so confirm it happened even if the screen cannot be
+    updated. The answer() comes first: it is what stops the button spinning, and it is
+    the one acknowledgement that does not depend on the message still existing."""
     await api.delete_user(query.from_user.id)
-    await query.message.edit_text(t(lang, "delete_done"), reply_markup=None)
     await query.answer()
+    await _replace(query, t(lang, "delete_done"))
 
 
 @router.callback_query(F.data == "s:delete_no")
 async def delete_cancelled(query: CallbackQuery, lang: str):
-    await query.message.edit_text(t(lang, "delete_cancelled"), reply_markup=None)
     await query.answer()
+    await _replace(query, t(lang, "delete_cancelled"))

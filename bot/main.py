@@ -20,7 +20,7 @@ from bot.handlers import build_router
 from bot.i18n import t
 from bot.middlewares import ErrorLoggingMiddleware, UserMiddleware
 from shared.config import settings
-from shared.constants import UI_LANGUAGES
+from shared.constants import DEFAULT_LANG, UI_LANGUAGES
 
 log = logging.getLogger(__name__)
 
@@ -34,15 +34,28 @@ COMMANDS = [
 ]
 
 
+def _commands_for(lang: str) -> list[BotCommand]:
+    return [BotCommand(command=name, description=t(lang, key)) for name, key in COMMANDS]
+
+
 async def publish_commands(bot: Bot) -> None:
-    """Telegram shows the menu in the user's own client language when we register
-    a list per language_code, so this is worth doing for all three."""
+    """Telegram shows the menu in the user's own client language when we register a
+    list per language_code — but ONLY for the languages we register.
+
+    The default list (language_code=None) is the fallback for every other client
+    language, and it was never set. So a user whose Telegram is in Uzbek, Turkish,
+    German or Ukrainian saw an empty menu: no /help, no /plan, no discoverable surface
+    at all. For a product aimed at Uzbekistan that was most of the audience.
+
+    The default goes first so that a failure part-way through still leaves everyone
+    with a working menu rather than only the three languages we happened to reach.
+    """
+    await bot.set_my_commands(
+        _commands_for(DEFAULT_LANG), scope=BotCommandScopeDefault(), language_code=None
+    )
     for lang in UI_LANGUAGES:
-        commands = [
-            BotCommand(command=name, description=t(lang, key)) for name, key in COMMANDS
-        ]
         await bot.set_my_commands(
-            commands, scope=BotCommandScopeDefault(), language_code=lang
+            _commands_for(lang), scope=BotCommandScopeDefault(), language_code=lang
         )
 
 
