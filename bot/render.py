@@ -61,6 +61,16 @@ def result(q: dict, outcome: dict, lang: str, *, limit: int = CAPTION_LIMIT) -> 
     return _clip("\n\n".join(parts), limit)
 
 
+def with_explanation(body: str, explanation: str, *, limit: int = CAPTION_LIMIT) -> str:
+    """Append an explanation to a message already on screen.
+
+    Used by the fallback path, where the explanation arrives after the verdict has
+    already been rendered. `body` comes back from Telegram as plain text with the
+    entities stripped, so it is re-escaped along with everything else.
+    """
+    return _clip("\n\n".join([html.escape(body.strip()), html.escape(explanation)]), limit)
+
+
 def stats(data: dict, lang: str, *, top: int = 5) -> str:
     if not data["answers_given"]:
         return t(lang, "stats_empty")

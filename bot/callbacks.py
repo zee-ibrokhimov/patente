@@ -17,6 +17,12 @@ class NextQuestion(CallbackData, prefix="n"):
     exclude: int = 0
 
 
+class ShowExplanation(CallbackData, prefix="e"):
+    """"Why?" — and it may be the tap that pays for generating the answer."""
+
+    qid: int
+
+
 class ReportBad(CallbackData, prefix="r"):
     qid: int
 

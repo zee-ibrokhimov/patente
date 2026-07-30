@@ -1,16 +1,22 @@
-"""The quality gates, which are the whole point of generate.py.
+"""The quality gates, which are the whole point of explanation generation.
 
 No API call is exercised here. What is exercised is the part that decides whether a
-generated explanation reaches a human as `draft` or as `flagged` — and the check
-that turns the ministerial answer key into a test of the model rather than an input
-to it.
+generated explanation reaches a user as `draft` or is withheld as `flagged` — and
+the check that turns the ministerial answer key into a test of the model rather
+than an input to it. Since explanations are generated on request, these gates are
+the only thing standing between the model and the first reader.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from generate import NUMERIC_RE, check, is_fatal, sample_statements
+from api.services.explanations import (
+    NUMERIC_RE,
+    check_gates as check,
+    is_fatal,
+    sample_statements,
+)
 
 from shared.constants import STATUS_DRAFT, STATUS_FLAGGED
 

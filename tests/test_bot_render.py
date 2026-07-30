@@ -146,3 +146,52 @@ def test_settings_renders_in_every_language(lang):
     user = {"lang": lang, "translations_on": True}
     text = render.settings(user, lang)
     assert len(text) > 20
+
+
+# --- the on-demand explanation ---------------------------------------------
+
+def test_an_available_explanation_shows_neither_text_nor_paywall():
+    """Warming has not landed. The button carries the offer, so the message must not
+    claim the explanation is missing *or* charge for it."""
+    outcome = {"correct": False, "correct_answer": True,
+               "explanation_state": "available", "explanation": None}
+    text = render.result(QUESTION, outcome, "en")
+    assert "Il segnale raffigurato" in text
+    assert "pass" not in text.lower()          # no paywall copy
+    assert "🔒" not in text
+
+
+def test_with_explanation_appends_without_losing_the_verdict():
+    body = "Il segnale raffigurato vieta il transito\n\n✅ Correct"
+    text = render.with_explanation(body, "Il segnale vieta il transito (art. 116 Reg.).")
+    assert "vieta il transito" in text
+    assert "Correct" in text
+    assert "art. 116 Reg." in text
+
+
+def test_with_explanation_escapes_text_coming_back_from_telegram():
+    """Telegram returns the body with entities stripped, so anything that looks like a
+    tag has to be re-escaped or the edit fails as invalid HTML."""
+    text = render.with_explanation("a <b> & c", "1 < 2")
+    assert "&lt;b&gt;" in text and "&amp;" in text
+    assert "1 &lt; 2" in text
+
+
+def test_the_why_button_appears_only_when_the_explanation_is_offered():
+    from bot import keyboards
+
+    offered = keyboards.after_answer(1, "en", offered=True)
+    labels = [b.text for row in offered.inline_keyboard for b in row]
+    assert any("Why?" in label for label in labels)
+
+    plain = keyboards.after_answer(1, "en")
+    assert not any("Why?" in b.text for row in plain.inline_keyboard for b in row)
+
+
+def test_a_shown_explanation_offers_reporting_not_asking_again():
+    from bot import keyboards
+
+    markup = keyboards.after_answer(1, "en", explained=True)
+    labels = [b.text for row in markup.inline_keyboard for b in row]
+    assert any("wrong" in label.lower() for label in labels)
+    assert not any("Why?" in label for label in labels)

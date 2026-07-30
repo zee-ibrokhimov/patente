@@ -3,7 +3,14 @@ from __future__ import annotations
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from bot.callbacks import Answer, NextQuestion, ReportBad, SetLanguage, Simple
+from bot.callbacks import (
+    Answer,
+    NextQuestion,
+    ReportBad,
+    SetLanguage,
+    ShowExplanation,
+    Simple,
+)
 from bot.i18n import LANGUAGE_NAMES, t
 from shared.constants import UI_LANGUAGES
 
@@ -29,10 +36,24 @@ def answer_buttons(question_id: int, lang: str) -> InlineKeyboardMarkup:
     ]])
 
 
-def after_answer(question_id: int, lang: str, *, locked: bool, explained: bool) -> InlineKeyboardMarkup:
-    """Next is always first — the loop should never need a second tap to continue."""
+def after_answer(
+    question_id: int,
+    lang: str,
+    *,
+    locked: bool = False,
+    explained: bool = False,
+    offered: bool = False,
+) -> InlineKeyboardMarkup:
+    """Next is always first — the loop should never need a second tap to continue.
+
+    `offered` is the on-demand case: the explanation has not been produced yet, so the
+    button is an invitation rather than a reveal. `explained` means the text is already
+    on screen, which is the only state where reporting it as wrong makes sense.
+    """
     kb = InlineKeyboardBuilder()
     kb.button(text=t(lang, "btn_next"), callback_data=NextQuestion(exclude=question_id))
+    if offered:
+        kb.button(text=t(lang, "btn_why"), callback_data=ShowExplanation(qid=question_id))
     if locked:
         kb.button(text=t(lang, "btn_unlock"), callback_data=Simple(action="unlock"))
     if explained:

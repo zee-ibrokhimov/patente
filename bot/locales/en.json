@@ -42,5 +42,8 @@
   "cmd_settings": "Language and translation",
   "cmd_help": "How this works",
   "cmd_privacy": "What data is stored",
-  "cmd_delete": "Erase all my data"
+  "cmd_delete": "Erase all my data",
+  "btn_why": "Why? — show the explanation",
+  "explaining": "Preparing the explanation…",
+  "explanation_unavailable": "No explanation for this one yet."
 }

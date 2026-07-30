@@ -9,9 +9,14 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from sqlalchemy import select, update
 
-from api.models import Event, Progress, Purchase, Report, User
+from api.models import Event, Explanation, Progress, Purchase, Report, User
 from shared.config import settings
-from shared.constants import EV_ANSWER_GIVEN, EV_PAYWALL_HIT, EV_QUESTION_SERVED
+from shared.constants import (
+    EV_ANSWER_GIVEN,
+    EV_PAYWALL_HIT,
+    EV_QUESTION_SERVED,
+    STATUS_FLAGGED,
+)
 
 APPROVED_RU = "Круглый знак с красной каймой запрещает движение."
 DRAFT_RU = "ЧЕРНОВИК"
@@ -119,31 +124,70 @@ async def test_locked_explanation_text_never_reaches_the_client(
     assert APPROVED_RU not in raw
 
 
-async def test_unreviewed_explanation_reads_unavailable_not_locked(
-    client, registered, monkeypatch
-):
-    """The distinction that stops the bot selling something undeliverable.
+async def test_a_warmed_explanation_arrives_with_the_verdict(client, registered, api_db):
+    """The whole point of warming at question-serve time: no second tap, no wait.
 
-    Question 3's explanation exists but is still a draft. Showing a paywall for it
-    would take money for content nobody has approved.
+    Answering still never *generates* — that would charge for every user who answers and
+    moves on. It serves what warming already produced.
     """
-    monkeypatch.setattr(settings, "free_explanations", 0)
-    response = await client.post(
-        "/users/42/answers", json={"question_id": 3, "answer": False}
-    )
-    body = response.json()
-    assert body["explanation_state"] == "unavailable"
-    assert body["explanation"] is None
-    assert DRAFT_RU not in response.text
+    await give_pass(api_db, 42)
+    body = (await client.post(
+        "/users/42/answers", json={"question_id": 1, "answer": False}
+    )).json()
+    assert body["explanation_state"] == "shown"
+    assert body["explanation"] == APPROVED_RU
 
 
-async def test_draft_explanation_is_withheld_even_from_a_pass_holder(
+async def test_answering_offers_a_button_when_warming_has_not_landed(
     client, registered, api_db
 ):
+    """The fallback path. Cluster 1's explanation is removed to simulate a warm that has
+    not finished, failed, or never ran — the user is offered a button rather than
+    silence, and answering does not pay for a call to fill the gap."""
     await give_pass(api_db, 42)
-    response = await client.post(
-        "/users/42/answers", json={"question_id": 3, "answer": False}
-    )
+    async with api_db() as s:
+        for row in (await s.scalars(select(Explanation))).all():
+            await s.delete(row)
+        await s.commit()
+
+    body = (await client.post(
+        "/users/42/answers", json={"question_id": 1, "answer": False}
+    )).json()
+    assert body["explanation_state"] == "available"
+    assert body["explanation"] is None
+
+
+async def test_a_draft_is_served_because_nobody_reviews_before_the_first_reader(
+    client, registered, api_db
+):
+    """Reverses the old rule, deliberately (STATUS.md §13).
+
+    Question 3's explanation is a draft. Under offline generation it was withheld until
+    a human read it; on demand the first reader *is* a user, so a draft that passed
+    every automatic gate is served and the gates are the quality bar.
+    """
+    await give_pass(api_db, 42)
+    body = (await client.post("/users/42/questions/3/explanation")).json()
+    assert body["explanation_state"] == "shown"
+    assert body["explanation"] == DRAFT_RU
+
+
+async def test_a_flagged_explanation_is_withheld_and_reads_unavailable(
+    client, registered, api_db
+):
+    """The line that replaces the human gate. A gate fired, so a user never sees it —
+    and it reads as "nobody has written this", never as a paywall, because charging for
+    content we distrust is worse than admitting it is missing."""
+    await give_pass(api_db, 42)
+    async with api_db() as s:
+        row = await s.scalar(
+            select(Explanation).where(Explanation.cluster_id == 2, Explanation.lang == "ru")
+        )
+        row.status = STATUS_FLAGGED
+        row.flags = "argues against the stored answer on 1/1 statements"
+        await s.commit()
+
+    response = await client.post("/users/42/questions/3/explanation")
     assert response.json()["explanation_state"] == "unavailable"
     assert DRAFT_RU not in response.text
 
@@ -161,27 +205,41 @@ async def test_question_without_a_cluster_has_no_explanation(client, registered,
 # --------------------------------------------------------------------------
 
 async def test_taster_explanations_are_spent_then_locked(client, registered, monkeypatch):
-    """Two free explanations, then the paywall — quality is the pitch (§4.3)."""
+    """Two free explanations, then the paywall — quality is the pitch (§4.3).
+
+    Spent on *asking*, not on answering: under on-demand generation, charging a taster
+    to a user who answered and moved on would burn the allowance they were meant to be
+    persuaded by.
+    """
     monkeypatch.setattr(settings, "free_explanations", 2)
 
-    first = (await client.post(
-        "/users/42/answers", json={"question_id": 1, "answer": False}
-    )).json()
+    first = (await client.post("/users/42/questions/1/explanation")).json()
     assert first["explanation_state"] == "shown"
     assert first["explanation"] == APPROVED_RU
     assert first["free_explanations_left"] == 1
 
-    second = (await client.post(
-        "/users/42/answers", json={"question_id": 2, "answer": True}
-    )).json()
+    second = (await client.post("/users/42/questions/2/explanation")).json()
     assert second["explanation_state"] == "shown"
     assert second["free_explanations_left"] == 0
 
-    third = (await client.post(
-        "/users/42/answers", json={"question_id": 1, "answer": False}
-    )).json()
+    third = (await client.post("/users/42/questions/1/explanation")).json()
     assert third["explanation_state"] == "locked"
     assert third["explanation"] is None
+
+
+async def test_answering_a_question_with_no_explanation_spends_nothing(
+    client, registered, monkeypatch, api_db
+):
+    """A taster pays for an explanation seen, not for an answer given.
+
+    Question 4 has no cluster, so nothing could ever be written for it — answering it
+    ten times must leave the allowance untouched.
+    """
+    monkeypatch.setattr(settings, "free_explanations", 2)
+    for _ in range(4):
+        await client.post("/users/42/answers", json={"question_id": 4, "answer": False})
+    async with api_db() as s:
+        assert (await s.get(User, 42)).free_explanations_used == 0
 
 
 async def test_pass_holder_does_not_spend_the_taster(client, registered, api_db, monkeypatch):
@@ -190,9 +248,7 @@ async def test_pass_holder_does_not_spend_the_taster(client, registered, api_db,
     await give_pass(api_db, 42)
 
     for _ in range(3):
-        body = (await client.post(
-            "/users/42/answers", json={"question_id": 1, "answer": True}
-        )).json()
+        body = (await client.post("/users/42/questions/1/explanation")).json()
         assert body["explanation_state"] == "shown"
 
     async with api_db() as s:
@@ -266,16 +322,29 @@ async def test_serving_and_answering_are_both_logged(client, registered, api_db)
     assert answered[0].payload["topic_id"] == 1
 
 
-async def test_paywall_hit_records_whether_it_followed_a_wrong_answer(
+async def test_paywall_hit_is_logged_when_the_answer_reveals_a_locked_explanation(
     client, registered, monkeypatch, api_db
 ):
-    """The conversion moment. Without this the §4.3 metric cannot be computed."""
+    """The conversion moment (§4.3): they just got it wrong and want to know why.
+
+    The explanation arrives with the verdict, so answering is where a free user meets
+    the paywall — one event, logged in `explanations.deliver`, which both the answer path
+    and the explicit request go through so there is only ever one definition of it.
+    """
     monkeypatch.setattr(settings, "free_explanations", 0)
     await client.post("/users/42/answers", json={"question_id": 1, "answer": False})
 
     hits = await events_of(api_db, EV_PAYWALL_HIT)
     assert len(hits) == 1
-    assert hits[0].payload["after_wrong_answer"] is True
+    assert hits[0].payload["question_id"] == 1
+
+
+async def test_the_explicit_request_is_also_gated(client, registered, monkeypatch):
+    """The fallback endpoint must not be a way around the paywall."""
+    monkeypatch.setattr(settings, "free_explanations", 0)
+    body = (await client.post("/users/42/questions/1/explanation")).json()
+    assert body["explanation_state"] == "locked"
+    assert body["explanation"] is None
 
 
 async def test_answer_events_stamp_entitlement_for_conversion_analysis(

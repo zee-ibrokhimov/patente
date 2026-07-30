@@ -15,6 +15,11 @@ import httpx
 from shared.config import settings
 
 
+# The default 10s is right for every other call. An explanation request may be the one
+# that generates it, which means a model call with a page of statute in the prompt.
+EXPLANATION_TIMEOUT = 90.0
+
+
 class ApiError(RuntimeError):
     def __init__(self, status: int, detail: str):
         super().__init__(f"API {status}: {detail}")
@@ -69,6 +74,14 @@ class ApiClient:
         return await self._request(
             "POST", f"/users/{chat_id}/answers",
             json={"question_id": question_id, "answer": answer},
+        )
+
+    async def explanation(self, chat_id: int, question_id: int) -> dict:
+        """The fallback when warming has not landed. May take several seconds, because
+        it may be the call that produces the explanation."""
+        return await self._request(
+            "POST", f"/users/{chat_id}/questions/{question_id}/explanation",
+            timeout=EXPLANATION_TIMEOUT,
         )
 
     async def stats(self, chat_id: int) -> dict:

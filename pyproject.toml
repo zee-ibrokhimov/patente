@@ -15,12 +15,14 @@ dependencies = [
     "pydantic-settings>=2.6",
     "httpx>=0.28",
     "python-dotenv>=1.0",
+    # Explanations are generated on request now (STATUS.md §13), so this is a runtime
+    # dependency of the API rather than of the offline content pipeline.
+    "openai>=1.57",
 ]
 
 [project.optional-dependencies]
 content = [
     "pymupdf>=1.24",
-    "openai>=1.57",
     "rapidfuzz>=3.10",
     # rapidfuzz.process.cdist — the pairwise-similarity matrix cluster.py builds —
     # imports numpy lazily, so it is a hard requirement without being declared as one.

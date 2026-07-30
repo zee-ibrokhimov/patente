@@ -12,7 +12,7 @@ import json
 
 import pytest
 
-from articles import TOPIC_ARTICLES, articles_for, expand, fold, signs_in
+from api.services.articles import TOPIC_ARTICLES, articles_for, expand, fold, signs_in
 
 from shared.config import QUESTIONS_JSON
 

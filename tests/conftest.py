@@ -56,10 +56,14 @@ def sha(body: bytes) -> str:
 async def api_db(tmp_path):
     """A throwaway async database with a small, fully-formed content set.
 
-    Two topics, four questions. Question 1 has an approved RU explanation and an
-    RU translation; question 3's explanation is still a draft, which is how the
-    "written but not reviewed" case gets exercised — it must read as unavailable,
-    never as locked.
+    Two topics, four questions. Question 1 has an approved RU explanation and an RU
+    translation; question 3's is still a draft, and question 4 has no cluster at all so
+    nothing could ever be written for it.
+
+    The draft used to be here to prove it was *withheld*. Since explanations are
+    generated on request, the first reader of a draft is the user who asked, so a draft
+    that passed every automatic gate is now served and `flagged` is what gets withheld
+    (STATUS.md §13). Same fixture, opposite assertion.
     """
     engine = make_async_engine(f"sqlite+aiosqlite:///{(tmp_path / 'api.db').as_posix()}")
     async with engine.begin() as conn:

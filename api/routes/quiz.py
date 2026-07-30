@@ -1,13 +1,21 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps import get_session, get_user
 from api.models import Question, Report, Topic, User
-from api.schemas import AnswerIn, AnswerOut, QuestionOut, ReportIn, StatsOut, TopicOut
-from api.services import events, stats
+from api.schemas import (
+    AnswerIn,
+    AnswerOut,
+    ExplanationOut,
+    QuestionOut,
+    ReportIn,
+    StatsOut,
+    TopicOut,
+)
+from api.services import events, explanations, stats
 from api.services.answers import record_answer
 from api.services.content import question_payload
 from api.services.entitlement import evaluate
@@ -32,6 +40,7 @@ async def list_topics(session: AsyncSession = Depends(get_session)):
 
 @router.get("/users/{chat_id}/next-question", response_model=QuestionOut)
 async def serve_next(
+    background: BackgroundTasks,
     topic_id: int | None = Query(default=None),
     exclude_id: int | None = Query(default=None, description="question just answered"),
     user: User = Depends(get_user),
@@ -53,6 +62,23 @@ async def serve_next(
         topic_id=question.topic_id,
         translation_state=payload["translation_state"],
     )
+
+    # Committed here rather than left to `get_session`, because FastAPI runs the exit
+    # code of a yield-dependency *after* background tasks. Leaving it would mean this
+    # request still holds a write transaction while warming opens its own connection to
+    # the same SQLite file, and one of the two loses to "database is locked".
+    await session.commit()
+
+    # Produce the explanation now, in the background, so that by the time the user has
+    # read the statement and answered it is cached and arrives with the verdict. Runs
+    # after the response is sent: a wait before the question even appears would cost more
+    # than any explanation is worth.
+    #
+    # Gated on entitlement — generating for a user who could not be shown the result is
+    # money spent on nothing. Total spend is capped either way, because the cache is per
+    # cluster and there are 3382 of them.
+    if entitlement.can_explain:
+        background.add_task(explanations.warm, question.cluster_id, user.lang)
     return QuestionOut(**payload)
 
 
@@ -70,6 +96,38 @@ async def submit_answer(
         session, user, question, body.answer, evaluate(user)
     )
     return AnswerOut(**result)
+
+
+@router.post(
+    "/users/{chat_id}/questions/{question_id}/explanation",
+    response_model=ExplanationOut,
+)
+async def read_explanation(
+    question_id: int,
+    user: User = Depends(get_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """"Why?" — the fallback for when warming has not landed.
+
+    Normally the explanation is produced in the background when the question is served
+    and arrives with the verdict, so this endpoint is not the usual path. It exists for
+    when warming has not finished, failed, or never ran, and unlike answering it *will*
+    pay for a call — the user is standing there having asked.
+
+    POST rather than GET because it is not idempotent in the way that matters: the first
+    caller may spend an API credit and a lifetime taster.
+    """
+    question = await session.get(Question, question_id)
+    if question is None:
+        raise HTTPException(404, "unknown question")
+
+    entitlement = evaluate(user)
+    payload, _access = await explanations.deliver(session, question, user, entitlement)
+    return ExplanationOut(
+        question_id=question.id,
+        free_explanations_left=evaluate(user).free_explanations_left,
+        **payload,
+    )
 
 
 @router.get("/users/{chat_id}/stats", response_model=StatsOut)

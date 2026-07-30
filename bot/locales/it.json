@@ -42,5 +42,8 @@
   "cmd_settings": "Lingua e traduzione",
   "cmd_help": "Come funziona",
   "cmd_privacy": "Quali dati conserviamo",
-  "cmd_delete": "Cancella i miei dati"
+  "cmd_delete": "Cancella i miei dati",
+  "btn_why": "Perché? — mostra la spiegazione",
+  "explaining": "Sto preparando la spiegazione…",
+  "explanation_unavailable": "Per questa domanda non c'è ancora una spiegazione."
 }

@@ -23,6 +23,14 @@ STATUS_FLAGGED = "flagged"  # auto-flagged for review: contains a number, or
                             # argues against the stored answer
 EXPLANATION_STATUSES = (STATUS_DRAFT, STATUS_APPROVED, STATUS_REJECTED, STATUS_FLAGGED)
 
+# What a user may be shown. Explanations are generated on request now, so the first
+# reader of a draft is a paying user rather than a reviewer (STATUS.md §13) — which
+# makes the automatic gates the only quality bar standing between the model and them.
+# A draft passed every gate; a flagged one did not, and reads as "not written yet"
+# rather than as an answer. Removing STATUS_DRAFT here restores plan §3.3's original
+# rule that nothing unread by a human is ever served.
+SERVABLE_STATUSES = (STATUS_APPROVED, STATUS_DRAFT)
+
 
 # --- Purchase tiers ---------------------------------------------------------
 # Both one-time, never auto-renewing: no subscription lifecycle, no cancellation

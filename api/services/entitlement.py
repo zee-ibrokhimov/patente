@@ -27,6 +27,7 @@ from shared.constants import (
 
 class Access(str, enum.Enum):
     SHOWN = "shown"              # here it is
+    AVAILABLE = "available"      # yours if you ask — not fetched yet
     LOCKED = "locked"            # it exists, the pass does not — show the paywall
     UNAVAILABLE = "unavailable"  # not written yet — say nothing, sell nothing
     OFF = "off"                  # user switched translations off themselves
@@ -93,3 +94,24 @@ def explanation_access(entitlement: Entitlement, explanation_exists: bool) -> Ac
     if not explanation_exists:
         return Access.UNAVAILABLE
     return Access.SHOWN if entitlement.can_explain else Access.LOCKED
+
+
+def explanation_offer(entitlement: Entitlement, groundable: bool, withheld: bool) -> Access:
+    """Whether to offer the explanation at all, before it has been fetched.
+
+    Explanations are produced on request now, so at the moment a user answers there is
+    usually nothing to show yet and no way to know whether there will be — the model
+    might decline. So answering advertises an *offer*, and the bot renders a button
+    rather than text.
+
+    `groundable` is false when the question has no cluster: nothing could ever be
+    written for it. `withheld` is true when a stored explanation exists but failed a
+    gate, which is the one case where "nobody has written this" is known in advance and
+    the button should not appear at all.
+
+    LOCKED still comes last, so a user without a pass sees a paywall rather than
+    silence for content that does in fact exist.
+    """
+    if not groundable or withheld:
+        return Access.UNAVAILABLE
+    return Access.AVAILABLE if entitlement.can_explain else Access.LOCKED

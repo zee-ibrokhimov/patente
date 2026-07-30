@@ -586,6 +586,39 @@ per question. Options, in the order I would try them:
 Cost is small: ~7106 short calls if every question is eventually served, and
 translations are a paid feature (§4.3), so only entitled users trigger any of it.
 
+### Built 30 July — the flow, as implemented
+
+**Warmed at question-serve, delivered with the verdict.** Serving a question schedules
+generation as a FastAPI background task, so the question appears instantly and the
+explanation is normally cached by the time the user has read the statement and answered.
+Answering then serves it inline and **never generates** — paying for a call at that
+moment would charge for every user who answers and moves on. When warming has not landed
+the answer reports `available` and the bot offers a "Perché?" button, which *does* pay.
+That fallback is `POST /users/{id}/questions/{qid}/explanation`.
+
+`api/services/explanations.py` is the whole of it, and `content/generate.py` is now a
+thin batch caller of the same functions — a pre-warmer for a topic before a launch, and
+the place to measure a flag rate without a user waiting. `articles.py` moved to
+`api/services/` for the same reason: it is runtime logic now.
+
+**Measured on the real thing, three clusters, with the figure attached:** 3 of 3 stored,
+all three naming the correct sign — the first run where that has happened. Text-only got
+2 of 3, and the wrong-sign hint got 1 of 3. €0.06 for three, so **~€73 for the whole
+bank**, images and three languages included.
+
+Two defects the work turned up, both fixed:
+
+  · **`get_session` commits *after* background tasks**, because FastAPI runs the exit
+    code of a yield-dependency last. The serve request therefore held a write
+    transaction while warming opened its own connection to the same SQLite file, and one
+    of them lost to "database is locked". `serve_next` now commits explicitly before
+    scheduling.
+  · **The taster and the paywall belong on the answer path again.** They had moved to
+    the explicit request while that was the only way to get an explanation; now that the
+    text arrives with the verdict, answering *is* the moment of consumption. Both paths
+    go through `explanations.deliver`, which differs only in whether a cache miss may
+    pay — so there is one definition of "converted", not three.
+
 Mechanics that follow:
 
   · **The generation core has to move.** `content/` is one-off scripts and `api/` owns

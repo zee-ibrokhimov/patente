@@ -15,10 +15,10 @@ from api.models import Explanation, Figure, Question, Translation
 from api.services.entitlement import (
     Access,
     Entitlement,
-    explanation_access,
+    explanation_offer,
     translation_access,
 )
-from shared.constants import STATUS_APPROVED
+from shared.constants import SERVABLE_STATUSES
 
 
 async def get_question(session: AsyncSession, question_id: int) -> Question | None:
@@ -38,11 +38,15 @@ async def get_translation(
 async def get_explanation(
     session: AsyncSession, cluster_id: int | None, lang: str
 ) -> Explanation | None:
-    """Only ever an APPROVED explanation.
+    """An already-stored explanation that may be served. Never generates.
 
-    A topic goes live when every explanation in it has been read by a human
-    (plan §3.3). Drafts exist in the same table and must never be served — an
-    absent explanation is acceptable, a confidently wrong one is not.
+    Approved *or* draft, per STATUS.md §13. This used to be approved-only, on plan
+    §3.3's rule that a topic ships when a human has read every explanation in it — but
+    explanations are generated on request now, so the first reader of a draft is the
+    user who asked for it. `SERVABLE_STATUSES` is where that line is drawn, and the
+    automatic gates are what stands behind it: a flagged draft is withheld and reads as
+    "nobody has written this", which is a state the paywall deliberately distinguishes
+    from "pay for it".
     """
     if cluster_id is None:
         return None
@@ -50,7 +54,7 @@ async def get_explanation(
         select(Explanation).where(
             Explanation.cluster_id == cluster_id,
             Explanation.lang == lang,
-            Explanation.status == STATUS_APPROVED,
+            Explanation.status.in_(SERVABLE_STATUSES),
         )
     )
 
@@ -99,10 +103,40 @@ async def question_payload(
 async def explanation_payload(
     session: AsyncSession, question: Question, user, entitlement: Entitlement
 ) -> tuple[dict, Access]:
-    explanation = await get_explanation(session, question.cluster_id, user.lang)
-    access = explanation_access(entitlement, explanation is not None)
-    payload = {
-        "explanation_state": access.value,
-        "explanation": explanation.text if access is Access.SHOWN else None,
-    }
-    return payload, access
+    """What answering a question says about its explanation. Serves it if it is ready.
+
+    Answering **never generates**. The explanation is warmed in the background when the
+    question is served, so by the time the user answers it is normally cached and comes
+    back with the verdict — no wait, and no call for the many users who answer and move
+    on without caring why.
+
+    When warming has not finished, or failed, or nobody has run it, the answer reports
+    `available` instead and the client offers a button that does generate. That is the
+    fallback rather than the usual path, which is why it is worth having both.
+    """
+    if question.cluster_id is None:
+        return {"explanation_state": Access.UNAVAILABLE.value, "explanation": None}, \
+            Access.UNAVAILABLE
+
+    stored = await session.scalar(
+        select(Explanation).where(
+            Explanation.cluster_id == question.cluster_id,
+            Explanation.lang == user.lang,
+        )
+    )
+    ready = stored is not None and stored.status in SERVABLE_STATUSES
+
+    if ready and entitlement.can_explain:
+        # Spending the taster and logging the view stay in `explanations.deliver`, which
+        # the route calls for this case too — this function only reads.
+        return {"explanation_state": Access.SHOWN.value, "explanation": stored.text}, \
+            Access.SHOWN
+
+    access = explanation_offer(
+        entitlement,
+        groundable=True,
+        # A stored row that failed a gate is the one case where we know in advance that
+        # nothing servable will come back without a human, so no button is offered.
+        withheld=stored is not None and not ready,
+    )
+    return {"explanation_state": access.value, "explanation": None}, access

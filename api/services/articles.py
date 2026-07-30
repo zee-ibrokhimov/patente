@@ -1,10 +1,15 @@
 """
 articles.py — which articles of the law govern which ministerial topic.
 
-Plan §3.3 step 2, and the input to `generate.py`. Explanations are only defensibly
-ours because they are derived from statute rather than from an autoscuola manual,
-which means every generated explanation needs the *right* statute in front of it.
-This module decides what that is.
+Plan §3.3 step 2, and the input to explanation generation. Explanations are only
+defensibly ours because they are derived from statute rather than from an autoscuola
+manual, which means every generated explanation needs the *right* statute in front of
+it. This module decides what that is.
+
+It lives under `api/services/` rather than in `content/` because explanations are
+generated on request now, not in an offline batch — so this is runtime business logic,
+and `api/` owns all of that. `content/` still calls it, which is the direction
+dependencies already run (`content/seed.py` imports `api.models`).
 
 WHY THIS IS A HAND-WRITTEN TABLE AND NOT A MATCHER
 --------------------------------------------------
@@ -46,13 +51,11 @@ question, so a bad mapping shows up as an unusable draft, not a confident error.
 
 from __future__ import annotations
 
+import json
 import re
-import sys
-from pathlib import Path
+import unicodedata
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from shared.config import CONTENT_OUT  # noqa: E402
+from shared.config import CONTENT_OUT
 
 NORMS_DIR = CONTENT_OUT / "norms"
 FILES = {"cds": "cds.json", "reg": "regolamento.json"}
@@ -158,8 +161,6 @@ def articles_for(topic_name: str) -> list[tuple[str, str]]:
 
 def load_corpus() -> dict[str, dict[str, dict]]:
     """{source: {article number: article}}. Raises if the corpus is not fetched."""
-    import json
-
     corpus: dict[str, dict[str, dict]] = {}
     for source, filename in FILES.items():
         path = NORMS_DIR / filename
@@ -176,20 +177,23 @@ def sign_index(corpus: dict[str, dict[str, dict]]) -> dict[str, dict]:
     """folded sign name -> {name, plate, articles}.
 
     Built from the Regolamento only; the Codice names no signs — verified, and the
-    reason `--reparse` took the CdS from 207 "sign names" to 0. Falls back to
-    re-deriving from the article text so this works whether or not the saved corpus
-    predates fetch_norms.py's `signs` field.
+    reason `--reparse` took the CdS from 207 "sign names" to 0.
 
-    The display name and plate are kept, not just the article: a figure cluster's
-    statements say "il segnale raffigurato" and the model cannot see the figure, so
-    telling it which sign is depicted is the difference between an explanation about
-    this sign and one about signs in general.
+    Requires the corpus to carry the `signs` field rather than re-deriving it here.
+    Re-deriving would mean importing the extraction regex from `content/fetch_norms.py`,
+    and nothing under `api/` should depend on the one-off pipeline; a second copy of the
+    regex would drift from the first. Failing loudly with the command to run is better
+    than either.
     """
-    from fetch_norms import derive
-
     index: dict[str, dict] = {}
     for number, article in sorted(corpus["reg"].items()):
-        signs = article.get("signs") or derive(article["text"])["signs"]
+        signs = article.get("signs")
+        if signs is None:
+            raise SystemExit(
+                "ERROR: the saved corpus predates the `signs` field — run\n"
+                "  python content/fetch_norms.py --source both --reparse\n"
+                "which recomputes it from the text already on disk, without refetching."
+            )
         for name, plate in signs.items():
             entry = index.setdefault(
                 fold(name), {"name": name, "plate": plate, "articles": []}
@@ -201,8 +205,6 @@ def sign_index(corpus: dict[str, dict[str, dict]]) -> dict[str, dict]:
 
 def fold(text: str) -> str:
     """Compare sign names to statement wording without punctuation or accents."""
-    import unicodedata
-
     text = unicodedata.normalize("NFKD", text.lower())
     text = "".join(c for c in text if not unicodedata.combining(c))
     return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9 ]", " ", text)).strip()

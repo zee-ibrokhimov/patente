@@ -75,6 +75,20 @@ class AnswerOut(BaseModel):
     free_explanations_left: int
 
 
+class ExplanationOut(BaseModel):
+    """`explanation` is present only when `explanation_state` is "shown".
+
+    The other states are "locked" (pay for it), and "unavailable" — which covers the
+    model declining, the call failing, and a draft withheld by a quality gate, because
+    a user has no use for the difference between those three.
+    """
+
+    question_id: int
+    explanation_state: str
+    explanation: str | None = None
+    free_explanations_left: int
+
+
 class TopicStat(BaseModel):
     topic_id: int
     topic: str

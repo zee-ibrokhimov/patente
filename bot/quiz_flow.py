@@ -16,6 +16,7 @@ from aiogram import Bot
 from aiogram.types import BufferedInputFile, Message
 
 from bot import keyboards, render
+from bot.render import CAPTION_LIMIT
 from bot.api_client import ApiClient, ApiError
 from bot.i18n import t
 
@@ -57,6 +58,25 @@ async def send_question(
     return message
 
 
+async def append_explanation(
+    message: Message, result: dict, lang: str, question: dict
+) -> None:
+    """Add the explanation to the answered message, in place.
+
+    Editing rather than sending a second bubble keeps the statement, the verdict and the
+    reasoning together — which is the thing being sold, and it reads badly split across
+    two messages.
+    """
+    body = message.caption or message.text or ""
+    limit = CAPTION_LIMIT if message.photo else render.MESSAGE_LIMIT
+    text = render.with_explanation(body, result["explanation"], limit=limit)
+    markup = keyboards.after_answer(question["id"], lang, explained=True)
+    if message.photo:
+        await message.edit_caption(caption=text, reply_markup=markup)
+    else:
+        await message.edit_text(text, reply_markup=markup)
+
+
 async def show_result(message: Message, question: dict, outcome: dict, lang: str) -> None:
     """Rewrite the question message in place with the verdict.
 
@@ -64,10 +84,14 @@ async def show_result(message: Message, question: dict, outcome: dict, lang: str
     one bubble, and removing the Vero/Falso keyboard is what stops a double tap
     recording a second answer.
     """
-    locked = outcome["explanation_state"] == "locked"
-    explained = outcome["explanation_state"] == "shown"
+    state = outcome["explanation_state"]
     markup = keyboards.after_answer(
-        question["id"], lang, locked=locked, explained=explained
+        question["id"], lang,
+        locked=state == "locked",
+        explained=state == "shown",
+        # Warming has not landed for this cluster, so the explanation exists only as an
+        # offer. The button is the fallback path — normally the text is already here.
+        offered=state == "available",
     )
 
     if message.photo:

@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import logging
+
 from aiogram import Bot, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
 from bot import quiz_flow, render
-from bot.api_client import ApiClient
-from bot.callbacks import Answer, NextQuestion, ReportBad, Simple
+from bot.api_client import ApiClient, ApiError
+from bot.callbacks import Answer, NextQuestion, ReportBad, ShowExplanation, Simple
 from bot.i18n import t
 
+log = logging.getLogger(__name__)
 router = Router(name="quiz")
 
 
@@ -47,6 +50,32 @@ async def next_question(
     await quiz_flow.send_question(
         bot, api, query.message.chat.id, lang, exclude_id=callback_data.exclude or None
     )
+
+
+@router.callback_query(ShowExplanation.filter())
+async def show_explanation(
+    query: CallbackQuery, callback_data: ShowExplanation, lang: str, api: ApiClient
+):
+    """The fallback when warming has not landed, so this tap may be the call itself.
+
+    Answering the callback with a notice first is not politeness: Telegram grey-outs the
+    button after a few seconds without one, and this request can take ten.
+    """
+    await query.answer(t(lang, "explaining"))
+    try:
+        result = await api.explanation(query.from_user.id, callback_data.qid)
+    except ApiError:
+        log.warning("explanation request failed for q%s", callback_data.qid, exc_info=True)
+        await query.message.answer(t(lang, "explanation_unavailable"))
+        return
+
+    if result["explanation_state"] == "shown":
+        question = {"id": callback_data.qid, "statement_it": ""}
+        await quiz_flow.append_explanation(query.message, result, lang, question)
+    elif result["explanation_state"] == "locked":
+        await query.message.answer(t(lang, "paywall"))
+    else:
+        await query.message.answer(t(lang, "explanation_unavailable"))
 
 
 @router.callback_query(ReportBad.filter())
