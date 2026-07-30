@@ -3,7 +3,7 @@
 **Last updated:** 30 July 2026 — explanations generate on demand and are live in the API
 **Bot:** [@quizpatente_bot](https://t.me/quizpatente_bot) — working, free tier only
 **Repo:** https://github.com/zee-ibrokhimov/patente
-**Tests:** 254 passing
+**Tests:** 266 passing
 **Plan:** [patente-bot-plan.md](patente-bot-plan.md) · **How to run:** [README.md](README.md)
 
 > **Read first:** §13 is the architecture as it now works, §14 is the measurement that
@@ -237,8 +237,8 @@ seeding works without it.
 ## 7. Known gaps
 
 - No Dockerfile yet — Docker isn't installed on this machine.
-- No backups configured. The database holds progress and entitlement, the only
-  irreplaceable data in the system (§6.4). Needed before any real users.
+- ~~No backups configured~~ — `ops/backup.py`, see §17. **Not yet scheduled**: the
+  `schtasks` line is in the README, but nothing runs it automatically.
 - ~~No admin command to grant or extend a pass~~ — `/grant`, see §16.
 - `bot/` has no automated end-to-end test against Telegram — handlers are covered
   only through the render and i18n layers.
@@ -820,3 +820,47 @@ legitimate user to explain a refusal to.
 
 ⚠️ **`ADMIN_CHAT_IDS` is empty in `.env`, so `/grant` currently does nothing.** Set it to
 your Telegram id and restart the bot.
+
+---
+
+## 17. Backups — and why the obvious one would have failed
+
+Plan §6.4 calls the database the only irreplaceable data in the system. It has grown a
+second kind of irreplaceable since: progress and entitlement cannot be reconstructed at
+all, and the explanations and translations cost money to produce. Nothing protected either.
+`ops/backup.py` now does.
+
+**The obvious approach would have quietly lost data.** In WAL mode the database is three
+files, and committed transactions live in `patente.db-wal` until a checkpoint moves them.
+Measured on the live database mid-session — 2.7 MB of `.db` and a **1.7 MB
+uncheckpointed WAL**:
+
+| table | live | `cp patente.db` | `ops/backup.py` |
+|---|---:|---:|---:|
+| progress | 10 | 5 | 10 |
+| events | 66 | 25 | 66 |
+| explanations | 138 | 45 | 138 |
+| translations | 28 | **0** | 28 |
+
+**167 rows lost, including every translation and two thirds of the explanations** — the
+ones that were paid for. In a fresh WAL database it is worse still: the `CREATE TABLE` is
+also in the WAL, so the copy has no schema at all. `sqlite3.Connection.backup()` — the
+online backup API — takes one consistent file while the API keeps serving.
+
+**Being inside OneDrive is not a backup.** OneDrive is continuously syncing a moving
+three-file set, and what it holds at any instant may be torn. Snapshots are consistent
+*before* OneDrive sees them, so writing them into the synced tree does give §6.4's off-box
+copy; `--dest` elsewhere as well if losing the account is a scenario worth surviving.
+
+**A backup nobody verified is not a backup.** Each snapshot is integrity-checked and its
+row counts compared against the source before it is kept. A failure renames the file
+`.FAILED`, keeps it for inspection, and exits non-zero so a scheduled task notices.
+
+Writing the tests found a real defect in the process: `verify()` *raised* on a badly
+damaged file rather than reporting it, because `PRAGMA integrity_check` itself throws
+"database disk image is malformed". That would have killed the backup script with a
+traceback at the one moment it had something important to say. The exception is now the
+finding.
+
+Not yet scheduled — the `schtasks` line is in the README, and creating a scheduled task is
+a change to the machine rather than to the repo.

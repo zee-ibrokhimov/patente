@@ -111,6 +111,36 @@ sets `approved`, and only `approved` is ever served.
 
 `GET /health` reports whether content is loaded. Interactive docs at `/docs`.
 
+## Backups
+
+```bash
+.venv/Scripts/python.exe ops/backup.py
+```
+
+Takes a consistent, verified snapshot into `backups/` while the API keeps serving, and
+keeps the last 14.
+
+**Do not back this up by copying `patente.db`.** In WAL mode the database is three files
+and committed data sits in the `-wal` until a checkpoint moves it. Measured mid-session, a
+plain copy of `patente.db` lost 167 rows — every translation and two thirds of the
+explanations, the ones that cost money. `ops/backup.py` uses SQLite's online backup API,
+which is the only way to get one consistent file without stopping the service.
+
+Every snapshot is integrity-checked and its row counts compared against the source before
+it is kept. A failure renames the file `.FAILED` and exits non-zero, so a scheduled task
+reports it rather than looking like it worked. `--verify <file>` checks an existing one.
+
+Being inside OneDrive is **not** a backup — it syncs a moving three-file set and what it
+holds at any instant may be torn. Snapshots are consistent before OneDrive sees them, so
+this does give the off-box copy plan §6.4 wants; pass `--dest` elsewhere too if losing the
+account is worth surviving.
+
+Run it daily at 03:00 (from an elevated prompt, one line):
+
+```bash
+schtasks /Create /TN patente-backup /SC DAILY /ST 03:00 /TR "'C:\Users\aibro\OneDrive\Desktop\patente_bot\.venv\Scripts\python.exe' 'C:\Users\aibro\OneDrive\Desktop\patente_bot\ops\backup.py'"
+```
+
 ## Tests
 
 ```bash

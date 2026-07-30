@@ -41,3 +41,6 @@ content/out/review.csv
 # node / mini app
 node_modules/
 webapp/dist/
+
+# database snapshots — ops/backup.py. Verified copies, but still the database.
+backups/
