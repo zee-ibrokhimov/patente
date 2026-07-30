@@ -1,8 +1,26 @@
 # Deployment prompt
 
-Paste everything below the line into a Claude Code session running **on the server**.
+Everything the server needs is in this public repo — nothing is copied from a laptop.
 
-Fill in the two placeholders first: `<SERVER_DOMAIN>` and where you want the app to live.
+Paste the block below into a Claude Code session **on the server**. It is deliberately
+short: it tells the agent to clone the repo and read this file, which travels with the code
+and stays current.
+
+```
+Deploy the Telegram bot at https://github.com/zee-ibrokhimov/patente (branch master, public).
+
+Clone it, then read DEPLOY_PROMPT.md in the repo root and follow it. Read STATUS.md too —
+it is a detailed handover.
+
+Before changing anything on this server, tell me your plan and list the secrets you need
+from me.
+
+One thing that is in the brief but is important enough to repeat: the API has NO
+authentication. It must be bound to localhost and must not be reachable from the internet.
+Exactly one path, POST /webhooks/tribute, may be proxied publicly.
+```
+
+Then paste your secrets when it asks. Fill in `<SERVER_DOMAIN>` where it appears below.
 
 ---
 
@@ -88,36 +106,32 @@ be delivered to one or the other at random.
 Use a **separate bot** created via @BotFather for production, and put its token in
 `BOT_TOKEN_PROD` with `ENV=prod`. Do not reuse the dev token.
 
-## The database — restore, don't reseed
+## The database — build it fresh from the repo
 
-The repo ships everything needed to build the database from scratch, but **please do not**,
-unless I say so. It already contains generated explanations and translations that cost real
-money to produce, and reseeding would not recreate them.
-
-Preferred: I will give you a **verified snapshot** produced by `ops/backup.py`
-(`backups/patente-YYYYMMDD-HHMMSS.db`). Then:
-
-```bash
-python ops/restore.py --rehearse --from <snapshot>     # proves it works before you use it
-python ops/restore.py --from <snapshot> --to /srv/patente/patente.db --force
-python -m alembic upgrade head                          # in case the code is ahead
-```
-
-`--rehearse` restores to a scratch copy and runs the real application queries against it. If
-it reports "schema is behind the code", the snapshot predates a migration — tell me, do not
-work around it.
-
-Only if I explicitly ask for a fresh build:
+Everything needed is committed. Nothing has to be copied from my machine.
 
 ```bash
 python -m alembic upgrade head
-python content/seed.py            # reads the committed content/out/questions.json
-python content/cluster.py --strategy figure --write
+python content/seed.py                                  # 7106 questions, 25 topics, 409 figures
+python content/cluster.py --strategy figure --write     # 3382 rule clusters
 ```
 
-The source PDF is **not** in the repo (gitignored, 24 MB), but `questions.json` and all 409
-figures are, so seeding works without it. `content/extract.py` will not run and does not
-need to.
+Expect `seed.py` to report 7106 questions and `cluster.py` to commit **3382 clusters**. Both
+are idempotent — safe to re-run.
+
+The source PDF is **not** in the repo (gitignored, 24 MB), but `content/out/questions.json`
+and all 409 figures are, so seeding works without it. `content/extract.py` neither runs nor
+needs to.
+
+**There is no content to migrate.** Explanations and translations are generated on demand
+from the OpenAI API and cached in the database — they are a cache, not source data. A fresh
+install starts empty and fills as users hit questions, at roughly €0.02 per rule cluster.
+My local database has about 140 of them; regenerating that is under a euro and not worth a
+file transfer.
+
+If you ever *do* need to move a database between machines, `ops/backup.py` makes a verified
+snapshot and `ops/restore.py --rehearse` proves it works before you rely on it. Not needed
+for this deployment.
 
 ## Running the two processes
 
@@ -162,6 +176,8 @@ Tell me you are finished only when all of these hold, and show me the output:
 6. Both services survive `reboot`
 7. `python ops/backup.py` produces a verified snapshot, and `ops/restore.py --rehearse`
    passes on it
+8. `sqlite3 <db> "select count(*) from clusters"` returns **3382** — if it is 0, the
+   clustering step did not run and no explanation will ever be generated
 
 ## Things that will bite you
 
