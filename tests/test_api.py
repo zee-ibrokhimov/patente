@@ -13,6 +13,7 @@ from api.models import Event, Explanation, Progress, Purchase, Report, User
 from shared.config import settings
 from shared.constants import (
     EV_ANSWER_GIVEN,
+    EV_PASS_GRANTED,
     EV_PAYWALL_HIT,
     EV_QUESTION_SERVED,
     STATUS_FLAGGED,
@@ -436,3 +437,57 @@ async def test_unsupported_language_is_rejected(client, registered):
 async def test_translation_toggle_round_trips(client, registered, value):
     body = (await client.patch("/users/42", json={"translations_on": value})).json()
     assert body["translations_on"] is value
+
+
+# --------------------------------------------------------------------------
+# granting a pass by hand (plan §12)
+# --------------------------------------------------------------------------
+
+async def test_granting_a_pass_unlocks_paid_content(client, registered, api_db):
+    body = (await client.post("/users/42/pass", json={"days": 30})).json()
+    assert body["has_pass"] is True
+
+    served = (await client.get("/users/42/next-question?topic_id=1&exclude_id=2")).json()
+    assert served["translation_state"] == "shown"
+
+
+async def test_granting_never_writes_a_purchase(client, registered, api_db):
+    """Purchases are money: they drive revenue reporting and are what a refund is matched
+    against. Inventing one for a comped tester corrupts both."""
+    await client.post("/users/42/pass", json={"days": 30, "reason": "tester"})
+    async with api_db() as s:
+        assert (await s.scalars(select(Purchase))).all() == []
+
+
+async def test_granting_is_logged_apart_from_a_purchase(client, registered, api_db):
+    """A granted pass is not someone deciding to pay, so it must not land in the
+    conversion funnel."""
+    await client.post("/users/42/pass", json={"days": 7, "reason": "missed webhook"})
+    granted = await events_of(api_db, EV_PASS_GRANTED)
+    assert len(granted) == 1
+    assert granted[0].payload["days"] == 7
+    assert granted[0].payload["reason"] == "missed webhook"
+    assert await events_of(api_db, "purchase_completed") == []
+
+
+async def test_granting_twice_extends_rather_than_resets(client, registered):
+    """Otherwise a second grant to an active pass silently shortens it."""
+    first = (await client.post("/users/42/pass", json={"days": 30})).json()
+    second = (await client.post("/users/42/pass", json={"days": 30})).json()
+    assert second["pass_expires_at"] > first["pass_expires_at"]
+
+
+async def test_granting_to_a_lapsed_pass_starts_from_today(client, registered, api_db):
+    await give_pass(api_db, 42, days=-10)          # expired ten days ago
+    body = (await client.post("/users/42/pass", json={"days": 1})).json()
+    assert body["has_pass"] is True                 # not still ten days in the past
+
+
+@pytest.mark.parametrize("days", [0, -5, 4000])
+async def test_a_nonsense_duration_is_rejected(client, registered, days):
+    response = await client.post("/users/42/pass", json={"days": days})
+    assert response.status_code == 422
+
+
+async def test_granting_to_an_unknown_user_is_a_404(client):
+    assert (await client.post("/users/999/pass", json={"days": 30})).status_code == 404

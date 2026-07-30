@@ -75,6 +75,14 @@ class AnswerOut(BaseModel):
     free_explanations_left: int
 
 
+class GrantPassIn(BaseModel):
+    """An admin grant. `reason` is free text and goes on the event, so that months later
+    it is possible to tell a comped tester apart from a missed webhook."""
+
+    days: int = Field(gt=0, le=3650)
+    reason: str = Field(default="", max_length=200)
+
+
 class QuestionTranslationOut(BaseModel):
     """The response to an explicit translation request.
 

@@ -59,6 +59,11 @@ class ApiClient:
     async def update_user(self, chat_id: int, **fields) -> dict:
         return await self._request("PATCH", f"/users/{chat_id}", json=fields)
 
+    async def grant_pass(self, chat_id: int, days: int, reason: str = "") -> dict:
+        return await self._request(
+            "POST", f"/users/{chat_id}/pass", json={"days": days, "reason": reason}
+        )
+
     async def delete_user(self, chat_id: int) -> None:
         await self._request("DELETE", f"/users/{chat_id}")
 

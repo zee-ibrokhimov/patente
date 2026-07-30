@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps import get_session, get_user
 from api.models import User
-from api.schemas import UserIn, UserOut, UserSettingsIn
+from api.schemas import GrantPassIn, UserIn, UserOut, UserSettingsIn
 from api.services import users
 from api.services.entitlement import evaluate
 from api.services.events import record
-from shared.constants import EV_TRANSLATION_TOGGLED
+from shared.constants import EV_PASS_GRANTED, EV_TRANSLATION_TOGGLED
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -62,6 +64,42 @@ async def update(
         await record(
             session, EV_TRANSLATION_TOGGLED, chat_id=user.chat_id, on=body.translations_on
         )
+    return _out(user)
+
+
+@router.post("/{chat_id}/pass", response_model=UserOut)
+async def grant_pass(
+    body: GrantPassIn,
+    user: User = Depends(get_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Give or extend a pass by hand. Plan §12, and the first thing you want when a
+    Tribute webhook is missed.
+
+    **No `Purchase` row is written.** Purchases are money: they drive revenue reporting
+    and they are what a refund is matched against (§4.1), so inventing one for a grant
+    would corrupt both. `pass_expires_at` is set directly and a distinct event type
+    records it, which also keeps it out of the conversion funnel — a granted pass is not
+    someone deciding to pay.
+
+    Extending is additive from whichever is later, so granting twice to an active pass
+    adds time rather than shortening it to `days` from today.
+    """
+    now = datetime.now(timezone.utc)
+    base = user.pass_expires_at if (
+        user.pass_expires_at and user.pass_expires_at > now
+    ) else now
+    user.pass_expires_at = base + timedelta(days=body.days)
+
+    await record(
+        session,
+        EV_PASS_GRANTED,
+        chat_id=user.chat_id,
+        days=body.days,
+        reason=body.reason,
+        expires_at=user.pass_expires_at.isoformat(),
+    )
+    await session.flush()
     return _out(user)
 
 

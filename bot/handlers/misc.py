@@ -7,7 +7,7 @@ from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
 from bot import keyboards, render
-from bot.api_client import ApiClient
+from bot.api_client import ApiClient, ApiError
 from bot.i18n import t
 from shared.config import settings as config
 
@@ -32,6 +32,37 @@ async def toggle_translations(query: CallbackQuery, user: dict, lang: str, api: 
         reply_markup=keyboards.settings_menu(lang, updated["translations_on"]),
     )
     await query.answer()
+
+
+@router.message(Command("grant"))
+async def grant(message: Message, lang: str, api: ApiClient):
+    """`/grant [days] [chat_id]` — give yourself or a tester a pass by hand.
+
+    Plan §12 wanted this for the first missed Tribute webhook. It is needed before that
+    too: translations and explanations are both paid, so without it the only way to see
+    the product working is editing SQLite by hand.
+
+    Silent for non-admins rather than refusing. A stranger who guesses the command should
+    learn nothing from it, and there is no legitimate user to explain the refusal to.
+    """
+    if message.from_user.id not in config.admin_ids:
+        return
+
+    parts = (message.text or "").split()
+    days = int(parts[1]) if len(parts) > 1 and parts[1].lstrip("-").isdigit() else 30
+    target = int(parts[2]) if len(parts) > 2 and parts[2].lstrip("-").isdigit() else message.from_user.id
+    if days <= 0:
+        await message.answer("days must be positive")
+        return
+
+    try:
+        updated = await api.grant_pass(target, days, reason=f"/grant by {message.from_user.id}")
+    except ApiError as exc:
+        await message.answer(f"could not grant: {exc.detail}")
+        return
+    await message.answer(
+        f"pass for {target} now runs to {updated['pass_expires_at']}"
+    )
 
 
 @router.message(Command("help"))

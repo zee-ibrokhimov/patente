@@ -3,7 +3,7 @@
 **Last updated:** 30 July 2026 — explanations generate on demand and are live in the API
 **Bot:** [@quizpatente_bot](https://t.me/quizpatente_bot) — working, free tier only
 **Repo:** https://github.com/zee-ibrokhimov/patente
-**Tests:** 245 passing
+**Tests:** 254 passing
 **Plan:** [patente-bot-plan.md](patente-bot-plan.md) · **How to run:** [README.md](README.md)
 
 > **Read first:** §13 is the architecture as it now works, §14 is the measurement that
@@ -239,8 +239,7 @@ seeding works without it.
 - No Dockerfile yet — Docker isn't installed on this machine.
 - No backups configured. The database holds progress and entitlement, the only
   irreplaceable data in the system (§6.4). Needed before any real users.
-- No admin command to grant or extend a pass by hand (§12). You will want this the
-  first time a webhook is missed.
+- ~~No admin command to grant or extend a pass~~ — `/grant`, see §16.
 - `bot/` has no automated end-to-end test against Telegram — handlers are covered
   only through the render and i18n layers.
 - The 15 text-only topics are 87% of the review effort for 46% of the bank. Worth
@@ -772,3 +771,52 @@ English and Russian both want to collapse) fixed the **English** and not the Rus
 it is the model, not the prompt. And there is nothing to save: the whole bank is roughly
 **€15 at gpt-4o** against €75 for the explanations, so `openai_translate_model` is left
 empty on purpose and falls back to the main model. Set it only to go up.
+
+---
+
+## 16. Ran it. The whole journey, against the real database.
+
+`bot/` had changed a great deal — translation edits, the "Perché?" button, two new
+endpoints, a new `available` state — and had **never been started once**. Given that
+`generate.py` passed every test and then produced three defects on first real execution,
+that was the biggest remaining unknown. It has now been run.
+
+**The timings are the design, confirmed:**
+
+| step | time | why it matters |
+|---|---|---|
+| `next-question` | **0.01 s** | no model call is allowed in front of the question |
+| translation fetch | 3.8 s | the wait, taken while the user is already reading the Italian |
+| answer, warmed | **0.01 s** | the explanation arrives with the verdict, no second tap |
+| answer, cold | 0.33 s | falls back to `available` rather than blocking |
+| "Perché?" fallback | 4.9 s | pays for the call, because the user asked |
+
+Cold and warm paths both behave, on a sign topic and on a text topic. No errors in the
+API log across the rehearsal and the live bot traffic — in particular **no "database is
+locked"**, which is what the explicit commit before scheduling background work was for.
+Warming ran under real conditions and produced explanations and translations without a
+user waiting on either.
+
+The bot is polling as `@quizpatente_bot` and served real queued updates from Telegram.
+
+### `/grant` — the admin command §7 has wanted since the start
+
+Plan §12 wanted it for the first missed Tribute webhook. It turned out to be needed much
+sooner: translations and explanations are both paid, so without it the only way to see the
+product working is editing SQLite by hand.
+
+```
+/grant              30 days to yourself
+/grant 7            7 days to yourself
+/grant 90 12345678  90 days to someone else
+```
+
+Two deliberate choices. **No `Purchase` row is written** — purchases are money, they drive
+revenue reporting and they are what a refund is matched against (§4.1), so inventing one
+for a comped tester would corrupt both; a distinct `pass_granted` event records it instead
+and keeps it out of the conversion funnel. And it is **silent for non-admins** rather than
+refusing: a stranger who guesses the command should learn nothing, and there is no
+legitimate user to explain a refusal to.
+
+⚠️ **`ADMIN_CHAT_IDS` is empty in `.env`, so `/grant` currently does nothing.** Set it to
+your Telegram id and restart the bot.

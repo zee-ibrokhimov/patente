@@ -88,9 +88,13 @@ EV_SESSION_START = "session_start"
 EV_SESSION_END = "session_end"
 EV_REPORT_SUBMITTED = "report_submitted"
 EV_USER_DELETED = "user_deleted"
+# A pass given by hand, never by payment. Kept distinct from EV_PURCHASE_COMPLETED so a
+# comped tester or a repaired webhook cannot be mistaken for someone deciding to pay.
+EV_PASS_GRANTED = "pass_granted"
 EVENT_TYPES = (
     EV_QUESTION_SERVED, EV_ANSWER_GIVEN, EV_TRANSLATION_TOGGLED, EV_EXPLANATION_VIEWED,
     EV_PAYWALL_HIT, EV_PAYWALL_DISMISSED, EV_PURCHASE_STARTED, EV_PURCHASE_COMPLETED,
     EV_PURCHASE_REFUNDED, EV_SESSION_START, EV_SESSION_END, EV_REPORT_SUBMITTED,
     EV_USER_DELETED,
+    EV_PASS_GRANTED,
 )
