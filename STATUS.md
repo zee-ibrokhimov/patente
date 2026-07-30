@@ -141,6 +141,27 @@ roughly 7× the value per hour of your time. Do a sign topic for M2.
    key in `.env` as disposable: finish the offline runs with it, then reissue. The
    pattern to break is putting the key anywhere other than `.env`; nothing in this
    repo ever needs it typed, and `shared/config.py` is the only thing that reads it.
+
+   ⚠️ **A stale `OPENAI_API_KEY` is set at Windows *User* scope on this machine, and it
+   wins over `.env`.** pydantic-settings reads real environment variables in preference
+   to the env file — which is correct for production, where §14.6 has Coolify supplying
+   env vars — so editing `.env` changed nothing and every run failed 401 against the
+   revoked key. Each successful run on 29 July cleared the variable first, so there has
+   never been a working run from a plain shell. Fix it once, then open a new terminal:
+
+   ```powershell
+   [Environment]::SetEnvironmentVariable('OPENAI_API_KEY', $null, 'User')
+   Remove-Item Env:\OPENAI_API_KEY -ErrorAction SilentlyContinue
+   ```
+
+   Check nothing else on the machine reads that variable before removing it. To see
+   which key is actually in play without printing it:
+
+   ```powershell
+   .venv\Scripts\python.exe -c "import sys;sys.path.insert(0,'.');from shared.config import settings as s;print(len(s.openai_api_key), s.openai_api_key[-4:])"
+   ```
+
+   It should end `ZeEA`. `XloA` means the environment variable is still shadowing.
 2. **Hand-verification** — open `content/out/verify.html` (regenerate with
    `content/verify_sample.py`) beside the PDF and tick off the 30 random + 24
    high-risk rows. **Do this before generating explanations**, or a parsing error
