@@ -25,8 +25,8 @@ from shared.constants import UI_LANGUAGES
 log = logging.getLogger(__name__)
 
 COMMANDS = [
-    ("quiz", "cmd_quiz"),
     ("stats", "cmd_stats"),
+    ("plan", "cmd_plan"),
     ("settings", "cmd_settings"),
     ("help", "cmd_help"),
     ("privacy", "cmd_privacy"),

@@ -68,47 +68,6 @@ class ApiClient:
         await self._request("DELETE", f"/users/{chat_id}")
 
     # --- quiz --------------------------------------------------------------
-    async def next_question(
-        self, chat_id: int, topic_id: int | None = None, exclude_id: int | None = None
-    ) -> dict:
-        params = {k: v for k, v in
-                  {"topic_id": topic_id, "exclude_id": exclude_id}.items() if v is not None}
-        return await self._request("GET", f"/users/{chat_id}/next-question", params=params)
-
-    async def answer(self, chat_id: int, question_id: int, answer: bool) -> dict:
-        return await self._request(
-            "POST", f"/users/{chat_id}/answers",
-            json={"question_id": question_id, "answer": answer},
-        )
-
-    async def translation(self, chat_id: int, question_id: int) -> dict:
-        """May be the call that produces it, so it gets the long timeout too."""
-        return await self._request(
-            "POST", f"/users/{chat_id}/questions/{question_id}/translation",
-            timeout=EXPLANATION_TIMEOUT,
-        )
-
-    async def explanation(self, chat_id: int, question_id: int) -> dict:
-        """The fallback when warming has not landed. May take several seconds, because
-        it may be the call that produces the explanation."""
-        return await self._request(
-            "POST", f"/users/{chat_id}/questions/{question_id}/explanation",
-            timeout=EXPLANATION_TIMEOUT,
-        )
-
     async def stats(self, chat_id: int) -> dict:
         return await self._request("GET", f"/users/{chat_id}/stats")
 
-    async def report(self, chat_id: int, question_id: int) -> dict:
-        return await self._request(
-            "POST", f"/users/{chat_id}/reports", json={"question_id": question_id}
-        )
-
-    # --- figures -----------------------------------------------------------
-    async def figure_bytes(self, name: str) -> bytes:
-        response = await self._client.get(f"/figures/{name}")
-        response.raise_for_status()
-        return response.content
-
-    async def cache_file_id(self, name: str, file_id: str) -> None:
-        await self._request("PUT", f"/figures/{name}/file-id", json={"file_id": file_id})

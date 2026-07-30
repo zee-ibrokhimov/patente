@@ -1,14 +1,11 @@
-"""Message text.
+"""Message text for the companion bot.
 
-Two rules the plan is emphatic about and that shape everything here:
+Question, verdict and explanation rendering moved to the Mini App along with the
+study loop — the rules about keeping the ministerial Italian primary and showing a
+paywall only for `locked` (never for `unavailable`) now live in webapp/src/.
 
-  · The ministerial Italian is the question. A translation sits underneath it as a
-    comprehension aid, in italics, visibly secondary — never in its place. Users
-    are training to recognise the exact exam phrasing.
-
-  · A locked explanation and a missing one look different. `locked` shows the
-    paywall; `unavailable` shows nothing at all, because offering to sell an
-    explanation nobody has written yet is worse than staying quiet.
+What stays here is everything the bot still owns: progress, subscription and
+settings.
 """
 
 from __future__ import annotations
@@ -26,49 +23,6 @@ MESSAGE_LIMIT = 4096
 
 def _clip(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
-
-
-def question(q: dict, lang: str, *, limit: int = CAPTION_LIMIT) -> str:
-    parts = []
-    if q.get("stem_it"):
-        parts.append(f"<b>{html.escape(q['stem_it'])}</b>")
-    parts.append(html.escape(q["statement_it"]))
-
-    translation = q.get("translation")
-    if q.get("translation_state") == "shown" and translation:
-        parts.append(f"<i>{html.escape(translation['statement'])}</i>")
-
-    return _clip("\n\n".join(parts), limit)
-
-
-def result(q: dict, outcome: dict, lang: str, *, limit: int = CAPTION_LIMIT) -> str:
-    """The answered question, rebuilt in place — statement stays visible."""
-    parts = [html.escape(q["statement_it"])]
-
-    if outcome["correct"]:
-        parts.append(t(lang, "verdict_correct"))
-    else:
-        answer_word = t(lang, "answer_vero" if outcome["correct_answer"] else "answer_falso")
-        parts.append(t(lang, "verdict_wrong", answer=answer_word))
-
-    state = outcome["explanation_state"]
-    if state == "shown" and outcome.get("explanation"):
-        parts.append(html.escape(outcome["explanation"]))
-    elif state == "locked":
-        # The conversion moment: they just got it wrong and want to know why.
-        parts.append(t(lang, "paywall"))
-
-    return _clip("\n\n".join(parts), limit)
-
-
-def with_explanation(body: str, explanation: str, *, limit: int = CAPTION_LIMIT) -> str:
-    """Append an explanation to a message already on screen.
-
-    Used by the fallback path, where the explanation arrives after the verdict has
-    already been rendered. `body` comes back from Telegram as plain text with the
-    entities stripped, so it is re-escaped along with everything else.
-    """
-    return _clip("\n\n".join([html.escape(body.strip()), html.escape(explanation)]), limit)
 
 
 def stats(data: dict, lang: str, *, top: int = 5) -> str:
@@ -107,3 +61,27 @@ def settings(user: dict, lang: str) -> str:
         t(lang, "settings_language", lang=LANGUAGE_NAMES.get(user["lang"], user["lang"])),
         t(lang, "settings_translations", state=state),
     ])
+
+
+def plan(user: dict, lang: str, *, can_subscribe: bool) -> str:
+    """Subscription state, in the surface that owns payment.
+
+    Plan §6.2 keeps buying in chat rather than in the Mini App, since Mini Apps
+    selling digital goods sit closer to the Stars-only rule and to Apple's review
+    guidelines. So this is the screen a paywall in the app points back to.
+    """
+    lines = [t(lang, "plan_title"), ""]
+
+    expires = user.get("pass_expires_at")
+    if user.get("has_pass") and expires:
+        # ISO-8601 from the API; show the date only — the hour is noise to a reader
+        # and a timezone argument waiting to happen.
+        lines.append(t(lang, "plan_active", date=str(expires)[:10]))
+    else:
+        lines.append(t(lang, "plan_none"))
+        lines.append(t(lang, "plan_free_left", n=user.get("free_explanations_left", 0)))
+
+    lines += ["", t(lang, "plan_perks")]
+    if not can_subscribe:
+        lines += ["", t(lang, "payments_not_live")]
+    return _clip("\n".join(lines), MESSAGE_LIMIT)

@@ -38,6 +38,12 @@ class Settings(BaseSettings):
     api_base_url: str = "http://127.0.0.1:8000"
     database_url: str = "sqlite+aiosqlite:///./patente.db"
 
+    # Where the Mini App is served. Drilling lives there rather than in chat, so this
+    # is how the bot hands a user over. Telegram requires https and refuses to attach
+    # a web_app button to anything else; left empty the bot still works and simply
+    # omits the button, rather than failing at send time on every /start.
+    webapp_url: str = ""
+
     openai_api_key: str = ""
     openai_model: str = "gpt-4o"
 

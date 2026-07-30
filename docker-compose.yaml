@@ -4,13 +4,18 @@
 #
 # The API has NO AUTHENTICATION of any kind. Anything that can reach it can grant
 # itself an unlimited paid pass (POST /users/{chat_id}/pass), read any user, or
-# delete any user and their progress. It is safe only because the ONLY thing that
-# can reach it is the bot, over the private `internal` network below.
+# delete any user and their progress.
+#
+# What actually keeps it safe, measured rather than assumed: it has NO DOMAIN, so
+# Traefik generates no router for it and there is no path in from the edge. The
+# `internal` network below is NOT what protects it — Coolify attaches every service
+# to its own proxy network as well, so coolify-proxy can reach the api container and
+# a probe from that network gets a 200. Isolation is the absent router plus the
+# single proxied prefix in webapp/nginx.conf, not network privacy.
 #
 # Therefore, for the `api` service:
 #   - do NOT add a `ports:` mapping (that publishes it on the host)
-#   - do NOT set a domain / FQDN on it in Coolify (that generates a Traefik router)
-#   - do NOT attach it to a shared or proxy-facing network
+#   - do NOT set a domain / FQDN on it in Coolify — this is the load-bearing one
 #
 # Exactly one path may ever be public: POST /webhooks/tribute. It is the only
 # endpoint that authenticates its caller (HMAC-SHA256 over the raw body) and it
@@ -74,6 +79,9 @@ services:
       - PATENTE_SKIP_MIGRATE=1
       - ENV=prod
       - API_BASE_URL=http://api:8000
+      # Where /start sends people. Drilling lives in the Mini App now, so without
+      # this the bot answers but offers no way through to the questions.
+      - WEBAPP_URL=${WEBAPP_URL:-}
       - BOT_TOKEN_PROD=${BOT_TOKEN_PROD}
       - BOT_USERNAME=${BOT_USERNAME}
       - ADMIN_CHAT_IDS=${ADMIN_CHAT_IDS}

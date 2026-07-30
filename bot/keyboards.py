@@ -1,18 +1,16 @@
 from __future__ import annotations
 
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+import logging
+
+from aiogram.types import InlineKeyboardMarkup, WebAppInfo
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from bot.callbacks import (
-    Answer,
-    NextQuestion,
-    ReportBad,
-    SetLanguage,
-    ShowExplanation,
-    Simple,
-)
+from bot.callbacks import SetLanguage, Simple
 from bot.i18n import LANGUAGE_NAMES, t
+from shared.config import settings
 from shared.constants import UI_LANGUAGES
+
+log = logging.getLogger(__name__)
 
 
 def language_picker() -> InlineKeyboardMarkup:
@@ -23,41 +21,34 @@ def language_picker() -> InlineKeyboardMarkup:
     return kb.as_markup()
 
 
-def answer_buttons(question_id: int, lang: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(
-            text=t(lang, "btn_vero"),
-            callback_data=Answer(qid=question_id, value=True).pack(),
-        ),
-        InlineKeyboardButton(
-            text=t(lang, "btn_falso"),
-            callback_data=Answer(qid=question_id, value=False).pack(),
-        ),
-    ]])
+def open_app(lang: str) -> InlineKeyboardMarkup | None:
+    """The hand-off to the Mini App, where drilling now happens.
 
-
-def after_answer(
-    question_id: int,
-    lang: str,
-    *,
-    locked: bool = False,
-    explained: bool = False,
-    offered: bool = False,
-) -> InlineKeyboardMarkup:
-    """Next is always first — the loop should never need a second tap to continue.
-
-    `offered` is the on-demand case: the explanation has not been produced yet, so the
-    button is an invitation rather than a reveal. `explained` means the text is already
-    on screen, which is the only state where reporting it as wrong makes sense.
+    Returns None when no URL is configured. Telegram rejects a web_app button whose
+    url is not https, and an unconfigured deployment would then fail on every /start —
+    a bot that answers without a button is a far better failure than one that answers
+    with an error.
     """
+    if not settings.webapp_url.startswith("https://"):
+        log.warning(
+            "WEBAPP_URL is not an https URL (%r) — sending without the open-app button",
+            settings.webapp_url,
+        )
+        return None
     kb = InlineKeyboardBuilder()
-    kb.button(text=t(lang, "btn_next"), callback_data=NextQuestion(exclude=question_id))
-    if offered:
-        kb.button(text=t(lang, "btn_why"), callback_data=ShowExplanation(qid=question_id))
-    if locked:
-        kb.button(text=t(lang, "btn_unlock"), callback_data=Simple(action="unlock"))
-    if explained:
-        kb.button(text=t(lang, "btn_report"), callback_data=ReportBad(qid=question_id))
+    kb.button(text=t(lang, "open_app"), web_app=WebAppInfo(url=settings.webapp_url))
+    kb.adjust(1)
+    return kb.as_markup()
+
+
+def plan_actions(lang: str, *, can_subscribe: bool) -> InlineKeyboardMarkup | None:
+    """`can_subscribe` is False until Tribute is configured. A Buy button that leads
+    nowhere is worse than no button — it reads as a broken product rather than an
+    unfinished one."""
+    if not can_subscribe:
+        return None
+    kb = InlineKeyboardBuilder()
+    kb.button(text=t(lang, "btn_subscribe"), callback_data=Simple(action="subscribe"))
     kb.adjust(1)
     return kb.as_markup()
 

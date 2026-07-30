@@ -1,118 +1,24 @@
-"""Message rendering.
+"""Message rendering for the companion bot.
 
-Pure functions over an API response, so the bot's most important behaviour — what
-text actually reaches the user — is testable without Telegram in the loop.
+Pure functions over an API response, so what text actually reaches the user is
+testable without Telegram in the loop.
+
+Question, verdict and explanation rendering left with the study loop when it moved
+to the Mini App; what remains is progress, settings and subscription.
 """
 
 import pytest
 
 from bot import render
 
-QUESTION = {
-    "id": 1,
-    "statement_it": "Il segnale raffigurato vieta il transito",
-    "stem_it": None,
-    "image": "images/a.jpeg",
-    "translation_state": "locked",
-    "translation": None,
-}
-TRANSLATED = {
-    **QUESTION,
-    "translation_state": "shown",
-    "translation": {"lang": "ru", "statement": "Знак запрещает движение"},
-}
-
-
-def outcome(**kw):
-    base = {
-        "question_id": 1, "given": False, "correct": False, "correct_answer": True,
-        "box": 1, "explanation_state": "unavailable", "explanation": None,
-    }
-    return {**base, **kw}
-
-
-# --- questions -------------------------------------------------------------
-
-def test_italian_is_always_shown():
-    assert "Il segnale raffigurato vieta il transito" in render.question(QUESTION, "ru")
-
-
-def test_locked_translation_is_not_rendered():
-    assert "Знак" not in render.question(QUESTION, "ru")
-
-
-def test_shown_translation_sits_under_the_italian_in_italics():
-    text = render.question(TRANSLATED, "ru")
-    italian = text.index("Il segnale")
-    russian = text.index("Знак")
-    assert italian < russian, "the exam wording must come first"
-    assert "<i>Знак запрещает движение</i>" in text
-
-
-def test_html_in_the_statement_is_escaped():
-    """Ministerial text contains '<' and '&'; unescaped it breaks the message."""
-    q = {**QUESTION, "statement_it": "Massa < 3,5 t & rimorchio"}
-    text = render.question(q, "ru")
-    assert "&lt; 3,5 t &amp; rimorchio" in text
-
-
-def test_stem_is_rendered_above_the_statement_when_present():
-    q = {**QUESTION, "stem_it": "Il conducente deve"}
-    text = render.question(q, "ru")
-    assert text.index("Il conducente deve") < text.index("Il segnale")
-
-
-def test_long_text_is_clipped_to_the_caption_limit():
-    q = {**QUESTION, "statement_it": "x" * 2000}
-    text = render.question(q, "ru")
-    assert len(text) <= render.CAPTION_LIMIT
-    assert text.endswith("…")
-
-
-# --- results ---------------------------------------------------------------
-
-def test_wrong_answer_reveals_the_correct_one():
-    """The free tier still gets this — it is the whole free product (§4.3)."""
-    text = render.result(QUESTION, outcome(correct=False, correct_answer=False), "en")
-    assert "Wrong" in text and "FALSO" in text
-
-
-def test_correct_answer_does_not_repeat_the_answer():
-    text = render.result(QUESTION, outcome(correct=True), "en")
-    assert "Correct" in text
-
-
-def test_statement_stays_visible_after_answering():
-    text = render.result(QUESTION, outcome(), "en")
-    assert "Il segnale raffigurato vieta il transito" in text
-
-
-def test_shown_explanation_is_rendered():
-    text = render.result(
-        QUESTION, outcome(explanation_state="shown", explanation="Perché lo dice l'art. 116."),
-        "it",
-    )
-    assert "art. 116" in text
-
-
-def test_locked_explanation_shows_the_paywall():
-    text = render.result(QUESTION, outcome(explanation_state="locked"), "en")
-    assert "🔒" in text
-
-
-def test_unavailable_explanation_shows_nothing_at_all():
-    """Never offer to sell an explanation nobody has written (§3.3)."""
-    text = render.result(QUESTION, outcome(explanation_state="unavailable"), "en")
-    assert "🔒" not in text
-    assert "pass" not in text.lower()
-
-
-# --- stats -----------------------------------------------------------------
-
-def test_stats_with_no_answers_prompts_to_start():
+def test_stats_with_no_answers_points_at_the_app_not_a_command():
+    """It used to say /quiz. That command no longer exists, so a new user following
+    the instruction would have been met with silence."""
     data = {"questions_seen": 0, "questions_total": 7106, "answers_given": 0,
             "wrong": 0, "error_rate": 0.0, "boxes": {}, "by_topic": []}
-    assert "/quiz" in render.stats(data, "en")
+    body = render.stats(data, "en")
+    assert "/quiz" not in body
+    assert "app" in body.lower()
 
 
 def test_stats_shortens_the_ministerial_topic_names():
@@ -150,48 +56,46 @@ def test_settings_renders_in_every_language(lang):
 
 # --- the on-demand explanation ---------------------------------------------
 
-def test_an_available_explanation_shows_neither_text_nor_paywall():
-    """Warming has not landed. The button carries the offer, so the message must not
-    claim the explanation is missing *or* charge for it."""
-    outcome = {"correct": False, "correct_answer": True,
-               "explanation_state": "available", "explanation": None}
-    text = render.result(QUESTION, outcome, "en")
-    assert "Il segnale raffigurato" in text
-    assert "pass" not in text.lower()          # no paywall copy
-    assert "🔒" not in text
+
+# --- plan ------------------------------------------------------------------
+
+ACTIVE = {
+    "chat_id": 1, "lang": "it", "translations_on": True,
+    "pass_expires_at": "2026-08-29T10:30:00Z", "has_pass": True,
+    "free_explanations_left": 0,
+}
+LAPSED = {**ACTIVE, "pass_expires_at": None, "has_pass": False, "free_explanations_left": 2}
 
 
-def test_with_explanation_appends_without_losing_the_verdict():
-    body = "Il segnale raffigurato vieta il transito\n\n✅ Correct"
-    text = render.with_explanation(body, "Il segnale vieta il transito (art. 116 Reg.).")
-    assert "vieta il transito" in text
-    assert "Correct" in text
-    assert "art. 116 Reg." in text
+def test_plan_shows_the_expiry_date_without_the_time():
+    """A timestamp invites a timezone argument; the date is what a reader wants."""
+    body = render.plan(ACTIVE, "it", can_subscribe=True)
+    assert "2026-08-29" in body
+    assert "10:30" not in body
 
 
-def test_with_explanation_escapes_text_coming_back_from_telegram():
-    """Telegram returns the body with entities stripped, so anything that looks like a
-    tag has to be re-escaped or the edit fails as invalid HTML."""
-    text = render.with_explanation("a <b> & c", "1 < 2")
-    assert "&lt;b&gt;" in text and "&amp;" in text
-    assert "1 &lt; 2" in text
+def test_plan_without_a_pass_shows_the_free_allowance():
+    body = render.plan(LAPSED, "it", can_subscribe=True)
+    assert "2" in body
+    assert "2026-08-29" not in body
 
 
-def test_the_why_button_appears_only_when_the_explanation_is_offered():
-    from bot import keyboards
+def test_plan_says_payments_are_not_live_when_tribute_is_unconfigured():
+    """Better than a Buy button that opens nothing — unfinished, not broken."""
+    from bot.i18n import t
 
-    offered = keyboards.after_answer(1, "en", offered=True)
-    labels = [b.text for row in offered.inline_keyboard for b in row]
-    assert any("Why?" in label for label in labels)
-
-    plain = keyboards.after_answer(1, "en")
-    assert not any("Why?" in b.text for row in plain.inline_keyboard for b in row)
+    body = render.plan(LAPSED, "it", can_subscribe=False)
+    assert t("it", "payments_not_live") in body
 
 
-def test_a_shown_explanation_offers_reporting_not_asking_again():
-    from bot import keyboards
+def test_plan_omits_that_notice_once_payments_are_live():
+    from bot.i18n import t
 
-    markup = keyboards.after_answer(1, "en", explained=True)
-    labels = [b.text for row in markup.inline_keyboard for b in row]
-    assert any("wrong" in label.lower() for label in labels)
-    assert not any("Why?" in label for label in labels)
+    body = render.plan(LAPSED, "it", can_subscribe=True)
+    assert t("it", "payments_not_live") not in body
+
+
+@pytest.mark.parametrize("lang", ["it", "ru", "en"])
+def test_plan_renders_in_every_language(lang):
+    assert render.plan(ACTIVE, lang, can_subscribe=False)
+    assert render.plan(LAPSED, lang, can_subscribe=True)
