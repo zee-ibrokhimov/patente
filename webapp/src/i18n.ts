@@ -46,6 +46,32 @@ const STRINGS = {
     pass_active: "Abbonamento attivo",
     no_pass: "Nessun abbonamento",
     loading: "Caricamento…",
+    home: "Home",
+    exam: "Esame",
+    practice: "Allenamento",
+    profile: "Profilo",
+    exam_desc: "30 domande, 20 minuti. Nessuna risposta finché non hai finito.",
+    practice_desc: "Senza tempo. Spiegazione dopo ogni risposta.",
+    start: "Inizia",
+    submit: "Consegna",
+    end_test: "Termina",
+    question_of: "Domanda {n} di {total}",
+    time_left: "Tempo",
+    answered_n: "Risposte",
+    confirm_submit: "Consegnare l'esame?",
+    confirm_leave: "Uscire? L'esame in corso verrà perso.",
+    passed: "PROMOSSO",
+    failed: "BOCCIATO",
+    errors: "Errori",
+    allowed: "Consentiti",
+    unanswered: "Senza risposta",
+    exam_over_time: "Tempo scaduto.",
+    review_answers: "Rivedi le risposte",
+    again: "Rifai",
+    back_home: "Torna alla home",
+    tagline: "Teoria patente B",
+    resume: "Riprendi",
+    resume_desc: "Hai un esame in corso.",
   },
   ru: {
     study: "Учёба",
@@ -81,6 +107,32 @@ const STRINGS = {
     pass_active: "Подписка активна",
     no_pass: "Подписки нет",
     loading: "Загрузка…",
+    home: "Главная",
+    exam: "Экзамен",
+    practice: "Тренировка",
+    profile: "Профиль",
+    exam_desc: "30 вопросов, 20 минут. Ответы — только в конце.",
+    practice_desc: "Без таймера. Объяснение после каждого ответа.",
+    start: "Начать",
+    submit: "Сдать",
+    end_test: "Завершить",
+    question_of: "Вопрос {n} из {total}",
+    time_left: "Время",
+    answered_n: "Отвечено",
+    confirm_submit: "Сдать экзамен?",
+    confirm_leave: "Выйти? Текущий экзамен будет потерян.",
+    passed: "СДАН",
+    failed: "НЕ СДАН",
+    errors: "Ошибки",
+    allowed: "Допустимо",
+    unanswered: "Без ответа",
+    exam_over_time: "Время вышло.",
+    review_answers: "Разбор ответов",
+    again: "Ещё раз",
+    back_home: "На главную",
+    tagline: "Теория на права категории B",
+    resume: "Продолжить",
+    resume_desc: "У вас есть незавершённый экзамен.",
   },
   en: {
     study: "Study",
@@ -116,6 +168,32 @@ const STRINGS = {
     pass_active: "Subscription active",
     no_pass: "No subscription",
     loading: "Loading…",
+    home: "Home",
+    exam: "Exam",
+    practice: "Practice",
+    profile: "Profile",
+    exam_desc: "30 questions, 20 minutes. No answers until you finish.",
+    practice_desc: "No timer. An explanation after every answer.",
+    start: "Start",
+    submit: "Submit",
+    end_test: "End test",
+    question_of: "Question {n} of {total}",
+    time_left: "Time",
+    answered_n: "Answered",
+    confirm_submit: "Submit the exam?",
+    confirm_leave: "Leave? The exam in progress will be lost.",
+    passed: "PASSED",
+    failed: "FAILED",
+    errors: "Errors",
+    allowed: "Allowed",
+    unanswered: "Unanswered",
+    exam_over_time: "Time is up.",
+    review_answers: "Review answers",
+    again: "Again",
+    back_home: "Back home",
+    tagline: "Patente B theory",
+    resume: "Resume",
+    resume_desc: "You have an exam in progress.",
   },
 } as const;
 
@@ -127,8 +205,14 @@ export function setLang(lang: string): void {
   current = (["it", "ru", "en"] as const).includes(lang as Lang) ? (lang as Lang) : "it";
 }
 
-export function t(key: Key): string {
-  return STRINGS[current][key];
+export function t(key: Key, vars?: Record<string, string | number>): string {
+  // Fall back to English rather than returning undefined. A beta language is allowed to
+  // be incomplete; it is not allowed to render the string "undefined" at a user.
+  const raw: string = (STRINGS[current] as Record<string, string>)[key]
+    ?? (STRINGS.en as Record<string, string>)[key]
+    ?? key;
+  if (!vars) return raw;
+  return raw.replace(/\{(\w+)\}/g, (_m, name) => String(vars[name] ?? `{${name}}`));
 }
 
 export function lang(): Lang {

@@ -5,10 +5,15 @@
 import { tg } from "./telegram";
 import type {
   AnswerResult,
+  ExamAnswer,
   ExplanationResult,
   Me,
+  Mode,
+  PracticeAnswer,
   Question,
   QuestionTranslation,
+  Session,
+  SessionResults,
   Stats,
 } from "./types";
 
@@ -78,4 +83,28 @@ export const api = {
   /** Static, not under /webapp — an <img src> cannot carry the initData header, so a
    *  figure behind that auth is a guaranteed 401. nginx serves these directly. */
   figureUrl: (image: string) => `/figures/${image.replace(/^images\//, "")}`,
+};
+
+/** --- quiz sessions ------------------------------------------------------ */
+
+export const sessions = {
+  /** Returns the sitting AND its whole paper. The paper is frozen server-side, so there
+   *  is nothing to fetch per question and no round trip on a running clock. */
+  start: (mode: Mode) =>
+    request<Session>("/sessions", { method: "POST", body: JSON.stringify({ mode }) }),
+
+  /** Resume. The app persists nothing across a reopen, so this is how a backgrounded
+   *  exam comes back — with the server's deadline, not a remembered one. */
+  read: (id: number) => request<Session>(`/sessions/${id}`),
+
+  answer: (id: number, ordinal: number, answer: boolean) =>
+    request<ExamAnswer | PracticeAnswer>(`/sessions/${id}/answers`, {
+      method: "POST",
+      body: JSON.stringify({ ordinal, answer }),
+    }),
+
+  finish: (id: number) =>
+    request<SessionResults>(`/sessions/${id}/finish`, { method: "POST" }),
+
+  results: (id: number) => request<SessionResults>(`/sessions/${id}/results`),
 };

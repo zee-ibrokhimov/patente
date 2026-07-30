@@ -1,23 +1,52 @@
-import { api, ApiError } from "./api";
+import { api, ApiError, sessions } from "./api";
 import { lang, setLang, t } from "./i18n";
 import { haptic, inTelegram, initTelegram } from "./telegram";
-import type { AnswerResult, Me, Question, Stats } from "./types";
+import type {
+  AnswerResult,
+  ExamAnswer,
+  Me,
+  Mode,
+  PracticeAnswer,
+  Question,
+  Session,
+  SessionResults,
+  Stats,
+} from "./types";
 import "./style.css";
 
-type Tab = "study" | "stats" | "settings";
+type Screen = "home" | "run" | "results" | "stats" | "settings";
+
+/** A sitting in flight.
+ *
+ *  `skew` is measured ONCE from the server's own clock at creation, and every countdown
+ *  is rendered as `deadline - (Date.now() + skew)`. The device clock is not trusted for
+ *  anything: phones are wrong, and a paid feature whose timer lives in the client is
+ *  editable by anyone who can open devtools. The server enforces the deadline regardless
+ *  — this only makes the display honest.
+ */
+interface Run {
+  session: Session;
+  index: number;
+  answered: Set<number>;
+  /** Practice only: the verdict for the question currently on screen. */
+  verdict: AnswerResult | null;
+  deadline: number | null;
+  skew: number;
+  busy: boolean;
+}
 
 const state: {
   me: Me | null;
-  question: Question | null;
-  answer: AnswerResult | null;
-  tab: Tab;
-} = { me: null, question: null, answer: null, tab: "study" };
+  screen: Screen;
+  run: Run | null;
+  results: SessionResults | null;
+  stats: Stats | null;
+} = { me: null, screen: "home", run: null, results: null, stats: null };
 
 const root = document.getElementById("app")!;
 
 /** textContent everywhere, never innerHTML with content from the API. Explanations are
- *  model-generated and translations come back from an LLM; neither is a trusted source
- *  of markup. */
+ *  model-generated and translations come back from an LLM; neither is trusted markup. */
 function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
   className?: string,
@@ -30,138 +59,308 @@ function el<K extends keyof HTMLElementTagNameMap>(
 }
 
 // ---------------------------------------------------------------------------
-// study
+// errors that do not destroy the app
 // ---------------------------------------------------------------------------
 
-async function loadQuestion(excludeId?: number): Promise<void> {
-  state.answer = null;
-  state.question = null;
+let toastTimer: number | undefined;
+
+/** A failed request shows a toast and leaves the screen alone.
+ *
+ *  The previous version replaced the entire app with an error page whose Retry button
+ *  called boot() — so one flaky POST in minute 12 of a timed exam wiped the exam. An
+ *  in-flight sitting is the thing most worth protecting and was the thing least
+ *  protected.
+ */
+function toast(message: string): void {
+  document.querySelector(".toast")?.remove();
+  const node = el("div", "toast", message);
+  document.body.append(node);
+  window.clearTimeout(toastTimer);
+  toastTimer = window.setTimeout(() => node.remove(), 3200);
+}
+
+function reportError(err: unknown): void {
+  if (err instanceof ApiError && err.status === 401) {
+    toast(t("outside_telegram"));
+    return;
+  }
+  toast(t("error"));
+}
+
+// ---------------------------------------------------------------------------
+// the countdown
+// ---------------------------------------------------------------------------
+
+let timerNode: HTMLElement | null = null;
+let ticking: number | undefined;
+
+/** Updated IN PLACE, outside render().
+ *
+ *  render() calls replaceChildren() and rebuilds the DOM, re-assigning every <img src>.
+ *  A 1 Hz countdown routed through it would reload the figure once a second and discard
+ *  any in-flight button state. So the clock owns one retained node and touches nothing
+ *  else.
+ */
+function startTicking(): void {
+  window.clearInterval(ticking);
+  ticking = window.setInterval(tick, 500);
+  tick();
+}
+
+function stopTicking(): void {
+  window.clearInterval(ticking);
+  ticking = undefined;
+  timerNode = null;
+}
+
+function remainingMs(): number {
+  const run = state.run;
+  if (!run?.deadline) return 0;
+  return run.deadline - (Date.now() + run.skew);
+}
+
+function tick(): void {
+  const run = state.run;
+  if (!run?.deadline || !timerNode) return;
+  const left = Math.max(0, remainingMs());
+  const total = Math.floor(left / 1000);
+  const mm = String(Math.floor(total / 60)).padStart(2, "0");
+  const ss = String(total % 60).padStart(2, "0");
+  timerNode.textContent = `${mm}:${ss}`;
+  timerNode.classList.toggle("warn", left <= 5 * 60_000 && left > 60_000);
+  timerNode.classList.toggle("crit", left <= 60_000);
+
+  if (left <= 0) {
+    stopTicking();
+    void finishRun(true);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// running a sitting
+// ---------------------------------------------------------------------------
+
+async function startRun(mode: Mode): Promise<void> {
+  try {
+    const session = await sessions.start(mode);
+    enterRun(session);
+  } catch (err) {
+    reportError(err);
+  }
+}
+
+function enterRun(session: Session): void {
+  const serverNow = Date.parse(session.server_now);
+  state.run = {
+    session,
+    index: Math.min(session.answered, session.question_count - 1),
+    answered: new Set(),
+    verdict: null,
+    deadline: session.expires_at ? Date.parse(session.expires_at) : null,
+    skew: serverNow - Date.now(),
+    busy: false,
+  };
+  state.screen = "run";
   render();
+  if (state.run.deadline) startTicking();
+}
+
+async function submitAnswer(given: boolean): Promise<void> {
+  const run = state.run;
+  if (!run || run.busy) return;
+  const ordinal = run.index + 1;
+  if (run.answered.has(ordinal)) return;
+
+  run.busy = true;
   try {
-    state.question = await api.nextQuestion({ excludeId });
+    const res = await sessions.answer(run.session.id, ordinal, given);
+    run.answered.add(ordinal);
+    haptic("success");
+
+    if (run.session.mode === "practice") {
+      run.verdict = res as PracticeAnswer;
+      haptic((res as PracticeAnswer).correct ? "success" : "error");
+      if (state.me) state.me.free_explanations_left = (res as PracticeAnswer).free_explanations_left;
+    } else {
+      // Exam: the response carries no verdict at all, by design. Advance immediately.
+      void (res as ExamAnswer);
+      if (run.index < run.session.question_count - 1) run.index += 1;
+    }
   } catch (err) {
-    return renderError(err);
+    // Non-destructive: the sitting survives, the user can tap again.
+    reportError(err);
+  } finally {
+    run.busy = false;
+    render();
   }
+}
+
+function advance(): void {
+  const run = state.run;
+  if (!run) return;
+  run.verdict = null;
+  if (run.index < run.session.question_count - 1) run.index += 1;
   render();
-  void hydrateTranslation();
 }
 
-/** The Italian is already on screen by the time this runs. §15: the question appears
- *  instantly and the translation edits it when it lands — the alternative puts three
- *  to five seconds in front of every interaction. */
-async function hydrateTranslation(): Promise<void> {
-  const q = state.question;
-  if (!q || q.translation_state !== "available") return;
+async function finishRun(timedOut = false): Promise<void> {
+  const run = state.run;
+  if (!run) return;
   try {
-    const res = await api.translation(q.id);
-    if (state.question?.id !== q.id) return; // user moved on; discard
-    state.question.translation_state = res.translation_state;
-    state.question.translation = res.translation;
+    const results = await sessions.finish(run.session.id);
+    stopTicking();
+    state.results = results;
+    state.run = null;
+    state.screen = "results";
+    haptic(results.passed === false ? "error" : "success");
     render();
-  } catch {
-    /* a missing translation is not worth interrupting the session for */
-  }
-}
-
-async function submit(answer: boolean): Promise<void> {
-  const q = state.question;
-  if (!q || state.answer) return;
-  try {
-    state.answer = await api.answer(q.id, answer);
-    haptic(state.answer.correct ? "success" : "error");
-    if (state.me) state.me.free_explanations_left = state.answer.free_explanations_left;
-    render();
+    if (timedOut) toast(t("exam_over_time"));
   } catch (err) {
-    renderError(err);
+    reportError(err);
   }
 }
 
-/** The "Why?" fallback, for when background warming has not landed. This one pays for
- *  a model call, which is why it is a deliberate tap and not automatic (STATUS §13). */
-async function askWhy(button: HTMLButtonElement): Promise<void> {
-  const q = state.question;
-  if (!q || !state.answer) return;
-  button.disabled = true;
-  button.textContent = t("preparing");
-  try {
-    const res = await api.explanation(q.id);
-    state.answer.explanation_state = res.explanation_state;
-    state.answer.explanation = res.explanation;
-    state.answer.free_explanations_left = res.free_explanations_left;
-    if (state.me) state.me.free_explanations_left = res.free_explanations_left;
-    render();
-  } catch (err) {
-    renderError(err);
-  }
-}
+// ---------------------------------------------------------------------------
+// screens
+// ---------------------------------------------------------------------------
 
-function studyScreen(): HTMLElement {
+function homeScreen(): HTMLElement {
   const wrap = el("section", "screen");
-  const q = state.question;
 
-  if (!q) {
-    wrap.append(el("p", "hint", t("loading")));
-    return wrap;
-  }
+  const hero = el("div", "hero");
+  hero.append(el("h1", "display", "Quiz Patente"));
+  hero.append(el("span", "label", t("tagline")));
+  wrap.append(hero);
 
-  if (q.image) {
-    const img = el("img", "figure");
-    img.src = api.figureUrl(q.image);
-    img.alt = "";
-    img.loading = "eager";
-    wrap.append(img);
-  }
+  const modes = el("div", "modes");
+  const card = (mode: Mode, title: string, desc: string) => {
+    const b = el("button", `mode ${mode}`);
+    b.append(el("div", "mode-title", title), el("div", "mode-desc", desc));
+    b.onclick = () => void startRun(mode);
+    return b;
+  };
+  modes.append(
+    card("exam", t("exam"), t("exam_desc")),
+    card("practice", t("practice"), t("practice_desc")),
+  );
+  wrap.append(modes);
 
-  if (q.stem_it) wrap.append(el("p", "stem", q.stem_it));
-  wrap.append(el("p", "statement", q.statement_it));
-
-  // The translation sits under the Italian, never replacing it: the Italian is the
-  // thing being learned and the exam is sat in Italian.
-  if (q.translation_state === "shown" && q.translation) {
-    const tr = el("div", "translation");
-    if (q.translation.stem) tr.append(el("p", "stem", q.translation.stem));
-    tr.append(el("p", "", q.translation.statement));
-    wrap.append(tr);
-  } else if (q.translation_state === "available") {
-    wrap.append(el("p", "hint", t("translating")));
-  } else if (q.translation_state === "locked") {
-    wrap.append(el("p", "hint locked", t("translation_locked")));
-  }
-
-  if (!state.answer) {
-    const row = el("div", "answers");
-    const vero = el("button", "btn vero", t("vero"));
-    const falso = el("button", "btn falso", t("falso"));
-    vero.onclick = () => void submit(true);
-    falso.onclick = () => void submit(false);
-    row.append(vero, falso);
-    wrap.append(row);
-  } else {
-    wrap.append(verdict(state.answer));
+  if (state.me && !state.me.has_pass) {
+    const note = el("p", "hint");
+    note.append(document.createTextNode(t("unlock_in_chat")));
+    wrap.append(el("h2", "", t("translations")), note);
   }
   return wrap;
 }
 
-function verdict(a: AnswerResult): HTMLElement {
-  const box = el("div", `verdict ${a.correct ? "ok" : "bad"}`);
-  box.append(
-    el("p", "verdict-line", a.correct ? t("correct") : t("wrong")),
-  );
-  if (!a.correct) {
-    box.append(
-      el(
-        "p",
-        "hint",
-        `${t("the_answer_is")}: ${a.correct_answer ? t("vero") : t("falso")}`,
-      ),
+function currentQuestion(run: Run): Question | undefined {
+  return run.session.questions[run.index];
+}
+
+function answerSheet(run: Run): HTMLElement {
+  const sheet = el("div", "sheet");
+  for (let i = 0; i < run.session.question_count; i++) {
+    const cell = el("i", "cell");
+    if (run.answered.has(i + 1)) cell.classList.add("done");
+    if (i === run.index) cell.classList.add("here");
+    sheet.append(cell);
+  }
+  return sheet;
+}
+
+function runScreen(): HTMLElement {
+  const run = state.run!;
+  const wrap = el("section", "screen");
+  const question = currentQuestion(run);
+
+  if (run.deadline) {
+    const bar = el("div", "exam-bar");
+    timerNode = el("div", "timer display", "--:--");
+    const count = el("div", "exam-count label");
+    count.append(
+      document.createTextNode(`${t("answered_n")} `),
+      el("b", "", `${run.answered.size}/${run.session.question_count}`),
     );
+    bar.append(timerNode, count);
+    wrap.append(bar);
+    tick();
+  }
+
+  wrap.append(answerSheet(run));
+  wrap.append(el("div", "label", t("question_of", {
+    n: run.index + 1, total: run.session.question_count,
+  })));
+
+  if (!question) {
+    wrap.append(el("div", "spinner"));
+    return wrap;
+  }
+
+  if (question.image) {
+    const plate = el("div", "plate");
+    const img = el("img");
+    img.src = api.figureUrl(question.image);
+    img.alt = "";
+    plate.append(img);
+    wrap.append(plate);
+  }
+
+  if (question.stem_it) wrap.append(el("p", "stem", question.stem_it));
+  wrap.append(el("p", "statement", question.statement_it));
+
+  // The translation sits UNDER the Italian and never replaces it: the exam is sat in
+  // Italian and the Italian is the thing being learned.
+  if (question.translation_state === "shown" && question.translation) {
+    const tr = el("div", "translation");
+    if (question.translation.stem) tr.append(el("p", "stem", question.translation.stem));
+    tr.append(el("p", "", question.translation.statement));
+    wrap.append(tr);
+  } else if (question.translation_state === "locked") {
+    wrap.append(el("p", "hint locked", t("translation_locked")));
+  }
+
+  const answeredHere = run.answered.has(run.index + 1);
+
+  if (!answeredHere) {
+    const row = el("div", "answers");
+    const vero = el("button", "btn vero", t("vero"));
+    const falso = el("button", "btn falso", t("falso"));
+    vero.disabled = falso.disabled = run.busy;
+    vero.onclick = () => void submitAnswer(true);
+    falso.onclick = () => void submitAnswer(false);
+    row.append(vero, falso);
+    wrap.append(row);
+  } else if (run.session.mode === "practice" && run.verdict) {
+    wrap.append(verdictBox(run.verdict));
+  } else {
+    const next = el("button", "btn primary", t("next"));
+    next.onclick = advance;
+    wrap.append(next);
+  }
+
+  const finish = el("button", "btn ghost",
+    run.session.mode === "exam" ? t("submit") : t("end_test"));
+  finish.onclick = () => {
+    if (run.session.mode === "exam" && !confirm(t("confirm_submit"))) return;
+    void finishRun();
+  };
+  wrap.append(finish);
+  return wrap;
+}
+
+function verdictBox(a: AnswerResult): HTMLElement {
+  const box = el("div", `verdict ${a.correct ? "ok" : "bad"}`);
+  box.append(el("p", "verdict-line display", a.correct ? t("correct") : t("wrong")));
+  if (!a.correct) {
+    box.append(el("p", "hint",
+      `${t("the_answer_is")}: ${a.correct_answer ? t("vero") : t("falso")}`));
   }
 
   if (a.explanation_state === "shown" && a.explanation) {
     box.append(el("p", "explanation", a.explanation));
   } else if (a.explanation_state === "available") {
     const why = el("button", "btn ghost", t("why"));
-    why.onclick = () => void askWhy(why);
+    why.onclick = () => void askWhy(why, a.question_id);
     box.append(why);
   } else if (a.explanation_state === "locked") {
     box.append(el("p", "hint locked", t("explanation_locked")));
@@ -170,41 +369,81 @@ function verdict(a: AnswerResult): HTMLElement {
     box.append(el("p", "hint", t("explanation_unavailable")));
   }
 
-  if (a.free_explanations_left > 0 && !state.me?.has_pass) {
-    box.append(
-      el("p", "hint", `${a.free_explanations_left} ${t("free_left")}`),
-    );
-  }
-
   const next = el("button", "btn primary", t("next"));
-  next.onclick = () => void loadQuestion(a.question_id);
+  next.onclick = advance;
   box.append(next);
   return box;
 }
 
-// ---------------------------------------------------------------------------
-// stats
-// ---------------------------------------------------------------------------
-
-let statsCache: Stats | null = null;
-
-async function loadStats(): Promise<void> {
+/** The "Why?" fallback. This one pays for a model call, which is why it is a deliberate
+ *  tap rather than automatic. */
+async function askWhy(button: HTMLButtonElement, questionId: number): Promise<void> {
+  const run = state.run;
+  if (!run?.verdict) return;
+  button.disabled = true;
+  button.textContent = t("preparing");
   try {
-    statsCache = await api.stats();
+    const res = await api.explanation(questionId);
+    run.verdict.explanation_state = res.explanation_state;
+    run.verdict.explanation = res.explanation;
+    run.verdict.free_explanations_left = res.free_explanations_left;
+    if (state.me) state.me.free_explanations_left = res.free_explanations_left;
     render();
   } catch (err) {
-    renderError(err);
+    button.disabled = false;
+    button.textContent = t("why");
+    reportError(err);
   }
+}
+
+function resultsScreen(): HTMLElement {
+  const r = state.results!;
+  const wrap = el("section", "screen");
+
+  const passed = r.passed === true;
+  const esito = el("div", `esito ${passed ? "pass" : "fail"}`);
+  if (r.mode === "exam") {
+    esito.append(el("p", "esito-verdict", passed ? t("passed") : t("failed")));
+    esito.append(el("p", "esito-line",
+      `${r.wrong} ${t("errors").toLowerCase()} / ${r.max_errors} ${t("allowed").toLowerCase()}`));
+  } else {
+    esito.append(el("p", "esito-verdict display",
+      `${r.answered - r.wrong}/${r.answered}`));
+    esito.append(el("p", "esito-line", t("answers_given")));
+  }
+
+  const tally = el("div", "tally");
+  const stat = (n: string | number, label: string) => {
+    const d = el("div");
+    d.append(el("div", "n display", String(n)), el("div", "label", label));
+    return d;
+  };
+  tally.append(
+    stat(r.answered, t("answered_n")),
+    stat(r.wrong, t("errors")),
+    stat(r.question_count - r.answered, t("unanswered")),
+  );
+  esito.append(tally);
+  wrap.append(esito);
+
+  const again = el("button", "btn primary", t("again"));
+  again.onclick = () => void startRun(r.mode);
+  wrap.append(again);
+
+  const home = el("button", "btn ghost", t("back_home"));
+  home.onclick = () => { state.screen = "home"; render(); };
+  wrap.append(home);
+  return wrap;
 }
 
 function statsScreen(): HTMLElement {
   const wrap = el("section", "screen");
-  if (!statsCache) {
-    wrap.append(el("p", "hint", t("loading")));
+  if (!state.stats) {
+    wrap.append(el("div", "spinner"));
     void loadStats();
     return wrap;
   }
-  const s = statsCache;
+  const s = state.stats;
 
   const grid = el("div", "grid");
   const tile = (label: string, value: string) => {
@@ -213,7 +452,7 @@ function statsScreen(): HTMLElement {
     return d;
   };
   grid.append(
-    tile(t("questions_seen"), `${s.questions_seen} / ${s.questions_total}`),
+    tile(t("questions_seen"), `${s.questions_seen}/${s.questions_total}`),
     tile(t("answers_given"), String(s.answers_given)),
     tile(t("error_rate"), `${Math.round(s.error_rate * 100)}%`),
   );
@@ -233,10 +472,8 @@ function statsScreen(): HTMLElement {
     const list = el("div", "topics");
     for (const row of [...s.by_topic].sort((a, b) => b.error_rate - a.error_rate)) {
       const r = el("div", "topic");
-      r.append(
-        el("div", "topic-name", row.topic),
-        el("div", "topic-rate", `${Math.round(row.error_rate * 100)}%`),
-      );
+      r.append(el("div", "topic-name", row.topic),
+               el("div", "topic-rate", `${Math.round(row.error_rate * 100)}%`));
       list.append(r);
     }
     wrap.append(list);
@@ -244,60 +481,49 @@ function statsScreen(): HTMLElement {
   return wrap;
 }
 
-// ---------------------------------------------------------------------------
-// settings
-// ---------------------------------------------------------------------------
+async function loadStats(): Promise<void> {
+  try {
+    state.stats = await api.stats();
+    render();
+  } catch (err) {
+    reportError(err);
+  }
+}
 
 function settingsScreen(): HTMLElement {
   const wrap = el("section", "screen");
   const me = state.me;
-  if (!me) {
-    wrap.append(el("p", "hint", t("loading")));
-    return wrap;
-  }
+  if (!me) { wrap.append(el("div", "spinner")); return wrap; }
 
   wrap.append(el("h2", "", t("language")));
-  const langs = el("div", "choices");
+  const langs = el("div", "chips");
   for (const code of ["it", "ru", "en"] as const) {
     const b = el("button", `chip ${me.lang === code ? "on" : ""}`, code.toUpperCase());
     b.onclick = async () => {
       try {
         state.me = await api.settings({ lang: code });
         setLang(state.me.lang);
-        statsCache = null;
+        document.documentElement.lang = lang();
+        state.stats = null;
         render();
-      } catch (err) {
-        renderError(err);
-      }
+      } catch (err) { reportError(err); }
     };
     langs.append(b);
   }
   wrap.append(langs);
 
   wrap.append(el("h2", "", t("translations")));
-  const toggle = el(
-    "button",
-    `chip ${me.translations_on ? "on" : ""}`,
-    me.translations_on ? t("on") : t("off"),
-  );
+  const toggle = el("button", `chip ${me.translations_on ? "on" : ""}`,
+    me.translations_on ? t("on") : t("off"));
   toggle.onclick = async () => {
     try {
       state.me = await api.settings({ translations_on: !me.translations_on });
       render();
-    } catch (err) {
-      renderError(err);
-    }
+    } catch (err) { reportError(err); }
   };
   wrap.append(toggle);
 
-  const status = el(
-    "p",
-    "hint",
-    me.has_pass ? t("pass_active") : t("no_pass"),
-  );
-  wrap.append(status);
-  // Payments happen in chat, never here — plan §6.2: Mini Apps selling digital goods
-  // sit closer to the Stars-only rule and to Apple's review guidelines.
+  wrap.append(el("p", "hint", me.has_pass ? t("pass_active") : t("no_pass")));
   if (!me.has_pass) wrap.append(el("p", "hint", t("unlock_in_chat")));
   return wrap;
 }
@@ -306,32 +532,14 @@ function settingsScreen(): HTMLElement {
 // shell
 // ---------------------------------------------------------------------------
 
-function renderError(err: unknown): void {
-  root.replaceChildren();
-  const wrap = el("section", "screen");
-  const message =
-    err instanceof ApiError && err.status === 401
-      ? t("outside_telegram")
-      : t("error");
-  wrap.append(el("p", "error", message));
-  const retry = el("button", "btn primary", t("retry"));
-  retry.onclick = () => void boot();
-  wrap.append(retry);
-  root.append(wrap, tabs());
-}
-
 function tabs(): HTMLElement {
   const bar = el("nav", "tabs");
-  const add = (id: Tab, label: string) => {
-    const b = el("button", `tab ${state.tab === id ? "on" : ""}`, label);
-    b.onclick = () => {
-      state.tab = id;
-      if (id === "study" && !state.question) void loadQuestion();
-      render();
-    };
+  const add = (id: Screen, label: string) => {
+    const b = el("button", `tab ${state.screen === id ? "on" : ""}`, label);
+    b.onclick = () => { state.screen = id; render(); };
     bar.append(b);
   };
-  add("study", t("study"));
+  add("home", t("home"));
   add("stats", t("stats"));
   add("settings", t("settings"));
   return bar;
@@ -339,29 +547,49 @@ function tabs(): HTMLElement {
 
 function render(): void {
   root.replaceChildren();
-  const screen =
-    state.tab === "study"
-      ? studyScreen()
-      : state.tab === "stats"
-        ? statsScreen()
-        : settingsScreen();
-  root.append(screen, tabs());
+
+  let screen: HTMLElement;
+  switch (state.screen) {
+    case "run": screen = runScreen(); break;
+    case "results": screen = resultsScreen(); break;
+    case "stats": screen = statsScreen(); break;
+    case "settings": screen = settingsScreen(); break;
+    default: screen = homeScreen();
+  }
+  root.append(screen);
+
+  // The tab bar is suppressed while a sitting is in flight. Previously it was appended
+  // unconditionally, so a candidate could tap Stats mid-exam and silently abandon a
+  // timed run — with no warning and no way back.
+  if (state.screen !== "run") {
+    root.append(tabs());
+  }
+
+  const tri = el("div", "tricolore");
+  tri.append(el("i"), el("i"), el("i"));
+  root.append(tri);
 }
 
 async function boot(): Promise<void> {
   initTelegram();
   if (!inTelegram) {
-    root.replaceChildren();
-    root.append(el("p", "error", "Open this page from the bot in Telegram."));
+    root.replaceChildren(el("p", "error", "Open this page from the bot in Telegram."));
     return;
   }
   try {
     state.me = await api.me();
     setLang(state.me.lang);
     document.documentElement.lang = lang();
-    await loadQuestion();
+    render();
   } catch (err) {
-    renderError(err);
+    root.replaceChildren();
+    const wrap = el("section", "screen");
+    wrap.append(el("p", "error",
+      err instanceof ApiError && err.status === 401 ? t("outside_telegram") : t("error")));
+    const retry = el("button", "btn primary", t("retry"));
+    retry.onclick = () => void boot();
+    wrap.append(retry);
+    root.append(wrap);
   }
 }
 

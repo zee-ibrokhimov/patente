@@ -79,3 +79,61 @@ export interface Stats {
   boxes: Record<string, number>;
   by_topic: TopicStat[];
 }
+
+/** --- quiz sessions ------------------------------------------------------ */
+
+export type Mode = "exam" | "practice";
+export type SessionState = "open" | "submitted" | "expired" | "abandoned";
+
+export interface Session {
+  id: number;
+  mode: Mode;
+  state: SessionState;
+  started_at: string;
+  /** Null in practice. The ONLY authority on when an exam ends. */
+  expires_at: string | null;
+  /** The server's clock at the moment it answered, so the client can measure its own
+   *  offset once instead of trusting the device clock. */
+  server_now: string;
+  question_count: number;
+  max_errors: number | null;
+  answered: number;
+  questions: Question[];
+}
+
+/** What an exam answer returns. Note what is absent: no verdict, no correct answer, no
+ *  explanation. The server builds this from a whitelist. */
+export interface ExamAnswer {
+  session_id: number;
+  ordinal: number;
+  answered: number;
+  remaining: number;
+}
+
+export interface PracticeAnswer extends AnswerResult {
+  session_id: number;
+  ordinal: number;
+  answered: number;
+  remaining: number;
+}
+
+export interface SessionItem {
+  ordinal: number;
+  question_id: number;
+  given: boolean | null;
+  correct: boolean | null;
+}
+
+export interface SessionResults {
+  session_id: number;
+  mode: Mode;
+  state: SessionState;
+  started_at: string;
+  finished_at: string | null;
+  question_count: number;
+  answered: number;
+  wrong: number;
+  max_errors: number | null;
+  passed: boolean | null;
+  items: SessionItem[];
+}
