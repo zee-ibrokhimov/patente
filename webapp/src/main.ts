@@ -197,12 +197,61 @@ async function submitAnswer(given: boolean): Promise<void> {
   }
 }
 
+/** Fetch the translation for the question on screen.
+ *
+ *  §15's whole design: the Italian appears instantly and the translation lands after,
+ *  because a blocking call in front of every question puts 3-5 seconds before every
+ *  interaction. Only the first few of a paper are pre-warmed at creation, so most
+ *  questions arrive as `available` and must be asked for here.
+ *
+ *  Patches the DOM in place rather than calling render(): a full rebuild would re-assign
+ *  the figure's src and reload the image, and during an exam it would also churn the
+ *  retained timer node.
+ */
+async function hydrateTranslation(): Promise<void> {
+  const run = state.run;
+  const question = run && currentQuestion(run);
+  if (!run || !question || question.translation_state !== "available") return;
+
+  const wanted = question.id;
+  try {
+    const res = await api.translation(wanted);
+    // The user may have moved on while this was in flight.
+    const now = state.run && currentQuestion(state.run);
+    if (!now || now.id !== wanted) return;
+    now.translation_state = res.translation_state;
+    now.translation = res.translation;
+
+    const slot = document.getElementById("tr-slot");
+    if (slot) slot.replaceWith(translationSlot(now));
+  } catch {
+    /* a missing translation is never worth interrupting a sitting for */
+  }
+}
+
+/** The block under the Italian. Always present as a node so it can be swapped in place. */
+function translationSlot(question: Question): HTMLElement {
+  const slot = el("div");
+  slot.id = "tr-slot";
+  if (question.translation_state === "shown" && question.translation) {
+    const tr = el("div", "translation");
+    if (question.translation.stem) tr.append(el("p", "stem", question.translation.stem));
+    tr.append(el("p", "", question.translation.statement));
+    slot.append(tr);
+  } else if (question.translation_state === "available") {
+    slot.append(el("p", "hint", t("translating")));
+  } else if (question.translation_state === "locked") {
+    slot.append(el("p", "hint locked", t("translation_locked")));
+  }
+  return slot;
+}
+
 function advance(): void {
   const run = state.run;
   if (!run) return;
   run.verdict = null;
   if (run.index < run.session.question_count - 1) run.index += 1;
-  render();
+  render();   // render() kicks off hydrateTranslation for the new question
 }
 
 async function finishRun(timedOut = false): Promise<void> {
@@ -314,14 +363,7 @@ function runScreen(): HTMLElement {
 
   // The translation sits UNDER the Italian and never replaces it: the exam is sat in
   // Italian and the Italian is the thing being learned.
-  if (question.translation_state === "shown" && question.translation) {
-    const tr = el("div", "translation");
-    if (question.translation.stem) tr.append(el("p", "stem", question.translation.stem));
-    tr.append(el("p", "", question.translation.statement));
-    wrap.append(tr);
-  } else if (question.translation_state === "locked") {
-    wrap.append(el("p", "hint locked", t("translation_locked")));
-  }
+  wrap.append(translationSlot(question));
 
   const answeredHere = run.answered.has(run.index + 1);
 
@@ -678,6 +720,10 @@ function render(): void {
     default: screen = homeScreen();
   }
   root.append(screen);
+
+  // Ask for the translation of whatever is now on screen. After render, so the Italian
+  // is already visible and the wait costs the user nothing.
+  if (state.screen === "run") void hydrateTranslation();
 
   // The tab bar is suppressed while a sitting is in flight. Previously it was appended
   // unconditionally, so a candidate could tap Stats mid-exam and silently abandon a

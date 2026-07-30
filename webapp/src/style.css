@@ -6,11 +6,16 @@
  * Regolamento, so the UI frames them the way a sign is actually mounted, and presents
  * progress the way an exam sheet actually reads.
  *
- *   · Bebas Neue for display. Condensed caps, no lowercase — the register of signage and
- *     of a countdown clock. Used only for numbers and short labels, never for prose.
- *   · Barlow for everything read as language. A low-contrast grotesque from the same
- *     signage lineage, and it carries Cyrillic properly, which matters when the core
- *     audience reads Russian.
+ *   · Golos Text throughout, in three weights. Chosen for COVERAGE first: it carries
+ *     Cyrillic properly, plus Latin and Latin-ext for Italian and for Uzbek, which is
+ *     written in Latin script.
+ *
+ *     This replaced a Bebas Neue / Barlow pairing that was chosen for its signage
+ *     character without checking the subsets. Neither face covers Cyrillic — Barlow has
+ *     none at all upstream — so for a Russian reader EVERY character fell back to the
+ *     system font and none of the typography described here was ever applied to them.
+ *     A typeface that does not cover your users' language is not a design decision, it
+ *     is a bug. Check `unicode-range` before choosing, not after.
  *   · The tricolore appears once, as a 3px hairline. A flag would be a costume; a hairline
  *     is a signature. The product is explicitly "not an official ministry product" and the
  *     visual language must not overclaim.
@@ -73,7 +78,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: 'Barlow', ui-sans-serif, system-ui, sans-serif;
+  font-family: 'Golos Text', ui-sans-serif, system-ui, sans-serif;
   font-size: 16px;
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
@@ -92,8 +97,8 @@ body {
 /* --- type ------------------------------------------------------------ */
 
 .display {
-  font-family: 'Bebas Neue', 'Barlow', sans-serif;
-  font-weight: 400;
+  font-family: 'Golos Text', sans-serif;
+  font-weight: 700;
   letter-spacing: .02em;
   font-variant-numeric: tabular-nums;
   line-height: .95;
@@ -173,7 +178,7 @@ h2 { font-size: 17px; font-weight: 700; margin: 26px 0 10px; letter-spacing: -.0
   border: 1px solid transparent;
   border-radius: var(--r);
   padding: 15px 16px;
-  font-family: 'Bebas Neue', 'Barlow', sans-serif;
+  font-family: 'Golos Text', sans-serif;
   font-size: 22px;
   letter-spacing: .06em;
   cursor: pointer;
@@ -192,7 +197,7 @@ h2 { font-size: 17px; font-weight: 700; margin: 26px 0 10px; letter-spacing: -.0
 .btn.ghost {
   background: transparent; color: var(--link);
   border-color: var(--edge-strong);
-  font-family: 'Barlow', sans-serif; font-size: 15px; letter-spacing: 0; font-weight: 600;
+  font-family: 'Golos Text', sans-serif; font-size: 15px; letter-spacing: 0; font-weight: 600;
   margin-top: 10px;
 }
 
@@ -208,7 +213,7 @@ h2 { font-size: 17px; font-weight: 700; margin: 26px 0 10px; letter-spacing: -.0
 .verdict.ok  { border-left-color: var(--sign-green); }
 .verdict.bad { border-left-color: var(--sign-red); }
 
-.verdict-line { font-family: 'Bebas Neue', sans-serif; font-size: 26px; margin: 0 0 2px; letter-spacing: .03em; }
+.verdict-line { font-family: 'Golos Text', sans-serif; font-size: 26px; margin: 0 0 2px; letter-spacing: .03em; }
 .verdict.ok  .verdict-line { color: var(--sign-green); }
 .verdict.bad .verdict-line { color: var(--sign-red); }
 
@@ -233,7 +238,7 @@ h2 { font-size: 17px; font-weight: 700; margin: 26px 0 10px; letter-spacing: -.0
    taught what that means, and it is the one moment in the app where colour carries
    information rather than decoration. */
 .timer {
-  font-family: 'Bebas Neue', sans-serif;
+  font-family: 'Golos Text', sans-serif;
   font-size: 30px; letter-spacing: .04em;
   font-variant-numeric: tabular-nums;
   color: var(--sign-green);
@@ -246,7 +251,7 @@ h2 { font-size: 17px; font-weight: 700; margin: 26px 0 10px; letter-spacing: -.0
 @keyframes pulse { 50% { opacity: .45; } }
 
 .exam-count { margin-left: auto; }
-.exam-count b { font-family: 'Bebas Neue', sans-serif; font-size: 20px; font-weight: 400; color: var(--text); }
+.exam-count b { font-family: 'Golos Text', sans-serif; font-size: 20px; font-weight: 400; color: var(--text); }
 
 /* The answer sheet. Shows ANSWERED, never CORRECT — that is the whole discipline of
    exam mode expressed in the one component a candidate stares at most. */
@@ -283,7 +288,7 @@ h2 { font-size: 17px; font-weight: 700; margin: 26px 0 10px; letter-spacing: -.0
 .esito.fail { border-color: var(--sign-red); }
 
 .esito-verdict {
-  font-family: 'Bebas Neue', sans-serif;
+  font-family: 'Golos Text', sans-serif;
   font-size: clamp(44px, 15vw, 68px);
   letter-spacing: .03em;
   margin: 0;
@@ -296,7 +301,7 @@ h2 { font-size: 17px; font-weight: 700; margin: 26px 0 10px; letter-spacing: -.0
 
 .tally { display: flex; justify-content: center; gap: 26px; margin-top: 18px; }
 .tally div { text-align: center; }
-.tally .n { font-family: 'Bebas Neue', sans-serif; font-size: 32px; line-height: 1; }
+.tally .n { font-family: 'Golos Text', sans-serif; font-size: 32px; line-height: 1; }
 
 /* --- stats ------------------------------------------------------------ */
 
@@ -309,13 +314,13 @@ h2 { font-size: 17px; font-weight: 700; margin: 26px 0 10px; letter-spacing: -.0
   padding: 13px 10px;
   text-align: center;
 }
-.tile-value { font-family: 'Bebas Neue', sans-serif; font-size: 27px; line-height: 1; }
+.tile-value { font-family: 'Golos Text', sans-serif; font-size: 27px; line-height: 1; }
 .tile-label { font-size: 11px; color: var(--hint); margin-top: 5px; letter-spacing: .06em; text-transform: uppercase; }
 
 .boxes { display: flex; gap: 6px; }
 .box { flex: 1; background: var(--surface); border: 1px solid var(--edge); border-radius: var(--r-sm); padding: 9px 3px; text-align: center; }
 .box-n { font-size: 10px; color: var(--hint); letter-spacing: .1em; }
-.box-c { font-family: 'Bebas Neue', sans-serif; font-size: 21px; line-height: 1.1; }
+.box-c { font-family: 'Golos Text', sans-serif; font-size: 21px; line-height: 1.1; }
 
 .topics { display: flex; flex-direction: column; }
 .topic { display: flex; justify-content: space-between; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--edge); }
@@ -326,7 +331,7 @@ h2 { font-size: 17px; font-weight: 700; margin: 26px 0 10px; letter-spacing: -.0
 
 .hero { padding: 26px 0 18px; }
 .hero h1 {
-  font-family: 'Bebas Neue', sans-serif;
+  font-family: 'Golos Text', sans-serif;
   font-size: clamp(38px, 12vw, 56px);
   letter-spacing: .01em;
   margin: 0;
@@ -354,7 +359,7 @@ h2 { font-size: 17px; font-weight: 700; margin: 26px 0 10px; letter-spacing: -.0
 .mode::before { content: ''; position: absolute; inset: 0 auto 0 0; width: 5px; background: var(--sign-blue); }
 .mode.exam::before { background: var(--sign-red); }
 
-.mode-title { font-family: 'Bebas Neue', sans-serif; font-size: 27px; letter-spacing: .03em; }
+.mode-title { font-family: 'Golos Text', sans-serif; font-size: 27px; letter-spacing: .03em; }
 .mode-desc { color: var(--hint); font-size: 14px; margin-top: 3px; }
 
 /* --- chrome ----------------------------------------------------------- */
@@ -427,7 +432,7 @@ h2 { font-size: 17px; font-weight: 700; margin: 26px 0 10px; letter-spacing: -.0
   width: 52px; height: 52px; border-radius: 50%;
   display: grid; place-items: center;
   background: var(--sign-blue); color: #fff;
-  font-family: 'Bebas Neue', sans-serif; font-size: 24px; letter-spacing: .04em;
+  font-family: 'Golos Text', sans-serif; font-size: 24px; letter-spacing: .04em;
   flex: none; overflow: hidden;
 }
 .avatar img { width: 100%; height: 100%; object-fit: cover; }
@@ -445,7 +450,7 @@ h2 { font-size: 17px; font-weight: 700; margin: 26px 0 10px; letter-spacing: -.0
   background: var(--surface);
 }
 .gauge-head { display: flex; align-items: baseline; justify-content: space-between; }
-.gauge-value { font-family: 'Bebas Neue', sans-serif; font-size: 46px; line-height: .9; }
+.gauge-value { font-family: 'Golos Text', sans-serif; font-size: 46px; line-height: .9; }
 .gauge.ready .gauge-value { color: var(--sign-green); }
 .gauge.notyet .gauge-value { color: var(--sign-amber); }
 
@@ -474,7 +479,7 @@ h2 { font-size: 17px; font-weight: 700; margin: 26px 0 10px; letter-spacing: -.0
   padding: 11px 0; border-bottom: 1px solid var(--edge);
 }
 .run-badge {
-  font-family: 'Bebas Neue', sans-serif; font-size: 13px; letter-spacing: .08em;
+  font-family: 'Golos Text', sans-serif; font-size: 13px; letter-spacing: .08em;
   padding: 3px 9px; border-radius: 999px; color: #fff; flex: none;
 }
 .run-badge.pass { background: var(--sign-green); }
