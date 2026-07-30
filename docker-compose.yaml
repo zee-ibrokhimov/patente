@@ -96,6 +96,16 @@ services:
     restart: unless-stopped
     networks:
       - internal
+    labels:
+      # Coolify attaches every service to its own proxy network as well as to the
+      # networks declared here, so this container has two addresses. Traefik picks one
+      # to forward to, and with no hint it chose the `internal` one — which the proxy
+      # is not on. The result was not an error but a hang: every request to
+      # patente.zeehub.xyz timed out while the container served fine from inside.
+      #
+      # This names the network Traefik must use. It is the app's Coolify network, whose
+      # name is the application UUID.
+      - "traefik.docker.network=rboj5u2xk5dj4o4yto89ablh"
     depends_on:
       api:
         condition: service_healthy
