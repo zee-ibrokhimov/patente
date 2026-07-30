@@ -1,0 +1,287 @@
+/* Telegram supplies the palette through themeParams (see telegram.ts); these are the
+   fallbacks for a client that does not, and for `npm run dev` outside Telegram. */
+:root {
+  --bg: #ffffff;
+  --text: #000000;
+  --hint: #707579;
+  --link: #3390ec;
+  --button: #3390ec;
+  --button-text: #ffffff;
+  --surface: #f4f4f5;
+  --ok: #2ea043;
+  --bad: #e5484d;
+  --radius: 12px;
+}
+
+:root[data-scheme="dark"] {
+  --ok: #3fb950;
+  --bad: #ff6369;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  /* The tab bar is fixed; keep the last element clear of it and of the home indicator. */
+  padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+}
+
+#app {
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+.screen {
+  padding: 16px;
+}
+
+h2 {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--hint);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 24px 0 8px;
+}
+
+.figure {
+  display: block;
+  max-width: 100%;
+  max-height: 40vh;
+  margin: 0 auto 16px;
+  object-fit: contain;
+}
+
+.stem {
+  color: var(--hint);
+  margin: 0 0 4px;
+}
+
+.statement {
+  font-size: 18px;
+  margin: 0 0 16px;
+}
+
+.translation {
+  border-left: 3px solid var(--link);
+  padding-left: 12px;
+  margin: 0 0 16px;
+  color: var(--hint);
+}
+
+.translation p {
+  margin: 0 0 4px;
+}
+
+.hint {
+  color: var(--hint);
+  font-size: 14px;
+  margin: 8px 0;
+}
+
+.hint.locked {
+  color: var(--link);
+}
+
+.error {
+  color: var(--bad);
+  padding: 24px 0;
+}
+
+.answers {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.btn {
+  appearance: none;
+  border: none;
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  background: var(--surface);
+  color: var(--text);
+  width: 100%;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+}
+
+.btn.vero {
+  background: var(--ok);
+  color: #fff;
+}
+
+.btn.falso {
+  background: var(--bad);
+  color: #fff;
+}
+
+.btn.primary {
+  background: var(--button);
+  color: var(--button-text);
+  margin-top: 16px;
+}
+
+.btn.ghost {
+  background: transparent;
+  color: var(--link);
+  border: 1px solid var(--link);
+  margin-top: 12px;
+}
+
+.verdict {
+  margin-top: 24px;
+  padding: 16px;
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.verdict-line {
+  font-size: 18px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.verdict.ok .verdict-line {
+  color: var(--ok);
+}
+
+.verdict.bad .verdict-line {
+  color: var(--bad);
+}
+
+.explanation {
+  margin: 12px 0 0;
+  white-space: pre-wrap;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 12px;
+}
+
+.tile {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 12px;
+  text-align: center;
+}
+
+.tile-value {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.tile-label {
+  font-size: 12px;
+  color: var(--hint);
+  margin-top: 2px;
+}
+
+.boxes {
+  display: flex;
+  gap: 8px;
+}
+
+.box {
+  flex: 1;
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 10px 4px;
+  text-align: center;
+}
+
+.box-n {
+  font-size: 11px;
+  color: var(--hint);
+}
+
+.box-c {
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.topics {
+  display: flex;
+  flex-direction: column;
+}
+
+.topic {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--surface);
+}
+
+.topic-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.topic-rate {
+  font-variant-numeric: tabular-nums;
+  color: var(--hint);
+}
+
+.choices {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.chip {
+  appearance: none;
+  border: 1px solid var(--surface);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 8px 16px;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.chip.on {
+  background: var(--button);
+  color: var(--button-text);
+  border-color: var(--button);
+}
+
+.tabs {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  background: var(--bg);
+  border-top: 1px solid var(--surface);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.tab {
+  flex: 1;
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--hint);
+  padding: 16px 8px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.tab.on {
+  color: var(--link);
+  font-weight: 600;
+}

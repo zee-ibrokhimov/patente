@@ -81,9 +81,34 @@ services:
       - FREE_EXPLANATIONS=${FREE_EXPLANATIONS:-3}
     command: ["python", "-m", "bot.main"]
 
+  # The Mini App. This is the ONLY service that should ever carry a domain.
+  #
+  # It serves the built frontend and reverse-proxies exactly one prefix, /webapp/*,
+  # to the API. Everything else on the API has no location block and is therefore
+  # unreachable through it — see webapp/nginx.conf, which is the access control.
+  #
+  # Never put a domain on `api`. Its /users/{chat_id}/* routes take identity from the
+  # URL and would hand out unlimited paid passes to anyone who found them.
+  web:
+    build:
+      context: .
+      dockerfile: webapp/Dockerfile
+    restart: unless-stopped
+    networks:
+      - internal
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/index.html"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
 networks:
   internal:
-    # Not external, not shared with the Coolify proxy. Only these two services.
+    # Not external, not shared with the Coolify proxy. Only these services.
     driver: bridge
 
 volumes:

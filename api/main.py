@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps import get_session
 from api.models import Question
-from api.routes import figures, quiz, users, webhooks
+from api.routes import figures, quiz, users, webapp, webhooks
 from shared.config import settings
 
 app = FastAPI(
@@ -26,6 +26,10 @@ app.include_router(users.router)
 app.include_router(quiz.router)
 app.include_router(figures.router)
 app.include_router(webhooks.router)
+# The only routers above that may ever be reached from the internet are webhooks
+# (HMAC-signed) and webapp (initData-signed). users/quiz/figures take identity from
+# the URL and must stay private — see api/routes/webapp.py.
+app.include_router(webapp.router)
 
 
 @app.get("/health", tags=["ops"])
