@@ -1,0 +1,121 @@
+#!/bin/bash
+# Verified snapshot of the LIVE database, with a guard against backing up the wrong one.
+#
+# The database is inside a Docker volume, so this cannot just read a file. It also must
+# not copy patente.db directly: in WAL mode the database is three files and a plain copy
+# measurably lost 167 rows in this project's own testing, including every translation
+# (STATUS.md §17). ops/backup.py uses SQLite's online backup API.
+#
+# Sequence, and the order matters:
+#   1. snapshot inside the container, where the code and its deps live
+#   2. REHEARSE the restore against it there — a backup nobody has restored is a belief
+#      about the future, and a snapshot taken before a migration passes integrity_check
+#      happily and then dies on the first query touching a column added later
+#   3. copy it out to the host
+#   4. ASSERT it is this product's production database, not merely a valid one
+#   5. only then prune
+#
+# Step 4 is the lesson from an incident already recorded in
+# /var/backups/patente/legacy-systemd/README: a backup ran green every night against the
+# retired deployment's database while the real data went unprotected. Verifying a
+# snapshot is "a valid SQLite file with content in it" does not catch that — a freshly
+# seeded database passes every such check. The distinguishing signal is the append-only
+# events table, which STATUS.md §3 establishes is never deleted from (GDPR erasure
+# anonymises events rather than removing them). It can only grow. If it shrinks, either
+# this is a different database or we have lost data — and in both cases the correct
+# action is to STOP PRUNING, because 56 successful backups of the wrong database would
+# otherwise delete every good snapshot within 14 days.
+#
+# Alerts go to Telegram. cron's MAILTO=root is a dead letter drop on this box: postfix
+# is inet_interfaces=loopback-only with no relayhost and /var/mail has never been
+# written, so every failure would have been silent.
+set -uo pipefail
+
+APP_UUID="rboj5u2xk5dj4o4yto89ablh"
+DEST="/var/backups/patente"
+MANIFEST="${DEST}/.manifest.json"
+KEEP=56
+WORK="/tmp/patente-backup"
+EXPECT_QUESTIONS=7106
+EXPECT_CLUSTERS=3382
+
+[ -r /etc/patente-backup.env ] && { set -a; . /etc/patente-backup.env; set +a; }
+
+notify() {
+  [ -n "${TG_TOKEN:-}" ] && [ -n "${TG_CHAT:-}" ] || return 0
+  curl -s -m 15 "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+    --data-urlencode "chat_id=${TG_CHAT}" \
+    --data-urlencode "text=$1" >/dev/null 2>&1 || true
+}
+
+fail() {
+  echo "$(date -Is) FAIL: $1" >&2
+  notify "🔴 patente-backup FAILED
+$1
+host: $(hostname)  time: $(date -Is)"
+  exit 1
+}
+
+CID=$(docker ps -q --filter "name=api-${APP_UUID}" --filter "status=running" | head -1)
+[ -n "$CID" ] || fail "no running api container for ${APP_UUID}"
+
+mkdir -p "$DEST"
+
+# --keep 1 because pruning inside a container that is recreated on every deploy is
+# meaningless; retention is kept on the host, below.
+docker exec "$CID" sh -c "rm -rf ${WORK} && mkdir -p ${WORK} && python ops/backup.py --dest ${WORK} --keep 1" \
+  || fail "ops/backup.py failed inside the container"
+
+SNAP=$(docker exec "$CID" sh -c "ls -1 ${WORK}/patente-*.db 2>/dev/null | head -1")
+[ -n "$SNAP" ] || fail "backup.py produced no snapshot"
+
+docker exec "$CID" python ops/restore.py --from "$SNAP" --rehearse \
+  || fail "restore rehearsal failed — the snapshot is not usable"
+
+BASENAME=$(basename "$SNAP")
+LOCAL="${DEST}/${BASENAME}"
+docker exec "$CID" rm -rf "${WORK}" >/dev/null 2>&1 &
+docker cp "${CID}:${SNAP}" "$LOCAL" || fail "could not copy the snapshot out of the container"
+wait 2>/dev/null || true
+
+# ---- step 4: is this the right database? --------------------------------------
+read -r N_QUESTIONS N_CLUSTERS N_EVENTS N_USERS N_EXPL N_TRANS <<<"$(sqlite3 "$LOCAL" "
+  select (select count(*) from questions),
+         (select count(*) from clusters),
+         (select count(*) from events),
+         (select count(*) from users),
+         (select count(*) from explanations),
+         (select count(*) from translations);" | tr '|' ' ')" \
+  || fail "could not read the copied snapshot"
+
+[ "$N_QUESTIONS" = "$EXPECT_QUESTIONS" ] || fail "snapshot has ${N_QUESTIONS} questions, expected ${EXPECT_QUESTIONS} — wrong database?"
+[ "$N_CLUSTERS" = "$EXPECT_CLUSTERS" ] || fail "snapshot has ${N_CLUSTERS} clusters, expected ${EXPECT_CLUSTERS} — clustering did not run, or wrong database?"
+
+PREV_EVENTS=0
+if [ -r "$MANIFEST" ]; then
+  PREV_EVENTS=$(python3 -c "import json;print(json.load(open('$MANIFEST')).get('events',0))" 2>/dev/null || echo 0)
+fi
+
+if [ "$N_EVENTS" -lt "$PREV_EVENTS" ]; then
+  mv "$LOCAL" "${LOCAL}.SUSPECT"
+  fail "events went BACKWARDS: ${PREV_EVENTS} -> ${N_EVENTS}.
+Events are append-only (GDPR erasure anonymises, never deletes), so this is either a
+different database or real data loss.
+NOT PRUNING — every existing good snapshot has been kept.
+Snapshot quarantined at ${LOCAL}.SUSPECT"
+fi
+
+python3 - "$MANIFEST" "$N_EVENTS" "$N_USERS" "$N_EXPL" "$N_TRANS" <<'PY'
+import json, sys
+path, events, users, expl, trans = sys.argv[1], *map(int, sys.argv[2:6])
+json.dump({"events": events, "users": users, "explanations": expl,
+           "translations": trans}, open(path, "w"))
+PY
+
+# ---- step 5: prune, only now that the snapshot is trusted ---------------------
+# shellcheck disable=SC2012
+ls -1t "${DEST}"/patente-*.db 2>/dev/null | tail -n +$((KEEP + 1)) | while read -r old; do
+  rm -f "$old"
+done
+
+echo "$(date -Is) OK: ${BASENAME} ($(stat -c%s "$LOCAL") bytes) users=${N_USERS} events=${N_EVENTS} expl=${N_EXPL} trans=${N_TRANS}, $(ls -1 "${DEST}"/patente-*.db | wc -l) retained"

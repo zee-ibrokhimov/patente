@@ -1,0 +1,26 @@
+# Daily verified snapshot of the LIVE database.
+#
+# The live database is inside the Coolify volume
+# rboj5u2xk5dj4o4yto89ablh_patente-data, not on the host filesystem. This job used
+# to point at /srv/patente/patente.db — the old systemd deployment — which meant the
+# real data (progress, entitlement, and the explanations and translations that cost
+# money to generate) was being left unprotected while a backup ran successfully
+# every night against the wrong database. That is the worst shape a backup can take.
+#
+# /usr/local/sbin/patente-backup snapshots inside the container using SQLite's
+# online backup API, rehearses a restore against it, and only then copies it out.
+# It exits non-zero on any failure, so cron will report it.
+#
+# Runs as root because it needs the Docker socket.
+#
+# NOTE: /var/backups is ON THIS BOX. This is still not the off-box copy that
+# STATUS.md §6.4 asks for.
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+MAILTO=root
+
+# Every 6 hours. Daily meant losing up to a day of progress, entitlement and paid-for
+# generated content; 6-hourly with 56 retained keeps 14 days of history at the same
+# disk cost as the old 14 daily snapshots (each is ~2.7 MB and mostly the static bank).
+# This is an interim tightening - the full scheme (off-box, tiered retention) is next.
+0 */6 * * * root /usr/local/sbin/patente-backup >> /var/log/patente-backup.log 2>&1
