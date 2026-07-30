@@ -1,0 +1,93 @@
+# Coolify deployment: two services from one image, one private network.
+#
+# ⚠️  SECURITY — read before adding anything to this file.
+#
+# The API has NO AUTHENTICATION of any kind. Anything that can reach it can grant
+# itself an unlimited paid pass (POST /users/{chat_id}/pass), read any user, or
+# delete any user and their progress. It is safe only because the ONLY thing that
+# can reach it is the bot, over the private `internal` network below.
+#
+# Therefore, for the `api` service:
+#   - do NOT add a `ports:` mapping (that publishes it on the host)
+#   - do NOT set a domain / FQDN on it in Coolify (that generates a Traefik router)
+#   - do NOT attach it to a shared or proxy-facing network
+#
+# Exactly one path may ever be public: POST /webhooks/tribute. It is the only
+# endpoint that authenticates its caller (HMAC-SHA256 over the raw body) and it
+# fails closed when TRIBUTE_WEBHOOK_SECRET is unset. Exposing it means a router
+# matched on Host + Path + Method — never a blanket route to this service.
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    networks:
+      - internal
+    volumes:
+      - patente-data:/data
+    environment:
+      # Real environment variables take precedence over .env in pydantic-settings,
+      # which is what we want here — Coolify is the source of truth (STATUS §14.6).
+      - ENV=prod
+      - DATABASE_URL=sqlite+aiosqlite:////data/patente.db
+      - API_BASE_URL=http://127.0.0.1:8000
+      - BOT_TOKEN_PROD=${BOT_TOKEN_PROD}
+      - BOT_USERNAME=${BOT_USERNAME}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o}
+      - OPENAI_TRANSLATE_MODEL=${OPENAI_TRANSLATE_MODEL:-}
+      - FREE_EXPLANATIONS=${FREE_EXPLANATIONS:-3}
+      - ADMIN_CHAT_IDS=${ADMIN_CHAT_IDS}
+      - SUPPORT_CONTACT=${SUPPORT_CONTACT}
+      - TRIBUTE_API_KEY=${TRIBUTE_API_KEY:-}
+      - TRIBUTE_WEBHOOK_SECRET=${TRIBUTE_WEBHOOK_SECRET:-}
+      - TRIBUTE_PRODUCT_1M=${TRIBUTE_PRODUCT_1M:-}
+      - TRIBUTE_PRODUCT_3M=${TRIBUTE_PRODUCT_3M:-}
+    # ONE worker, never more. SQLite plus the per-cluster in-process lock that
+    # dedupes concurrent OpenAI calls both assume a single process; --workers
+    # would mean duplicate paid API calls and write contention.
+    command: ["python", "-m", "uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    healthcheck:
+      # Seeding 7106 questions and clustering 3382 runs before uvicorn starts on a
+      # cold volume, so start_period is generous on purpose — a short one marks the
+      # first deploy unhealthy while it is doing exactly what it should.
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5).status==200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
+
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    networks:
+      - internal
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      # The bot holds no database handle and runs no migrations — the API owns both.
+      - PATENTE_SKIP_MIGRATE=1
+      - ENV=prod
+      - API_BASE_URL=http://api:8000
+      - BOT_TOKEN_PROD=${BOT_TOKEN_PROD}
+      - BOT_USERNAME=${BOT_USERNAME}
+      - ADMIN_CHAT_IDS=${ADMIN_CHAT_IDS}
+      - SUPPORT_CONTACT=${SUPPORT_CONTACT}
+      - FREE_EXPLANATIONS=${FREE_EXPLANATIONS:-3}
+    command: ["python", "-m", "bot.main"]
+
+networks:
+  internal:
+    # Not external, not shared with the Coolify proxy. Only these two services.
+    driver: bridge
+
+volumes:
+  patente-data:
+    # Every user's progress and entitlement, plus the explanations and translations
+    # that cost real money to generate. Losing this volume loses all of it.
+    driver: local

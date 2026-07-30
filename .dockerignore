@@ -1,0 +1,15 @@
+.git
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+.env
+.env.bak
+*.db
+*.db-wal
+*.db-shm
+tests
+# The 24 MB source PDF is gitignored anyway; extract.py neither runs nor is needed
+# at runtime. content/out/ is NOT ignored — it is read at runtime.
+questions
