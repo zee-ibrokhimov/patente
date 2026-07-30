@@ -41,6 +41,17 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_model: str = "gpt-4o"
 
+    # Plan §4.4 expected translation to be the one place a cheaper model pays off:
+    # literal rendering of one sentence, no legal reasoning. **Measured, it is not.**
+    # gpt-4o-mini renders "il segnale raffigurato" as "сигнал" — a signal, not a road
+    # sign — while gpt-4o and gpt-5-mini both say "знак" correctly. A glossary in the
+    # prompt fixed the English and not the Russian, so it is the model.
+    #
+    # There is also nothing to save: the whole bank is roughly EUR 15 at gpt-4o, against
+    # EUR 75 for the explanations. Left empty deliberately, so this falls back to
+    # `openai_model` — set it only to go *up*.
+    openai_translate_model: str = ""
+
     tribute_api_key: str = ""
     tribute_webhook_secret: str = ""
     tribute_product_1m: str = ""
@@ -49,6 +60,10 @@ class Settings(BaseSettings):
     free_explanations: int = 3
     admin_chat_ids: str = ""
     support_contact: str = ""
+
+    @property
+    def translate_model(self) -> str:
+        return self.openai_translate_model or self.openai_model
 
     @property
     def bot_token(self) -> str:

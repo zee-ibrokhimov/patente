@@ -11,14 +11,16 @@ from api.schemas import (
     AnswerOut,
     ExplanationOut,
     QuestionOut,
+    QuestionTranslationOut,
     ReportIn,
     StatsOut,
     TopicOut,
 )
-from api.services import events, explanations, stats
+from api.services import events, explanations, stats, translations
+
 from api.services.answers import record_answer
 from api.services.content import question_payload
-from api.services.entitlement import evaluate
+from api.services.entitlement import Access, evaluate
 from api.services.selection import next_question
 from shared.constants import EV_QUESTION_SERVED, EV_REPORT_SUBMITTED
 
@@ -79,6 +81,13 @@ async def serve_next(
     # cluster and there are 3382 of them.
     if entitlement.can_explain:
         background.add_task(explanations.warm, question.cluster_id, user.lang)
+
+    # Translations are gated on the pass and on the user's own switch, and there is no
+    # point warming a question already stored. This will not help the caller — their
+    # client fetches and edits the message — but the same question comes back on the
+    # Leitner schedule and to other users, so most later reads are cache hits.
+    if payload["translation_state"] == Access.AVAILABLE.value:
+        background.add_task(translations.warm, question.id)
     return QuestionOut(**payload)
 
 
@@ -128,6 +137,32 @@ async def read_explanation(
         free_explanations_left=evaluate(user).free_explanations_left,
         **payload,
     )
+
+
+@router.post(
+    "/users/{chat_id}/questions/{question_id}/translation",
+    response_model=QuestionTranslationOut,
+)
+async def read_translation(
+    question_id: int,
+    user: User = Depends(get_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """The translation, produced now if nobody has asked for this question before.
+
+    Called by the client straight after it has shown the Italian, so the wait happens
+    while the user is already reading. Blocking the question on this instead would put a
+    few seconds in front of every interaction, which is the one thing the flow cannot
+    afford — see api/services/translations.py.
+    """
+    question = await session.get(Question, question_id)
+    if question is None:
+        raise HTTPException(404, "unknown question")
+
+    payload, _access = await translations.deliver(
+        session, question, user, evaluate(user)
+    )
+    return QuestionTranslationOut(question_id=question.id, **payload)
 
 
 @router.get("/users/{chat_id}/stats", response_model=StatsOut)

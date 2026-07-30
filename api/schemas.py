@@ -75,6 +75,20 @@ class AnswerOut(BaseModel):
     free_explanations_left: int
 
 
+class QuestionTranslationOut(BaseModel):
+    """The response to an explicit translation request.
+
+    `translation` is present only when `translation_state` is "shown". "available" never
+    comes back from here — by the time this has answered, the translation either exists or
+    could not be produced. Named apart from `TranslationOut`, which is the body nested
+    inside a question payload.
+    """
+
+    question_id: int
+    translation_state: str
+    translation: TranslationOut | None = None
+
+
 class ExplanationOut(BaseModel):
     """`explanation` is present only when `explanation_state` is "shown".
 

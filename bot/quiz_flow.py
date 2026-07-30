@@ -38,13 +38,17 @@ async def send_question(
     markup = keyboards.answer_buttons(question["id"], lang)
 
     if not question.get("image"):
-        return await bot.send_message(chat_id, caption, reply_markup=markup)
+        message = await bot.send_message(chat_id, caption, reply_markup=markup)
+        await fill_in_translation(api, message, question, lang)
+        return message
 
     name = question["image"].rsplit("/", 1)[-1]
     if question.get("image_file_id"):
-        return await bot.send_photo(
+        message = await bot.send_photo(
             chat_id, question["image_file_id"], caption=caption, reply_markup=markup
         )
+        await fill_in_translation(api, message, question, lang)
+        return message
 
     data = await api.figure_bytes(name)
     message = await bot.send_photo(
@@ -55,7 +59,37 @@ async def send_question(
     except ApiError:
         # Worth a re-upload next time, not worth failing the user's question.
         log.warning("could not cache file_id for %s", name, exc_info=True)
+    await fill_in_translation(api, message, question, lang)
     return message
+
+
+async def fill_in_translation(
+    api: ApiClient, message: Message, question: dict, lang: str
+) -> None:
+    """Fetch the translation and edit it into the message that is already on screen.
+
+    The Italian goes out first and this happens after, because the translation may have
+    to be generated and nobody waits three seconds per question — the user is reading the
+    statement while this runs. A failure leaves them with the Italian, which is the exam
+    language and the thing being learned anyway, so it is never worth surfacing.
+    """
+    if question.get("translation_state") != "available":
+        return
+    try:
+        result = await api.translation(message.chat.id, question["id"])
+    except ApiError:
+        log.warning("translation request failed for q%s", question["id"], exc_info=True)
+        return
+    if result.get("translation_state") != "shown":
+        return
+
+    filled = {**question, **result}
+    if message.photo:
+        text = render.question(filled, lang, limit=render.CAPTION_LIMIT)
+        await message.edit_caption(caption=text, reply_markup=message.reply_markup)
+    else:
+        text = render.question(filled, lang, limit=render.MESSAGE_LIMIT)
+        await message.edit_text(text, reply_markup=message.reply_markup)
 
 
 async def append_explanation(

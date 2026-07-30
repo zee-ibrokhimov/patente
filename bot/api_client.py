@@ -76,6 +76,13 @@ class ApiClient:
             json={"question_id": question_id, "answer": answer},
         )
 
+    async def translation(self, chat_id: int, question_id: int) -> dict:
+        """May be the call that produces it, so it gets the long timeout too."""
+        return await self._request(
+            "POST", f"/users/{chat_id}/questions/{question_id}/translation",
+            timeout=EXPLANATION_TIMEOUT,
+        )
+
     async def explanation(self, chat_id: int, question_id: int) -> dict:
         """The fallback when warming has not landed. May take several seconds, because
         it may be the call that produces the explanation."""

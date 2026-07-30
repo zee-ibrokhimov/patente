@@ -22,6 +22,7 @@ from shared.config import settings
 from shared.constants import (
     REQUIRE_PASS_FOR_SPACED_REPETITION,
     REQUIRE_PASS_FOR_STATS,
+    TRANSLATION_LANGUAGES,
 )
 
 
@@ -88,6 +89,27 @@ def translation_access(entitlement: Entitlement, user, translation_exists: bool)
     if not translation_exists:
         return Access.UNAVAILABLE
     return Access.SHOWN if entitlement.can_translate else Access.LOCKED
+
+
+def translation_offer(entitlement: Entitlement, user, translation_exists: bool) -> Access:
+    """Whether the client should fetch the translation, before it has been produced.
+
+    Translations are generated on request now, so at the moment a question is served
+    there is often nothing stored yet. `AVAILABLE` tells the client to ask and then edit
+    the message — the alternative, blocking the question on a translation call, puts three
+    seconds in front of every single interaction.
+
+    An Italian-speaking user is `OFF` rather than `UNAVAILABLE`: the question is already in
+    their language and there is nothing to fetch, which is a different thing from a
+    translation nobody has written.
+    """
+    if not user.translations_on:
+        return Access.OFF
+    if user.lang not in TRANSLATION_LANGUAGES:
+        return Access.OFF
+    if not entitlement.can_translate:
+        return Access.LOCKED
+    return Access.SHOWN if translation_exists else Access.AVAILABLE
 
 
 def explanation_access(entitlement: Entitlement, explanation_exists: bool) -> Access:

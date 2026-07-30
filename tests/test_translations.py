@@ -1,0 +1,238 @@
+"""On-demand question translation.
+
+The translation is a comprehension aid under the Italian, never a replacement — the
+candidate is learning to recognise the exact ministerial phrasing. So what these defend
+is mostly *restraint*: don't paraphrase the schema, don't invent a sign the model cannot
+see, don't overwrite something a human reviewed, and above all don't put a translation
+call in front of the question.
+
+No real API call is made — `openai_client` is substituted.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+from datetime import datetime, timedelta, timezone
+
+import pytest
+from sqlalchemy import select
+
+from api.models import Question, Translation, User
+from api.services import translations
+from api.services.entitlement import Access, Entitlement
+from api.services.explanations import openai_client  # noqa: F401  (patched by name below)
+
+REPLY = {
+    "ru": {"stem": None, "statement": "Изображённый знак запрещает движение"},
+    "en": {"stem": None, "statement": "The sign shown prohibits transit"},
+}
+
+
+class FakeClient:
+    def __init__(self, reply=None, error=None):
+        self.reply = REPLY if reply is None else reply
+        self.error = error
+        self.calls = 0
+        self.messages = None
+        self.model = None
+        self.chat = self
+        self.completions = self
+
+    async def create(self, **kwargs):
+        self.calls += 1
+        self.messages = kwargs.get("messages")
+        self.model = kwargs.get("model")
+        await asyncio.sleep(0.01)
+        if self.error:
+            raise self.error
+        return type("R", (), {
+            "choices": [type("C", (), {"message": type("M", (), {
+                "content": json.dumps(self.reply, ensure_ascii=False)})()})()],
+            "usage": type("U", (), {"prompt_tokens": 40, "completion_tokens": 30})(),
+        })()
+
+
+@pytest.fixture
+def fake_openai(monkeypatch):
+    client = FakeClient()
+    monkeypatch.setattr(translations, "openai_client", lambda: client)
+    return client
+
+
+@pytest.fixture
+async def untranslated(api_db):
+    """api_db ships question 1 with an RU translation already; clear it."""
+    async with api_db() as s:
+        for row in (await s.scalars(select(Translation))).all():
+            await s.delete(row)
+        await s.commit()
+
+
+def entitled():
+    return Entitlement(has_pass=True, pass_expires_at=None, free_explanations_left=0)
+
+
+def reader(lang="ru", on=True):
+    return type("U", (), {"chat_id": 42, "lang": lang, "translations_on": on})()
+
+
+# --- generating --------------------------------------------------------------
+
+async def test_one_call_stores_both_languages(api_db, fake_openai, untranslated):
+    async with api_db() as s:
+        question = await s.get(Question, 1)
+        assert await translations.generate(s, question) is True
+        stored = {t.lang: t.statement for t in (await s.scalars(
+            select(Translation).where(Translation.question_id == 1)
+        )).all()}
+    assert set(stored) == {"ru", "en"}
+    assert stored["en"] == "The sign shown prohibits transit"
+    assert fake_openai.calls == 1
+
+
+async def test_a_second_reader_costs_nothing(api_db, fake_openai, untranslated):
+    async with api_db() as s:
+        question = await s.get(Question, 1)
+        await translations.ensure(s, question, "ru")
+        await translations.ensure(s, question, "ru")
+        await translations.ensure(s, question, "en")   # cached by the same call
+    assert fake_openai.calls == 1
+
+
+async def test_the_prompt_carries_the_statement_and_no_image(api_db, fake_openai, untranslated):
+    """Translating does not need the figure, and asking for it would invite the model to
+    name the sign — which is a wrong answer printed directly under the question."""
+    async with api_db() as s:
+        question = await s.get(Question, 1)
+        await translations.generate(s, question)
+    sent = json.loads(fake_openai.messages[-1]["content"])
+    assert sent["statement"] == "Il segnale raffigurato vieta il transito"
+    assert all(isinstance(m["content"], str) for m in fake_openai.messages)
+
+
+async def test_a_reviewed_translation_is_never_overwritten(api_db, fake_openai):
+    async with api_db() as s:
+        row = await s.scalar(
+            select(Translation).where(Translation.question_id == 1, Translation.lang == "ru")
+        )
+        row.statement = "Проверено человеком"
+        row.reviewed_at = datetime.now(timezone.utc)
+        await s.commit()
+
+        question = await s.get(Question, 1)
+        await translations.generate(s, question)
+        row = await s.scalar(
+            select(Translation).where(Translation.question_id == 1, Translation.lang == "ru")
+        )
+        assert row.statement == "Проверено человеком"
+
+
+async def test_an_api_failure_leaves_the_question_untranslated(api_db, fake_openai, untranslated):
+    """The Italian is the exam language, so a failed translation is a degraded screen and
+    never a failed request."""
+    fake_openai.error = RuntimeError("Error code: 429 - rate limit")
+    async with api_db() as s:
+        question = await s.get(Question, 1)
+        assert await translations.generate(s, question) is False
+        assert (await s.scalars(select(Translation))).all() == []
+
+
+async def test_a_reply_missing_a_language_stores_the_other(api_db, fake_openai, untranslated):
+    fake_openai.reply = {"ru": {"stem": None, "statement": "Только русский"}}
+    async with api_db() as s:
+        question = await s.get(Question, 1)
+        assert await translations.generate(s, question) is True
+        langs = {t.lang for t in (await s.scalars(select(Translation))).all()}
+    assert langs == {"ru"}
+
+
+def test_empty_and_unknown_languages_are_dropped():
+    parsed = translations.parsed_translations({
+        "ru": {"stem": None, "statement": "ок"},
+        "en": {"stem": None, "statement": "   "},
+        "de": {"stem": None, "statement": "nein"},
+    })
+    assert set(parsed) == {"ru"}
+
+
+def test_a_blank_stem_becomes_null_rather_than_an_empty_line():
+    parsed = translations.parsed_translations(
+        {"ru": {"stem": "  ", "statement": "текст"}}
+    )
+    assert parsed["ru"]["stem"] is None
+
+
+# --- who gets one -----------------------------------------------------------
+
+async def test_a_free_user_is_locked_and_costs_nothing(api_db, fake_openai, untranslated):
+    broke = Entitlement(has_pass=False, pass_expires_at=None, free_explanations_left=3)
+    async with api_db() as s:
+        question = await s.get(Question, 1)
+        payload, access = await translations.deliver(s, question, reader(), broke)
+    assert access is Access.LOCKED
+    assert payload["translation"] is None
+    assert fake_openai.calls == 0
+
+
+async def test_translations_switched_off_beats_entitlement(api_db, fake_openai, untranslated):
+    async with api_db() as s:
+        question = await s.get(Question, 1)
+        payload, access = await translations.deliver(
+            s, question, reader(on=False), entitled()
+        )
+    assert access is Access.OFF
+    assert fake_openai.calls == 0
+
+
+async def test_an_italian_reader_is_off_not_unavailable(api_db, fake_openai, untranslated):
+    """There is nothing to translate, which is a different thing from a translation
+    nobody has written — and it must not cost a call to discover."""
+    from api.services.entitlement import translation_offer
+
+    assert translation_offer(entitled(), reader(lang="it"), False) is Access.OFF
+    assert translation_offer(entitled(), reader(lang="ru"), False) is Access.AVAILABLE
+    assert translation_offer(entitled(), reader(lang="ru"), True) is Access.SHOWN
+
+
+async def test_delivering_generates_and_returns_the_body(api_db, fake_openai, untranslated):
+    async with api_db() as s:
+        question = await s.get(Question, 1)
+        payload, access = await translations.deliver(s, question, reader(), entitled())
+    assert access is Access.SHOWN
+    assert payload["translation"]["statement"] == "Изображённый знак запрещает движение"
+    assert payload["translation"]["lang"] == "ru"
+
+
+# --- the question is never delayed ------------------------------------------
+
+async def test_serving_a_question_does_not_wait_for_the_translation(
+    client, api_db, fake_openai, untranslated, monkeypatch
+):
+    """The whole design constraint. The payload says `available` and the client fetches;
+    if the question blocked on this, every interaction would gain a few seconds."""
+    monkeypatch.setattr(translations, "async_session_factory", lambda: api_db)
+    await client.post("/users", json={"chat_id": 42, "lang": "ru"})
+    async with api_db() as s:
+        user = await s.get(User, 42)
+        user.pass_expires_at = datetime.now(timezone.utc) + timedelta(days=30)
+        await s.commit()
+
+    body = (await client.get("/users/42/next-question?topic_id=1&exclude_id=2")).json()
+    assert body["translation_state"] == "available"
+    assert body["translation"] is None
+
+    # Warming ran in the background, so the explicit request is now a cache hit.
+    calls_after_warm = fake_openai.calls
+    fetched = (await client.post("/users/42/questions/1/translation")).json()
+    assert fetched["translation_state"] == "shown"
+    assert fetched["translation"]["statement"] == "Изображённый знак запрещает движение"
+    assert fake_openai.calls == calls_after_warm
+
+
+async def test_a_locked_user_is_not_warmed_for(client, api_db, fake_openai, untranslated, monkeypatch):
+    monkeypatch.setattr(translations, "async_session_factory", lambda: api_db)
+    await client.post("/users", json={"chat_id": 42, "lang": "ru"})
+    body = (await client.get("/users/42/next-question?topic_id=1&exclude_id=2")).json()
+    assert body["translation_state"] == "locked"
+    assert fake_openai.calls == 0

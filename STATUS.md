@@ -3,7 +3,7 @@
 **Last updated:** 30 July 2026 — explanations generate on demand and are live in the API
 **Bot:** [@quizpatente_bot](https://t.me/quizpatente_bot) — working, free tier only
 **Repo:** https://github.com/zee-ibrokhimov/patente
-**Tests:** 231 passing
+**Tests:** 245 passing
 **Plan:** [patente-bot-plan.md](patente-bot-plan.md) · **How to run:** [README.md](README.md)
 
 > **Read first:** §13 is the architecture as it now works, §14 is the measurement that
@@ -27,7 +27,7 @@
 | 6 · Explanation generation | ✅ **on demand and live** — `api/services/explanations.py`, §13 |
 | 6 · `generate.py` | ✅ now a batch pre-warmer over the same service |
 | 7 · Review loop (CSV out/in) | ✅ done, round-tripped against a real database |
-| 8 · Question translations (RU+EN on serve) | ⬜ **next** — the remaining half of §13 |
+| 8 · Question translations (RU+EN on serve) | ✅ done — on demand, cached, §15 |
 | 8 · ~~`translate.py`~~ | ⛔ not being written — one call returns all three languages |
 | 9 · Entitlement + Tribute webhook | ⛔ blocked on Tribute credentials |
 | 10 · Mini App | ⬜ not started |
@@ -723,3 +723,52 @@ disobeying a sign (146) are the same story.
 decision now involves status, per-statement disputes, entitlement and whether a cache
 miss may pay for a call — four things that two copies would disagree about within a
 month. It lives once, in `api/services/explanations.py`.
+
+---
+
+## 15. Question translations: on demand, both languages, one call
+
+Task 8, and the half of §13 that matters most to the actual customer — a Russian or
+English speaker sits an Italian exam, and the translated *question* is why they would
+choose this over a free Italian quiz app. `api/services/translations.py`.
+
+**The latency constraint is the whole design.** Explanations had somewhere to hide a few
+seconds: the user reads the statement and answers before wanting one. A translation
+belongs to the moment the question appears, which is every interaction, and nobody waits
+three seconds per question. Two mechanisms together, neither sufficient alone:
+
+  · the bot sends the Italian immediately and **edits the message** when the translation
+    lands, so even a never-before-seen question is readable at once;
+  · `translations.warm` runs in the background at question-serve, so the next reader of
+    that question finds it cached — and with 7106 questions on a Leitner schedule that
+    deliberately repeats them, most reads are later reads.
+
+`POST /users/{id}/questions/{qid}/translation` is the explicit fetch. `translate.py` is
+not being written; `Translation`'s `(question_id, lang)` was already unique, so no schema
+change was needed.
+
+### A translation is not an explanation
+
+The stored Italian is the thing being learned, so the prompt asks for a *literal*
+rendering that keeps the legal register — not a clearer or friendlier one. It is also
+told explicitly **not to name the sign**: it has no image, and writing "the no-entry
+sign" under a question about an unnamed figure would print a wrong answer directly beneath
+it. Verified on live output — "il segnale raffigurato" comes back as "the sign shown", not
+as a guess.
+
+### The cheap model was the wrong call, and it took real output to see it
+
+Plan §4.4 expected translation to be where a cheaper model pays off. Measured:
+
+| model | "il segnale raffigurato" in Russian |
+|---|---|
+| gpt-4o-mini | **сигнал** — a signal, not a road sign |
+| gpt-4o | знак ✓ |
+| gpt-5-mini | знак ✓ |
+
+Adding a glossary of the fifteen terms that recur across thousands of questions
+(`segnale`, `carreggiata`, `arresto`/`fermata`/`sosta` — three legally distinct words
+English and Russian both want to collapse) fixed the **English** and not the Russian. So
+it is the model, not the prompt. And there is nothing to save: the whole bank is roughly
+**€15 at gpt-4o** against €75 for the explanations, so `openai_translate_model` is left
+empty on purpose and falls back to the main model. Set it only to go up.

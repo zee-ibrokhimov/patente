@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.models import Figure, Question, Translation
-from api.services.entitlement import Access, Entitlement, translation_access
+from api.services.entitlement import Access, Entitlement, translation_offer
 
 
 async def get_question(session: AsyncSession, question_id: int) -> Question | None:
@@ -44,7 +44,9 @@ async def question_payload(
     by a translation — the translation rides underneath as a comprehension aid.
     """
     translation = await get_translation(session, question.id, user.lang)
-    access = translation_access(entitlement, user, translation is not None)
+    # `AVAILABLE` when nothing is stored yet: the client fetches it and edits the message,
+    # rather than the question waiting on a translation call.
+    access = translation_offer(entitlement, user, translation is not None)
 
     # Non-null once this figure has been uploaded to Telegram at least once; the
     # bot then re-sends by id instead of re-uploading the bytes (plan §6.4).
