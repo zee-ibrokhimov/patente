@@ -1,12 +1,13 @@
 # Status & handover
 
-**Last updated:** 29 July 2026 (late — corpus ingested, clusters written)
+**Last updated:** 30 July 2026 — explanations generate on demand and are live in the API
 **Bot:** [@quizpatente_bot](https://t.me/quizpatente_bot) — working, free tier only
-**Tests:** 152 passing
+**Repo:** https://github.com/zee-ibrokhimov/patente
+**Tests:** 231 passing
 **Plan:** [patente-bot-plan.md](patente-bot-plan.md) · **How to run:** [README.md](README.md)
 
-> **Read first:** §2 is a measurement that changes the plan, and §4 is the short
-> list of things only you can do.
+> **Read first:** §13 is the architecture as it now works, §14 is the measurement that
+> forced its last change, and §4 is the short list of things only you can do.
 
 ---
 
@@ -22,11 +23,12 @@
 | 5 · Bot client | ✅ done — live and usable |
 | 6 · `cluster.py` | ✅ done — **3382 clusters written to the database** |
 | 6 · `fetch_norms.py` (CdS + Regolamento) | ✅ done — **corpus fetched**, 647 articles / 1.5 M chars |
-| 6 · Topic → article map | 🟡 measured, see §9 — less mechanical than hoped |
-| 6 · `articles.py` (topic → article) | 🟠 written, **never executed** — see §11 |
-| 6 · `generate.py` | 🟠 written, **never executed** — see §11 |
-| 7 · Review loop (CSV out/in) | 🟠 written, **never executed** — see §11 |
-| 8 · `translate.py` | ⬜ not started (unblocked) |
+| 6 · Topic → article map | ✅ `api/services/articles.py`, all 25 topics; see §9 and §14 |
+| 6 · Explanation generation | ✅ **on demand and live** — `api/services/explanations.py`, §13 |
+| 6 · `generate.py` | ✅ now a batch pre-warmer over the same service |
+| 7 · Review loop (CSV out/in) | ✅ done, round-tripped against a real database |
+| 8 · Question translations (RU+EN on serve) | ⬜ **next** — the remaining half of §13 |
+| 8 · ~~`translate.py`~~ | ⛔ not being written — one call returns all three languages |
 | 9 · Entitlement + Tribute webhook | ⛔ blocked on Tribute credentials |
 | 10 · Mini App | ⬜ not started |
 | 11 · Exam simulation | ⬜ not started |
