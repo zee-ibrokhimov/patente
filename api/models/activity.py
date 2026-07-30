@@ -134,3 +134,87 @@ class Report(Base):
     lang: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
     resolved_at: Mapped[datetime | None] = mapped_column(default=None)
+
+
+class QuizSession(Base):
+    """A bounded, gradeable sitting — an exam or a practice run.
+
+    The exam paper is FROZEN at creation rather than served question by question, and
+    that one decision buys four things at once:
+
+      · no repeats. Serving one at a time via `selection.next_question` would re-serve
+        the exam's own misses: box 1 is a 10-minute interval, the exam runs 20 minutes,
+        and selection orders strictly by `due_at`, so a question missed at minute 2 is
+        the top candidate again at minute 12.
+      · resumability. The Mini App persists nothing across a reopen, so a client-held
+        paper is lost the moment the user backgrounds Telegram.
+      · server-side grading, with no need to trust anything the client sends back.
+      · the whole paper can ship in one response, which removes thirty blocking round
+        trips from a screen with a clock running on it.
+
+    `expires_at` is computed and enforced HERE. A countdown held by the client is
+    editable by anyone who can open devtools, and the Mini App's only identity is
+    initData — there is no session cookie to bind a deadline to.
+    """
+
+    __tablename__ = "quiz_sessions"
+    __table_args__ = (
+        # "does this user have something open right now", asked on every app open.
+        Index("ix_session_open", "chat_id", "state"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    chat_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.chat_id", ondelete="CASCADE"), index=True
+    )
+    mode: Mapped[str] = mapped_column(Text)
+    state: Mapped[str] = mapped_column(Text, default="open")
+
+    started_at: Mapped[datetime] = mapped_column(default=utcnow)
+    # Null for practice, which has no clock.
+    expires_at: Mapped[datetime | None] = mapped_column(default=None)
+    finished_at: Mapped[datetime | None] = mapped_column(default=None)
+
+    # The rules THIS sitting was graded under, copied at creation rather than read from
+    # constants at grading time. Plan §11 leaves the format open (30 vs 40 questions),
+    # so changing it later must not silently re-grade or misreport an exam already sat.
+    question_count: Mapped[int] = mapped_column(default=0)
+    max_errors: Mapped[int | None] = mapped_column(default=None)
+
+    # Denormalised at finish so history and stats never re-walk the items.
+    answered: Mapped[int] = mapped_column(default=0)
+    wrong: Mapped[int] = mapped_column(default=0)
+    passed: Mapped[bool | None] = mapped_column(default=None)
+
+    user: Mapped[User] = relationship()
+    items: Mapped[list[QuizSessionItem]] = relationship(
+        back_populates="session", cascade="all, delete-orphan", order_by="QuizSessionItem.ordinal"
+    )
+
+
+class QuizSessionItem(Base):
+    """One question on the paper, and the answer given to it.
+
+    Keyed on (session_id, ordinal), NOT on (session_id, question_id). Practice mode has
+    no fixed paper and a wrongly-answered question is *supposed* to come back within the
+    same sitting — a uniqueness constraint on the question would turn that into an
+    IntegrityError mid-session. Distinctness of an exam paper is enforced where it is
+    actually wanted, in `selection.exam_paper`.
+    """
+
+    __tablename__ = "quiz_session_items"
+
+    session_id: Mapped[int] = mapped_column(
+        ForeignKey("quiz_sessions.id", ondelete="CASCADE"), primary_key=True
+    )
+    ordinal: Mapped[int] = mapped_column(primary_key=True)
+    question_id: Mapped[int] = mapped_column(ForeignKey("questions.id"), index=True)
+
+    # Null until answered. `given` is the user's Vero/Falso; `correct` is stored rather
+    # than derived so a results screen never re-reads the answer key, and so a later
+    # correction to the bank cannot silently rewrite a past exam result.
+    given: Mapped[bool | None] = mapped_column(default=None)
+    correct: Mapped[bool | None] = mapped_column(default=None)
+    answered_at: Mapped[datetime | None] = mapped_column(default=None)
+
+    session: Mapped[QuizSession] = relationship(back_populates="items")

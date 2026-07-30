@@ -79,3 +79,29 @@ async def next_question(
     # Every question seen and spaced repetition off: just keep drilling.
     anything = select(Question).order_by(func.random()).limit(1)
     return await session.scalar(not_excluded(topic_filtered(anything)))
+
+
+async def exam_paper(session: AsyncSession, count: int) -> list[Question]:
+    """A whole exam paper in one draw: `count` DISTINCT questions, uniformly random.
+
+    Deliberately NOT built on `next_question`, for two reasons.
+
+    The first is correctness. Calling `next_question` in a loop would re-serve the
+    exam's own misses: a wrong answer schedules a question ten minutes out (box 1), the
+    exam runs twenty, and the due branch orders strictly by `due_at` — so a question
+    missed at minute 2 becomes the top candidate again at minute 12. `exclude_id` blocks
+    exactly one previous question and cannot express "none of these thirty".
+
+    The second is what an exam IS. `next_question` is a teaching mechanism: it serves
+    what you are weakest at and what is due. A ministerial exam is a uniform random draw
+    from the whole bank, and a simulator that quietly tested you on your worst topics
+    would report a score that means nothing — it would be systematically pessimistic,
+    and the number it produces is the one thing the user is here for.
+
+    ORDER BY random() over 7106 rows is a full scan of a table that is a few megabytes
+    and entirely in page cache; measured in milliseconds, and run once per sitting.
+    """
+    rows = await session.scalars(
+        select(Question).order_by(func.random()).limit(count)
+    )
+    return list(rows)

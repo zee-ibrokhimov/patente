@@ -10,10 +10,19 @@ from api.models.content import (
     Topic,
     Translation,
 )
-from api.models.activity import Event, Progress, Purchase, Report, User
+from api.models.activity import (
+    Event,
+    Progress,
+    Purchase,
+    QuizSession,
+    QuizSessionItem,
+    Report,
+    User,
+)
 
 __all__ = [
     "Base",
     "Topic", "Quesito", "Figure", "Question", "Translation", "Cluster", "Explanation",
     "User", "Progress", "Purchase", "Event", "Report",
+    "QuizSession", "QuizSessionItem",
 ]

@@ -105,29 +105,39 @@ async def test_a_valid_signature_cannot_reach_another_users_data(client, registe
     assert r.json()["chat_id"] != OWNER
 
 
+def webapp_paths() -> list[str]:
+    """Every documented path under /webapp.
+
+    Read from the OpenAPI schema, NOT from `app.routes`. FastAPI 0.141 stores an
+    included router as a single `_IncludedRouter` wrapper object rather than flattening
+    its leaf routes into `app.routes`, so walking `app.routes` for `.path` yields only
+    the four default docs routes plus /health — and any assertion over "webapp routes"
+    built that way passes because the list is EMPTY. Both structural tests below did
+    exactly that until it was caught. A security invariant that cannot fail is worse
+    than no test, because it reads like coverage.
+    """
+    from api.main import app
+
+    return [p for p in app.openapi()["paths"] if p.startswith("/webapp")]
+
+
+async def test_the_webapp_surface_is_not_empty():
+    """Guards the guard: if this ever returns nothing, the two tests below are vacuous."""
+    assert len(webapp_paths()) >= 8
+
+
 async def test_no_webapp_route_accepts_a_chat_id(client):
     """The structural guarantee: if no route declares chat_id, none can be tricked
     into using one. This fails loudly if somebody later adds /webapp/users/{chat_id}."""
-    from api.main import app
-
-    offenders = [
-        r.path for r in app.routes
-        if getattr(r, "path", "").startswith("/webapp") and "chat_id" in r.path
-    ]
-    assert offenders == []
+    assert [p for p in webapp_paths() if "chat_id" in p] == []
 
 
 async def test_the_dangerous_routes_are_not_exposed_under_webapp(client):
     """Granting a pass and erasing a user must have no public path, ever."""
-    from api.main import app
-
-    webapp_paths = [
-        getattr(r, "path", "") for r in app.routes
-        if getattr(r, "path", "").startswith("/webapp")
-    ]
-    assert not any("pass" in p for p in webapp_paths)
-    assert not any("file-id" in p for p in webapp_paths)
-    assert "/webapp/health" not in webapp_paths
+    paths = webapp_paths()
+    assert not any("pass" in p for p in paths)
+    assert not any("file-id" in p for p in paths)
+    assert "/webapp/health" not in paths
 
 
 # --------------------------------------------------------------------------

@@ -72,6 +72,45 @@ REQUIRE_PASS_FOR_SPACED_REPETITION = False
 REQUIRE_PASS_FOR_STATS = False
 
 
+# --- Quiz sessions ----------------------------------------------------------
+# Two modes, and the difference is what the user is being asked to do.
+#
+# EXAM is a measurement: a fixed paper, a clock, and nothing revealed until it is over.
+# PRACTICE is study: no clock, ends when the user says so, explanation after each answer.
+#
+# The parameters are constants rather than literals because plan §11 explicitly leaves
+# the format open — "settle the exam format question (30 vs 40 questions) while you have
+# easy access to a real autoscuola — sources disagree and your simulator depends on it".
+# Changing the exam is meant to be an edit here, not a refactor.
+#
+# EXAM_MAX_ERRORS is the number TOLERATED. Plan §2 says "fail at 4 errors", so three
+# mistakes still passes and the fourth does not.
+MODE_EXAM = "exam"
+MODE_PRACTICE = "practice"
+QUIZ_MODES = (MODE_EXAM, MODE_PRACTICE)
+
+EXAM_QUESTIONS = 30
+EXAM_MINUTES = 20
+EXAM_MAX_ERRORS = 3
+
+SESSION_OPEN = "open"
+SESSION_SUBMITTED = "submitted"
+SESSION_EXPIRED = "expired"
+SESSION_ABANDONED = "abandoned"
+SESSION_STATES = (SESSION_OPEN, SESSION_SUBMITTED, SESSION_EXPIRED, SESSION_ABANDONED)
+
+# An exam measures; it does not teach. Feeding its answers to the Leitner scheduler
+# would let a pressured guess promote a question into the 7- or 30-day box, and would
+# re-stamp thirty due_at values to the exam's clock — which then dominates the practice
+# queue, because selection orders strictly by due_at. The corruption is silent and only
+# becomes visible weeks later, so this is a decision made once, here.
+MODE_UPDATES_SCHEDULE = {MODE_EXAM: False, MODE_PRACTICE: True}
+# Exam mode reveals nothing until the end, so it must not touch the explanation path at
+# all: `explanations.deliver` is the one place a free taster is spent and the one place
+# EV_PAYWALL_HIT is written, and an exam would fire thirty of each for text never shown.
+MODE_OFFERS_EXPLANATION = {MODE_EXAM: False, MODE_PRACTICE: True}
+
+
 # --- Event log (plan §9) ----------------------------------------------------
 # Instrumented from the first commit because none of it can be backfilled.
 # Everything reported later is derived from these.
@@ -91,10 +130,15 @@ EV_USER_DELETED = "user_deleted"
 # A pass given by hand, never by payment. Kept distinct from EV_PURCHASE_COMPLETED so a
 # comped tester or a repaired webhook cannot be mistaken for someone deciding to pay.
 EV_PASS_GRANTED = "pass_granted"
+# Quiz sessions. EV_SESSION_START/END already existed for the study session; these name
+# the bounded, gradeable kind so an exam is separable in the funnel.
+EV_EXAM_STARTED = "exam_started"
+EV_EXAM_FINISHED = "exam_finished"
 EVENT_TYPES = (
     EV_QUESTION_SERVED, EV_ANSWER_GIVEN, EV_TRANSLATION_TOGGLED, EV_EXPLANATION_VIEWED,
     EV_PAYWALL_HIT, EV_PAYWALL_DISMISSED, EV_PURCHASE_STARTED, EV_PURCHASE_COMPLETED,
     EV_PURCHASE_REFUNDED, EV_SESSION_START, EV_SESSION_END, EV_REPORT_SUBMITTED,
     EV_USER_DELETED,
     EV_PASS_GRANTED,
+    EV_EXAM_STARTED, EV_EXAM_FINISHED,
 )

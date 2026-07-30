@@ -21,7 +21,10 @@
 # snapshot is "a valid SQLite file with content in it" does not catch that — a freshly
 # seeded database passes every such check. The distinguishing signal is the append-only
 # events table, which STATUS.md §3 establishes is never deleted from (GDPR erasure
-# anonymises events rather than removing them). It can only grow. If it shrinks, either
+# anonymises events rather than removing them). The watermark is max(events.id) rather
+# than count(*): an id is monotonic even if a future feature ever does delete rows, while
+# a count that can legitimately fall would page hourly and quarantine every snapshot. If
+# it goes backwards, either
 # this is a different database or we have lost data — and in both cases the correct
 # action is to STOP PRUNING, because 56 successful backups of the wrong database would
 # otherwise delete every good snapshot within 14 days.
@@ -79,10 +82,10 @@ docker cp "${CID}:${SNAP}" "$LOCAL" || fail "could not copy the snapshot out of 
 wait 2>/dev/null || true
 
 # ---- step 4: is this the right database? --------------------------------------
-read -r N_QUESTIONS N_CLUSTERS N_EVENTS N_USERS N_EXPL N_TRANS <<<"$(sqlite3 "$LOCAL" "
+read -r N_QUESTIONS N_CLUSTERS N_EVENTMAX N_USERS N_EXPL N_TRANS <<<"$(sqlite3 "$LOCAL" "
   select (select count(*) from questions),
          (select count(*) from clusters),
-         (select count(*) from events),
+         (select coalesce(max(id),0) from events),
          (select count(*) from users),
          (select count(*) from explanations),
          (select count(*) from translations);" | tr '|' ' ')" \
@@ -96,16 +99,16 @@ if [ -r "$MANIFEST" ]; then
   PREV_EVENTS=$(python3 -c "import json;print(json.load(open('$MANIFEST')).get('events',0))" 2>/dev/null || echo 0)
 fi
 
-if [ "$N_EVENTS" -lt "$PREV_EVENTS" ]; then
+if [ "$N_EVENTMAX" -lt "$PREV_EVENTS" ]; then
   mv "$LOCAL" "${LOCAL}.SUSPECT"
-  fail "events went BACKWARDS: ${PREV_EVENTS} -> ${N_EVENTS}.
+  fail "the event watermark went BACKWARDS: ${PREV_EVENTS} -> ${N_EVENTMAX}.
 Events are append-only (GDPR erasure anonymises, never deletes), so this is either a
 different database or real data loss.
 NOT PRUNING — every existing good snapshot has been kept.
 Snapshot quarantined at ${LOCAL}.SUSPECT"
 fi
 
-python3 - "$MANIFEST" "$N_EVENTS" "$N_USERS" "$N_EXPL" "$N_TRANS" <<'PY'
+python3 - "$MANIFEST" "$N_EVENTMAX" "$N_USERS" "$N_EXPL" "$N_TRANS" <<'PY'
 import json, sys
 path, events, users, expl, trans = sys.argv[1], *map(int, sys.argv[2:6])
 json.dump({"events": events, "users": users, "explanations": expl,
@@ -118,4 +121,4 @@ ls -1t "${DEST}"/patente-*.db 2>/dev/null | tail -n +$((KEEP + 1)) | while read 
   rm -f "$old"
 done
 
-echo "$(date -Is) OK: ${BASENAME} ($(stat -c%s "$LOCAL") bytes) users=${N_USERS} events=${N_EVENTS} expl=${N_EXPL} trans=${N_TRANS}, $(ls -1 "${DEST}"/patente-*.db | wc -l) retained"
+echo "$(date -Is) OK: ${BASENAME} ($(stat -c%s "$LOCAL") bytes) users=${N_USERS} event_max=${N_EVENTMAX} expl=${N_EXPL} trans=${N_TRANS}, $(ls -1 "${DEST}"/patente-*.db | wc -l) retained"

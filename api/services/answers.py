@@ -29,7 +29,33 @@ async def record_answer(
     given: bool,
     entitlement: Entitlement,
     now: datetime | None = None,
+    *,
+    update_schedule: bool = True,
+    offer_explanation: bool = True,
 ) -> dict:
+    """Record one answer.
+
+    The two keyword flags exist because this function fused three things that an exam
+    needs separated, and shipping exam mode without them would have been wrong in ways
+    that are invisible until much later:
+
+      · `update_schedule=False` keeps a timed exam out of the Leitner scheduler. Exam
+        answers are unassisted, pressured guesses; letting them promote a question into
+        the 7- or 30-day box means the user cannot answer what is scheduled, and the
+        thirty re-stamped `due_at` values then dominate the practice queue because
+        selection orders strictly by due date. The damage is silent and only surfaces
+        weeks later, by which time nothing distinguishes an exam-written Progress row
+        from a practice-written one.
+      · `offer_explanation=False` keeps it out of `explanations.deliver`, which is the
+        ONE place a free taster is spent and the ONE place EV_PAYWALL_HIT is written.
+        An exam that shows no explanations would otherwise burn all three of a user's
+        lifetime tasters on text never rendered, and log up to thirty paywall hits per
+        sitting for a paywall nobody saw — into an append-only table that cannot be
+        cleaned, corrupting the one conversion metric §4.3 prices on.
+
+    Counters (`seen`, `wrong`) still move in both modes: the user did see the question
+    and did answer it, and stats would lie otherwise.
+    """
     now = now or datetime.now(timezone.utc)
     correct = given == question.answer
 
@@ -43,10 +69,13 @@ async def record_answer(
         # this flush `seen` and `wrong` are still None when incremented below.
         await session.flush()
 
-    if entitlement.can_use_spaced_repetition:
+    if update_schedule and entitlement.can_use_spaced_repetition:
         progress.box, progress.due_at = schedule(progress.box, correct, now)
-    else:
+    elif update_schedule:
         progress.due_at = now
+    # When update_schedule is False, box and due_at are left exactly as they were. Not
+    # even `due_at = now`, which would front-load the practice queue with whatever the
+    # exam happened to touch.
     progress.seen += 1
     progress.wrong += 0 if correct else 1
     progress.last_answer_at = now
@@ -60,6 +89,9 @@ async def record_answer(
         topic_id=question.topic_id,
         correct=correct,
         box=progress.box,
+        # So an exam answer is separable from a studied one in the funnel forever.
+        # Events cannot be backfilled, so this has to be stamped at write time.
+        graded=update_schedule,
         # Wrong answers before purchase is the core conversion metric (§4.3), and
         # it is only reconstructable if entitlement is stamped on the event.
         has_pass=entitlement.has_pass,
@@ -69,9 +101,12 @@ async def record_answer(
     # here: paying for a call at this moment would charge for every user who answers and
     # moves on. `generate_if_missing=False` is that rule, and the client gets an
     # `available` offer to fall back on when warming has not landed.
-    payload, access = await explanations.deliver(
-        session, question, user, entitlement, generate_if_missing=False
-    )
+    if offer_explanation:
+        payload, _access = await explanations.deliver(
+            session, question, user, entitlement, generate_if_missing=False
+        )
+    else:
+        payload = {}
 
     return {
         "question_id": question.id,

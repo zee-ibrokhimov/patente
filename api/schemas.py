@@ -13,7 +13,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from shared.constants import TIERS, UI_LANGUAGES
+from shared.constants import QUIZ_MODES, TIERS, UI_LANGUAGES
 
 
 class UserIn(BaseModel):
@@ -146,3 +146,85 @@ class GrantIn(BaseModel):
     chat_id: int
     tier: str = Field(description=f"one of {TIERS}")
     reason: str | None = None
+
+
+# --- quiz sessions ----------------------------------------------------------
+
+class SessionOut(BaseModel):
+    """A sitting, plus its whole paper.
+
+    The paper ships with the session on purpose. It is frozen at creation, and
+    `QuestionOut` carries no answer key — so there is nothing to leak, and it removes
+    thirty blocking round trips from a screen that has a clock running on it.
+
+    `server_now` is not decoration. The client renders a countdown from
+    `expires_at - (Date.now() + skew)` where `skew = server_now - Date.now()`, measured
+    once. Without it the countdown is the device clock, which is wrong on a surprising
+    number of phones and trivially editable on all of them. The server enforces the
+    deadline regardless; this only makes the display honest.
+    """
+
+    id: int
+    mode: str
+    state: str
+    started_at: datetime
+    expires_at: datetime | None
+    server_now: datetime
+    question_count: int
+    max_errors: int | None
+    answered: int
+    questions: list[QuestionOut]
+
+
+class ExamAnswerOut(BaseModel):
+    """What an exam answer returns: progress, and nothing else.
+
+    No `correct`, no `correct_answer`, no `box`, no explanation state. The absence is
+    the feature — there is a test asserting these keys are missing, because the natural
+    way to break this is to add a field to the practice response and have it appear here
+    by accident.
+    """
+
+    session_id: int
+    ordinal: int
+    answered: int
+    remaining: int
+
+
+class PracticeAnswerOut(AnswerOut):
+    """Practice reveals everything an ordinary answer does, plus where you are."""
+
+    session_id: int
+    ordinal: int
+    answered: int
+    remaining: int
+
+
+class SessionItemOut(BaseModel):
+    ordinal: int
+    question_id: int
+    given: bool | None
+    correct: bool | None
+
+
+class SessionResultsOut(BaseModel):
+    session_id: int
+    mode: str
+    state: str
+    started_at: datetime
+    finished_at: datetime | None
+    question_count: int
+    answered: int
+    wrong: int
+    max_errors: int | None
+    passed: bool | None
+    items: list[SessionItemOut]
+
+
+class StartSessionIn(BaseModel):
+    mode: str = Field(description=f"one of {QUIZ_MODES}")
+
+
+class SessionAnswerIn(BaseModel):
+    ordinal: int = Field(ge=1)
+    answer: bool = Field(description="true = VERO, false = FALSO")
