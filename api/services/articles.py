@@ -67,22 +67,41 @@ CITE = {"cds": "art. {n} C.d.S.", "reg": "art. {n} Reg."}
 # by prefix and `articles_for` fails loudly if a topic matches none or several, so
 # a listato reissue that renames a topic breaks visibly rather than silently
 # grounding it on nothing.
+
+# Every sign topic gets these as well as its own articles, because the ministerial
+# questions test things the article defining a sign does not say. Measured on
+# *Segnali di precedenza*: 8 of 12 clusters were flagged for disagreeing with the answer
+# key, and the disagreements were almost all of this kind — "perde efficacia in presenza
+# di agente che regola il traffico" is governed by art. 43 C.d.S., not by the article
+# describing the sign, so a model reasoning only from the latter correctly says the text
+# does not support it.
+#
+#   38-43  segnaletica in general, and the rule that an agent overrides a sign
+#   145    precedenza as a duty, separately from the signs that announce it
+#   146    the offence of disobeying a sign
+#   175-176 autostrada placement, which several sign questions ask about
+SIGN_FRAME: tuple[tuple[str, str], ...] = (
+    ("cds", "38-43"), ("cds", "145-146"), ("cds", "175-176"),
+)
+
 TOPIC_ARTICLES: dict[str, tuple[tuple[str, str], ...]] = {
     # --- signage: the Regolamento defines the signs, the Codice only frames them
-    "Segnali di pericolo": (("reg", "84-103"), ("cds", "39"), ("reg", "77-82")),
-    "Segnali di precedenza": (("reg", "104-114"), ("cds", "145"), ("cds", "39")),
-    "Segnali di divieto": (("reg", "115-120"), ("cds", "39"), ("reg", "104")),
-    "Segnali di obbligo": (("reg", "121-123"), ("cds", "39"), ("reg", "104")),
-    "Segnali di indicazione": (("reg", "124-136"), ("cds", "39")),
-    "Pannelli integrativi dei segnali": (("reg", "83"), ("cds", "39"), ("reg", "77-82")),
+    "Segnali di pericolo": (("reg", "84-103"), ("reg", "77-82"), *SIGN_FRAME),
+    "Segnali di precedenza": (("reg", "104-114"), *SIGN_FRAME),
+    "Segnali di divieto": (("reg", "115-120"), ("reg", "104"), *SIGN_FRAME),
+    "Segnali di obbligo": (("reg", "121-123"), ("reg", "104"), *SIGN_FRAME),
+    "Segnali di indicazione": (("reg", "124-136"), *SIGN_FRAME),
+    "Pannelli integrativi dei segnali": (("reg", "83"), ("reg", "77-82"), *SIGN_FRAME),
     "Segnali complementari": (
-        ("cds", "42"), ("reg", "172-180"),      # delineatori, isole, rallentatori
+        ("reg", "172-180"),                     # delineatori, isole, rallentatori
         ("cds", "21"), ("reg", "30-43"),        # cantieri e segnalamento temporaneo
+        *SIGN_FRAME,
     ),
-    "Segnaletica orizzontale": (("reg", "137-155"), ("cds", "40")),
+    "Segnaletica orizzontale": (("reg", "137-155"), *SIGN_FRAME),
     "Segnalazioni semaforiche": (
-        ("reg", "156-171"), ("cds", "41"),      # lanterne semaforiche
-        ("reg", "181-183"), ("cds", "43"),      # segnalazioni degli agenti
+        ("reg", "156-171"),                     # lanterne semaforiche
+        ("reg", "181-183"),                     # segnalazioni degli agenti
+        *SIGN_FRAME,
     ),
 
     # --- behaviour: the Codice, and the Regolamento only where it details a device

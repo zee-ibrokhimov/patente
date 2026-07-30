@@ -548,9 +548,8 @@ number, low model confidence — never reaches a user unreviewed, and reads as
 `approved` later through the same step-7 loop.
 
 That makes **the flag rate the number that matters now**, where it used to be the
-correction rate. On the 3-cluster sample it was 1 in 3, which as a share of
-explanation requests answering "not available" would be poor for a paid feature.
-Worth measuring over a full topic before launch.
+correction rate — it is the unavailability rate of the thing being sold. Measured over a
+full topic on 30 July, and it was bad enough to change the design; see §14.
 
 **Decided:** serve `draft`, withhold `flagged`.
 
@@ -662,3 +661,63 @@ before spending effort on §13's image work:
     does a picture of a triangle. **Vision does not fix this.** The lever is the article
     map — sign topics probably want CdS 175-176 and 22 for autostrada placement — or
     letting a human clear it.
+
+---
+
+## 14. The flag rate, measured — and the two fixes it forced
+
+Ran the whole of *Segnali di precedenza* (15 clusters, 243 statements, €0.35). The first
+result was bad in a way that would have shipped:
+
+| | servable clusters | statements with an explanation |
+|---|---|---|
+| as first built | 5 / 15 | ~33% |
+| after the two fixes below | **14 / 15** | **225 / 243 = 93%** |
+
+**Two thirds of the paid feature would have read "not available yet."** Worth €0.35 to
+find out before launch rather than after.
+
+### What the flags actually were
+
+Nine of twelve flagged, and only one of those for a number. The rest were the answer-key
+gate firing on statements like these:
+
+| stored | model | statement |
+|---|---|---|
+| VERO | FALSO | …si trova sulle corsie di accelerazione per l'immissione in autostrada |
+| VERO | FALSO | …perde la sua efficacia in presenza di agente che regola il traffico |
+| VERO | FALSO | …preannuncia che si incrocia a destra una strada di minore importanza |
+| FALSO | VERO | …si trova, di norma, a non più di 50 metri dall'incrocio |
+
+**The ministerial questions test derived, practical knowledge; the Regolamento states
+what a sign *is*, not every consequence of it.** A model told to reason only from the
+articles correctly answers "the text does not say that" — and in all eight cases the
+explanation of the rule was right. So the gate was measuring the wrong thing.
+
+### Fix 1 — withhold per statement, not per cluster
+
+`explanations.disputed` (migration `c7a3e91f4d28`) records the question ids where the
+model contradicted the key. The explanation serves the statements it agrees about and is
+withheld only for the ones it does not. That keeps the property that matters — **a user
+never sees an explanation contradicting the answer they were just shown** — without
+suppressing the ten statements in the cluster it explains perfectly well. 17 individual
+statements withheld across the topic instead of 10 whole clusters.
+
+Disagreeing about *most* of a cluster still flags the whole thing: past a majority it is
+not a quibble about a peripheral fact, it is the model and the key disagreeing about the
+rule, and there is nothing sound to salvage.
+
+### Fix 2 — a common frame for every sign topic
+
+`articles.SIGN_FRAME` adds CdS 38-43, 145-146 and 175-176 to all nine sign topics.
+*"perde efficacia in presenza di agente"* is art. 43 C.d.S., which was mapped to
+*Segnalazioni semaforiche* and not to *Segnali di precedenza* — so the governing article
+was simply absent from the prompt. Placement on autostrade (175-176) and the offence of
+disobeying a sign (146) are the same story.
+
+### Also removed: a second opinion about what may be served
+
+`content.explanation_payload` and `content.get_explanation` are gone. The serving
+decision now involves status, per-statement disputes, entitlement and whether a cache
+miss may pay for a call — four things that two copies would disagree about within a
+month. It lives once, in `api/services/explanations.py`.

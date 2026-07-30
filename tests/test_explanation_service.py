@@ -163,10 +163,16 @@ async def test_the_figure_is_attached_to_the_request(api_db, fake_openai, cluste
 
 # --- what is stored ----------------------------------------------------------
 
-async def test_a_disagreement_with_the_answer_key_flags_every_language(
+async def test_a_minority_disagreement_is_recorded_per_statement_not_flagged(
     api_db, fake_openai, cluster
 ):
-    """Statement 2 is stored FALSO; the model is made to say VERO."""
+    """Statement 2 is stored FALSO; the model is made to say VERO.
+
+    That is one statement out of two, so the explanation of the *rule* is left servable
+    and only statement 2 is withheld. Measured justification: on a real topic, 8 of 12
+    clusters disagreed on 1-3 statements out of 12 and the explanation was right every
+    time — withholding whole clusters left 5 of 15 servable.
+    """
     fake_openai.reply = {**REPLY, "verdetti": [
         {"n": 1, "risposta": "VERO", "certezza": "alta"},
         {"n": 2, "risposta": "VERO", "certezza": "alta"},
@@ -176,9 +182,52 @@ async def test_a_disagreement_with_the_answer_key_flags_every_language(
         rows = (await s.scalars(
             select(Explanation).where(Explanation.cluster_id == cluster)
         )).all()
-    assert {r.status for r in rows} == {STATUS_FLAGGED}
-    assert all("argues against the stored answer" in r.flags for r in rows)
+
+    assert {r.status for r in rows} == {STATUS_DRAFT}
+    assert all(r.disputed == "2" for r in rows)
+    # Still recorded for the reviewer: a disagreement is the best pointer there is to
+    # either a bad explanation or a bad answer key.
     assert all("q2: key FALSO, model VERO" in r.flags for r in rows)
+
+
+async def test_disagreeing_about_most_of_the_cluster_flags_it(api_db, fake_openai, cluster):
+    """Past a majority it is no longer a quibble about a peripheral fact — the model and
+    the answer key disagree about the rule, and there is nothing sound to salvage."""
+    fake_openai.reply = {**REPLY, "verdetti": [
+        {"n": 1, "risposta": "FALSO", "certezza": "alta"},   # stored VERO
+        {"n": 2, "risposta": "VERO", "certezza": "alta"},    # stored FALSO
+    ]}
+    async with api_db() as s:
+        await explanations.ensure(s, cluster, "it")
+        rows = (await s.scalars(
+            select(Explanation).where(Explanation.cluster_id == cluster)
+        )).all()
+    assert {r.status for r in rows} == {STATUS_FLAGGED}
+    assert all("most of the cluster" in r.flags for r in rows)
+
+
+async def test_a_disputed_statement_is_withheld_while_its_siblings_are_served(
+    api_db, fake_openai, cluster
+):
+    """The property that makes per-statement withholding safe: a user never sees an
+    explanation contradicting the answer they were just shown."""
+    fake_openai.reply = {**REPLY, "verdetti": [
+        {"n": 1, "risposta": "VERO", "certezza": "alta"},
+        {"n": 2, "risposta": "VERO", "certezza": "alta"},   # stored FALSO -> disputed
+    ]}
+    entitled = Entitlement(has_pass=True, pass_expires_at=None, free_explanations_left=0)
+
+    async with api_db() as s:
+        await explanations.ensure(s, cluster, "ru")
+        user = type("U", (), {"chat_id": 42, "lang": "ru", "free_explanations_used": 0})()
+
+        agreed = await s.get(Question, 1)
+        _, access = await explanations.deliver(s, agreed, user, entitled)
+        assert access is Access.SHOWN
+
+        contradicted = await s.get(Question, 2)
+        _, access = await explanations.deliver(s, contradicted, user, entitled)
+        assert access is Access.UNAVAILABLE
 
 
 async def test_an_approved_wording_is_never_replaced(api_db, fake_openai, cluster):
@@ -241,9 +290,11 @@ async def test_an_unentitled_user_never_triggers_a_call(api_db, fake_openai, clu
 async def test_a_withheld_draft_does_not_cost_the_user_a_taster(
     api_db, fake_openai, cluster
 ):
+    """Both statements contradicted, so the cluster is flagged and nothing is servable —
+    and a user shown nothing must not be charged for it."""
     fake_openai.reply = {**REPLY, "verdetti": [
-        {"n": 1, "risposta": "VERO", "certezza": "alta"},
-        {"n": 2, "risposta": "VERO", "certezza": "alta"},   # disagrees -> flagged
+        {"n": 1, "risposta": "FALSO", "certezza": "alta"},
+        {"n": 2, "risposta": "VERO", "certezza": "alta"},
     ]}
     entitled = Entitlement(has_pass=False, pass_expires_at=None, free_explanations_left=3)
 

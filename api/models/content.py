@@ -167,6 +167,14 @@ class Explanation(Base):
     # regeneration.
     flags: Mapped[str | None] = mapped_column(Text, default=None)
 
+    # Comma-separated question ids where the model's verdict contradicted the
+    # ministerial answer. Withheld per question rather than per cluster: measured, those
+    # disagreements are almost always about a derived fact the article does not state,
+    # while the explanation of the rule is sound — so suppressing all twelve statements
+    # because of one costs most of the bank for nothing. A user still never sees an
+    # explanation that contradicts the answer they were just shown.
+    disputed: Mapped[str | None] = mapped_column(Text, default=None)
+
     reviewed_at: Mapped[datetime | None] = mapped_column(default=None)
     reviewer: Mapped[str | None] = mapped_column(Text, default=None)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)

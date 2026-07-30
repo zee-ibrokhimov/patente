@@ -55,10 +55,18 @@ well as "km/h" would be three regexes agreeing with each other by hand.
 
 WHAT REACHES A USER
 -------------------
-`draft` is served, `flagged` is withheld. Anything that tripped a gate reads as
-`Access.UNAVAILABLE`, which entitlement already distinguishes from "pay for it", and a
-human upgrades it to `approved` through the step-7 review loop. Nothing here ever
-returns text it is not willing to stand behind.
+`draft` is served, `flagged` is withheld. Anything that tripped a cluster-level gate
+reads as `Access.UNAVAILABLE`, which entitlement already distinguishes from "pay for
+it", and a human upgrades it to `approved` through the step-7 review loop.
+
+Disagreeing with the answer key is handled **per statement**, not per cluster. Measured
+on *Segnali di precedenza*, 8 of 12 clusters disagreed on 1-3 statements out of 12, and
+in every case the explanation of the rule was correct — the disputes were about derived
+facts the article does not state. Withholding whole clusters for that left 5 of 15
+servable. So the disputed question ids are recorded and the explanation is withheld only
+for those, which keeps the safety property that matters — a user never sees an
+explanation contradicting the answer they were just shown — without suppressing the ten
+statements it explains perfectly well.
 """
 
 from __future__ import annotations
@@ -319,7 +327,22 @@ def parsed_texts(parsed: dict) -> dict[str, str]:
 
 
 def check_gates(parsed: dict, judged: list[dict]) -> tuple[str, list[str], list[dict]]:
-    """(status, reasons, disagreements). `flagged` means a human must look."""
+    """(status, reasons, disagreements).
+
+    `reasons` withhold the whole cluster and make the status `flagged`. `disagreements`
+    do not: they withhold the individual statements they concern, and are recorded on the
+    row for the reviewer.
+
+    That split is measured, not assumed. On *Segnali di precedenza*, 8 of 12 clusters
+    disagreed with the answer key on 1-3 statements out of 12, and in every case the
+    explanation of the rule was right — the disputed statements were about derived facts
+    the article does not state ("si trova sulle corsie di accelerazione", "perde efficacia
+    in presenza di agente"). Treating that as a cluster-level failure withheld two thirds
+    of the topic to protect against something that had not gone wrong.
+
+    A number is different and stays cluster-level: a wrong speed limit is the worst thing
+    this product can say, and it can be wrong anywhere in the sentence.
+    """
     reasons: list[str] = []
     verdicts = {
         v.get("n"): str(v.get("risposta", "")).upper()
@@ -341,10 +364,18 @@ def check_gates(parsed: dict, judged: list[dict]) -> tuple[str, list[str], list[
                 "statement": member["statement"],
             })
 
-    if disagreements:
+    # Deliberately NOT appended to `reasons`: this withholds the disputed statements,
+    # not the cluster. `disputed_ids` is what the serving path checks.
+    #
+    # One exception. Disagreeing about *most* of the cluster is no longer a quibble about
+    # a peripheral fact — it means the model and the answer key disagree about the rule
+    # itself, and there is no sound explanation to salvage.
+    if len(disagreements) > len(judged) / 2:
         reasons.append(
-            f"argues against the stored answer on {len(disagreements)}/{len(judged)} statements"
+            f"argues against the stored answer on {len(disagreements)}/{len(judged)} "
+            f"statements — most of the cluster"
         )
+
     # The Italian only. The claim is the same claim in every language, so a status
     # derived from one applies to all — and matching "км/ч" as well as "km/h" would be
     # three regexes kept in agreement by hand.
@@ -362,12 +393,33 @@ def check_gates(parsed: dict, judged: list[dict]) -> tuple[str, list[str], list[
 
 
 def record_flags(reasons: list[str], disagreements: list[dict]) -> str | None:
-    """Why a draft was flagged, in the form a reviewer needs: which statement, and
-    what each side said."""
+    """Why the reviewer should look, in the form they need: which statement, and what
+    each side said. Recorded even when it does not withhold anything — a disagreement is
+    still the single best pointer to either a bad explanation or a bad answer key."""
+    if disagreements and not any("argues against" in r for r in reasons):
+        reasons = reasons + [
+            f"disputes the stored answer on {len(disagreements)} statement(s)"
+        ]
     return "; ".join(
         reasons
         + [f"q{d['question_id']}: key {d['stored']}, model {d['model']}" for d in disagreements]
     ) or None
+
+
+def disputed_ids(disagreements: list[dict]) -> str | None:
+    """The question ids to withhold this explanation for, comma-separated."""
+    return ",".join(str(d["question_id"]) for d in disagreements) or None
+
+
+def is_disputed(row: Explanation | None, question_id: int) -> bool:
+    """Did the model contradict the answer key for *this* statement?
+
+    If so the explanation may mislead about it specifically, even though it is sound
+    about the rest of its cluster — so it is withheld here and served elsewhere.
+    """
+    if row is None or not row.disputed:
+        return False
+    return str(question_id) in row.disputed.split(",")
 
 
 def is_fatal(exc: Exception) -> bool:
@@ -498,12 +550,13 @@ async def generate(
 
     status, reasons, disagreements = check_gates(parsed, judged)
     flags = record_flags(reasons, disagreements)
+    disputed = disputed_ids(disagreements)
     stored: dict[str, Explanation] = {}
     for code, text in texts.items():
         row = await existing(session, cluster_id, code)
         if row is None:
             row = Explanation(cluster_id=cluster_id, lang=code, text=text,
-                              status=status, flags=flags)
+                              status=status, flags=flags, disputed=disputed)
             session.add(row)
         elif row.status == STATUS_APPROVED:
             # A human approved this wording. A regeneration must not quietly replace
@@ -513,6 +566,7 @@ async def generate(
             row.text = text
             row.status = status
             row.flags = flags
+            row.disputed = disputed
             row.reviewed_at = None
             row.reviewer = None
         stored[code] = row
@@ -632,8 +686,9 @@ async def deliver(
     else:
         row = await existing(session, question.cluster_id, user.lang)
 
-    if not servable(row):
-        # The model declined, the call failed, a gate withheld it, or warming has not
+    if not servable(row) or is_disputed(row, question.id):
+        # The model declined, the call failed, a gate withheld the cluster, this
+        # particular statement is one the model contradicted, or warming has not
         # finished. All read the same to a user, and none of them costs a taster — but
         # only the last is worth offering a button for.
         access = (
