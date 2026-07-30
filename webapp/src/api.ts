@@ -75,5 +75,7 @@ export const api = {
 
   stats: () => request<Stats>("/stats"),
 
-  figureUrl: (image: string) => `${BASE}/figures/${image.replace(/^images\//, "")}`,
+  /** Static, not under /webapp — an <img src> cannot carry the initData header, so a
+   *  figure behind that auth is a guaranteed 401. nginx serves these directly. */
+  figureUrl: (image: string) => `/figures/${image.replace(/^images\//, "")}`,
 };

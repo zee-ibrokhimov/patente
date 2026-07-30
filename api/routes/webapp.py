@@ -29,7 +29,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps import get_session
 from api.models import User
-from api.routes import figures as figures_route
 from api.routes import quiz as quiz_route
 from api.routes import users as users_route
 from api.schemas import (
@@ -160,12 +159,8 @@ async def stats(
     return await quiz_route.read_stats(user=user, session=session)
 
 
-@router.get("/figures/{name}")
-async def figure(name: str, _user: User = Depends(webapp_user)):
-    """Sign images, behind the same auth as everything else.
-
-    They are public-domain ministerial figures and leaking them would cost nothing, but
-    routing them through here keeps the public surface to exactly /webapp/* rather than
-    widening it to a second prefix. The file_id cache (PUT) stays bot-only.
-    """
-    return await figures_route.download(name=name)
+# There is deliberately no figure route here. Figures are served as STATIC files by
+# nginx at /figures/, because an <img src> tag sends no custom headers — anything
+# behind the initData header is an unavoidable 401 for an image. They are public-domain
+# ministerial figures carrying no user data, so static is both the fix and the better
+# design. See webapp/Dockerfile and webapp/nginx.conf.
