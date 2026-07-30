@@ -242,7 +242,20 @@ function translationSlot(question: Question): HTMLElement {
   } else if (question.translation_state === "available") {
     slot.append(el("p", "hint", t("translating")));
   } else if (question.translation_state === "locked") {
-    slot.append(el("p", "hint locked", t("translation_locked")));
+    // Compact on purpose. This person is mid-exam with a clock running; a full pitch
+    // here would be an interruption, and interrupting a timed exam is indefensible.
+    const strip = el("button", "premium-strip");
+    strip.type = "button";
+    strip.append(icons.star(26));
+    const body = el("div");
+    body.append(el("div", "premium-strip-title", t("premium_strip_title")),
+                el("div", "premium-strip-text", t("premium_strip_text")));
+    strip.append(body);
+    const chev = el("span", "chev");
+    chev.append(icons.chevron(20));
+    strip.append(chev);
+    strip.onclick = openSubscribe;
+    slot.append(strip);
   }
   return slot;
 }
@@ -280,13 +293,9 @@ async function finishRun(timedOut = false): Promise<void> {
 
 function homeScreen(): HTMLElement {
   const wrap = el("section", "screen");
-
   const brand = el("div", "brand");
-  const mark = el("div", "brand-mark");
-  mark.append(icons.wheel(26));
-  brand.append(mark, el("h1", "brand-name", "Quiz Patente"));
+  brand.append(el("h1", "", "Quiz Patente"), el("p", "", t("tagline")));
   wrap.append(brand);
-  wrap.append(el("p", "brand-sub", t("tagline")));
 
   const modes = el("div", "modes");
   modes.append(
@@ -294,16 +303,18 @@ function homeScreen(): HTMLElement {
     modeCard("practice", t("practice"), t("practice_desc"), t("practice_badge")),
   );
   wrap.append(modes);
+
+  // The promotion is the B variant of this screen and sits BELOW the cards, so it can
+  // never push the two things this screen exists for off the fold.
+  if (state.me && !state.me.has_pass) wrap.append(premiumBlock());
   return wrap;
 }
 
-/** One mode card.
+/** One mode card. Artwork left, everything readable right.
  *
- *  Everything that MATTERS is text: icon, title, description and chip. The artwork is
- *  decoration layered behind them and is the first thing to be clipped on a narrow
- *  phone, so it must never be what tells you which mode you are looking at.
- */
-function modeCard(mode: Mode, title: string, desc: string, badge: string): HTMLElement {
+ *  The artwork is decoration: the tag, title and description carry the meaning, because
+ *  artwork is the first thing to be clipped on a narrow phone. */
+function modeCard(mode: Mode, title: string, desc: string, tag: string): HTMLElement {
   const card = el("button", `mode ${mode}`);
   card.type = "button";
 
@@ -311,42 +322,84 @@ function modeCard(mode: Mode, title: string, desc: string, badge: string): HTMLE
   artwork.append(mode === "exam" ? art.exam() : art.practice());
   card.append(artwork);
 
-  const icon = el("div", "mode-icon");
-  icon.append(mode === "exam" ? icons.clipboard(26) : icons.cap(26));
-  card.append(icon);
+  const body = el("div", "mode-body");
+  const pill = el("div", "mode-tag");
+  pill.append(mode === "exam" ? icons.alert(15) : icons.check(15), document.createTextNode(tag));
+  body.append(pill, el("div", "mode-title", title));
 
-  card.append(el("div", "mode-title", title));
-
-  // Two short lines rather than one long one: the mockup breaks the description, and a
-  // single line would run under the artwork at this width.
   const description = el("div", "mode-desc");
-  for (const part of desc.split(". ").filter(Boolean)) {
-    description.append(el("div", "", part.endsWith(".") ? part : `${part}.`));
+  for (const part of desc.split(". ")) {
+    const line = part.trim();
+    if (!line) continue;
+    description.append(el("div", "", line.endsWith(".") ? line : `${line}.`));
   }
-  card.append(description);
+  body.append(description);
+  card.append(body);
 
-  const chip = el("div", "mode-chip");
-  chip.append(mode === "exam" ? icons.alert(16) : icons.check(16), document.createTextNode(badge));
-  card.append(chip);
+  const go = el("div", "mode-go");
+  go.append(icons.chevron(22));
+  card.append(go);
 
   card.onclick = () => void startRun(mode);
   return card;
+}
+
+/** The four Premium selling points, in one place.
+ *
+ *  Both promotion blocks list the same features in a different order, and having them
+ *  twice is how the pitch on one screen quietly stops matching the pitch on another. */
+function premiumFeatures(order: "sell" | "explain"): Array<{ title: string; sub: string }> {
+  const tr = { title: t("f_tr"), sub: t("f_tr_s") };
+  const expl = { title: t("f_expl"), sub: t("f_expl_s") };
+  const stats = { title: t("f_stats"), sub: t("f_stats_s") };
+  const all = { title: t("f_all"), sub: t("f_all_s") };
+  // "explain" leads with explanations because the user got something wrong and is
+  // asking why; "sell" leads with translation, which is the broader hook.
+  return order === "explain" ? [expl, tr, stats, all] : [tr, expl, stats, all];
+}
+
+function premiumList(order: "sell" | "explain"): HTMLElement {
+  const list = el("div", "premium-list");
+  for (const feature of premiumFeatures(order)) {
+    const item = el("div", "premium-item");
+    const text = el("div");
+    text.append(el("b", "", feature.title), document.createTextNode(feature.sub));
+    item.append(icons.check(18), text);
+    list.append(item);
+  }
+  return list;
+}
+
+/** The full Premium pitch. Gold, and gold is used for nothing else in this app. */
+function premiumBlock(): HTMLElement {
+  const box = el("div", "premium");
+  const head = el("div", "premium-head");
+  head.append(icons.star(30));
+  const headText = el("div");
+  headText.append(el("div", "premium-title", t("premium_title")),
+                  el("p", "premium-lead", t("premium_lead")));
+  head.append(headText);
+  box.append(head);
+
+  box.append(premiumList("sell"));
+
+  const cta = el("button", "btn gold");
+  cta.append(icons.crown(20), document.createTextNode(t("premium_cta")));
+  cta.onclick = openSubscribe;
+  box.append(cta);
+  return box;
+}
+
+/** Payment happens in the Telegram chat, never here — plan §6.2: a Mini App selling
+ *  digital goods sits closer to the Stars-only rule and to Apple's review guidelines. */
+function openSubscribe(): void {
+  toast(t("unlock_in_chat"));
 }
 
 function currentQuestion(run: Run): Question | undefined {
   return run.session.questions[run.index];
 }
 
-function answerSheet(run: Run): HTMLElement {
-  const sheet = el("div", "sheet");
-  for (let i = 0; i < run.session.question_count; i++) {
-    const cell = el("i", "cell");
-    if (run.answered.has(i + 1)) cell.classList.add("done");
-    if (i === run.index) cell.classList.add("here");
-    sheet.append(cell);
-  }
-  return sheet;
-}
 
 function runScreen(): HTMLElement {
   const run = state.run!;
@@ -354,27 +407,26 @@ function runScreen(): HTMLElement {
   const question = currentQuestion(run);
 
   if (run.deadline) {
-    const bar = el("div", "exam-bar");
-    timerNode = el("div", "timer display", "--:--");
-    const count = el("div", "exam-count label");
-    count.append(
-      document.createTextNode(`${t("answered_n")} `),
-      el("b", "", `${run.answered.size}/${run.session.question_count}`),
-    );
-    bar.append(timerNode, count);
+    const bar = el("div", "timer-card");
+    bar.append(timerDial());
+    const mid = el("div", "timer-mid");
+    timerNode = el("div", "timer-value", "--:--");
+    mid.append(timerNode, el("div", "timer-label", t("time_left")));
+    bar.append(mid);
+
+    const submit = el("button", "timer-submit");
+    submit.append(icons.flag(18), document.createTextNode(t("submit_short")));
+    submit.onclick = confirmFinish;
+    bar.append(submit);
     wrap.append(bar);
     tick();
   }
 
   wrap.append(answerSheet(run));
-  wrap.append(el("div", "label", t("question_of", {
-    n: run.index + 1, total: run.session.question_count,
-  })));
+  wrap.append(el("div", "q-index",
+    t("question_of", { n: run.index + 1, total: run.session.question_count })));
 
-  if (!question) {
-    wrap.append(el("div", "spinner"));
-    return wrap;
-  }
+  if (!question) { wrap.append(el("div", "spinner")); return wrap; }
 
   if (question.image) {
     const plate = el("div", "plate");
@@ -385,15 +437,11 @@ function runScreen(): HTMLElement {
     wrap.append(plate);
   }
 
-  if (question.stem_it) wrap.append(el("p", "stem", question.stem_it));
+  if (question.stem_it) wrap.append(el("p", "caption", question.stem_it));
   wrap.append(el("p", "statement", question.statement_it));
-
-  // The translation sits UNDER the Italian and never replaces it: the exam is sat in
-  // Italian and the Italian is the thing being learned.
   wrap.append(translationSlot(question));
 
   const answeredHere = run.answered.has(run.index + 1);
-
   if (!answeredHere) {
     const row = el("div", "answers");
     const vero = el("button", "btn vero", t("vero"));
@@ -411,40 +459,126 @@ function runScreen(): HTMLElement {
     wrap.append(next);
   }
 
-  const finish = el("button", "btn ghost",
-    run.session.mode === "exam" ? t("submit") : t("end_test"));
-  finish.onclick = () => {
-    if (run.session.mode === "exam" && !confirm(t("confirm_submit"))) return;
-    void finishRun();
-  };
-  wrap.append(finish);
+  const foot = el("div", "run-foot");
+  const finish = el("button", "link-btn");
+  finish.append(icons.flag(18),
+    document.createTextNode(run.session.mode === "exam" ? t("submit_short") : t("end_test")));
+  finish.onclick = confirmFinish;
+  foot.append(finish);
+  wrap.append(foot);
   return wrap;
 }
 
-function verdictBox(a: AnswerResult): HTMLElement {
-  const box = el("div", `verdict ${a.correct ? "ok" : "bad"}`);
-  box.append(el("p", "verdict-line display", a.correct ? t("correct") : t("wrong")));
-  if (!a.correct) {
-    box.append(el("p", "hint",
-      `${t("the_answer_is")}: ${a.correct_answer ? t("vero") : t("falso")}`));
+function confirmFinish(): void {
+  const run = state.run;
+  if (!run) return;
+  if (run.session.mode === "exam" && !confirm(t("confirm_submit"))) return;
+  void finishRun();
+}
+
+/** A small clock face beside the countdown. Drawn rather than an emoji so it inherits
+ *  the urgency colour along with the digits. */
+function timerDial(): SVGSVGElement {
+  const node = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  node.setAttribute("viewBox", "0 0 48 48");
+  node.setAttribute("width", "46"); node.setAttribute("height", "46");
+  node.setAttribute("class", "timer-dial");
+  node.setAttribute("aria-hidden", "true");
+  node.innerHTML = `<circle cx="24" cy="24" r="17" fill="#fff" stroke="currentColor" stroke-width="3"/>
+    <path d="M24 24 V9 A15 15 0 0 1 37.5 30 Z" fill="currentColor" opacity=".35"/>
+    <path d="M24 24 L33 19" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+    <circle cx="24" cy="24" r="2.4" fill="currentColor"/>
+    <rect x="20.5" y="2.5" width="7" height="4" rx="1.6" fill="currentColor"/>`;
+  return node;
+}
+
+/** The answer sheet: numbered, and it NEVER shows correctness. In a real exam you do not
+ *  find out until the end, and that is the property exam mode exists to preserve. */
+function answerSheet(run: Run): HTMLElement {
+  const sheet = el("div", "sheet");
+  for (let i = 0; i < run.session.question_count; i++) {
+    const cell = el("i", "cell", String(i + 1));
+    if (run.answered.has(i + 1)) cell.classList.add("done");
+    if (i === run.index) cell.classList.add("here");
+    sheet.append(cell);
   }
+  return sheet;
+}
+
+function verdictBox(a: AnswerResult): HTMLElement {
+  const box = el("div");
+
+  const verdict = el("div", `verdict ${a.correct ? "ok" : "bad"}`);
+  const mark = el("div", "verdict-mark");
+  mark.append(a.correct ? icons.tick(28) : icons.cross(26));
+  verdict.append(mark);
+  const text = el("div");
+  text.append(el("div", "verdict-title", a.correct ? t("correct") : t("wrong")));
+  if (!a.correct) {
+    const sub = el("div", "verdict-sub");
+    sub.append(document.createTextNode(`${t("the_answer_is")}: `),
+               el("b", "", a.correct_answer ? t("vero") : t("falso")));
+    text.append(sub);
+  }
+  verdict.append(text);
+  box.append(verdict);
 
   if (a.explanation_state === "shown" && a.explanation) {
-    box.append(el("p", "explanation", a.explanation));
+    const panel = el("div", "explain");
+    panel.append(icons.info(24));
+    const body = el("div");
+    body.append(el("h3", "", t("explanation")), el("p", "", a.explanation));
+    panel.append(body);
+    box.append(panel);
   } else if (a.explanation_state === "available") {
-    const why = el("button", "btn ghost", t("why"));
+    const why = el("button", "btn secondary", t("why"));
+    why.style.marginTop = "var(--md)";
     why.onclick = () => void askWhy(why, a.question_id);
     box.append(why);
   } else if (a.explanation_state === "locked") {
-    box.append(el("p", "hint locked", t("explanation_locked")));
-    box.append(el("p", "hint", t("unlock_in_chat")));
+    // The single most valuable promotion in the product: the user has just got something
+    // wrong and genuinely wants to know why. This is the one moment they will pay.
+    box.append(lockedExplanation());
   } else if (a.explanation_state === "unavailable") {
-    box.append(el("p", "hint", t("explanation_unavailable")));
+    box.append(el("p", "caption", t("explanation_unavailable")));
   }
 
   const next = el("button", "btn primary", t("next"));
+  next.style.marginTop = "var(--lg)";
   next.onclick = advance;
   box.append(next);
+
+  const end = el("button", "btn secondary", t("end_test"));
+  end.style.marginTop = "var(--md)";
+  end.onclick = confirmFinish;
+  box.append(end);
+  return box;
+}
+
+function lockedExplanation(): HTMLElement {
+  const box = el("div", "premium");
+  box.style.marginTop = "var(--md)";
+
+  const head = el("div", "premium-head");
+  head.append(icons.crown(30));
+  const headText = el("div");
+  headText.append(el("div", "premium-title", t("premium_locked_q")),
+                  el("p", "premium-lead", t("premium_locked_lead")));
+  head.append(headText);
+  box.append(head);
+
+  box.append(premiumList("explain"));
+
+  const cta = el("button", "btn gold");
+  const label = el("div");
+  label.append(el("div", "", t("premium_open")));
+  const small = el("div", "", t("premium_with"));
+  small.style.cssText = "font-size:14px;font-weight:500;opacity:.9";
+  label.append(small);
+  cta.append(icons.crown(20), label);
+  cta.onclick = openSubscribe;
+  box.append(cta);
+  box.append(el("p", "premium-foot", t("premium_cancel")));
   return box;
 }
 

@@ -66,6 +66,34 @@ export const icons = {
       size,
       true,
     ),
+
+  crown: (size = 26) =>
+    svg(`<path d="M3 8.5 7 12l5-6.5 5 6.5 4-3.5-1.6 9.5H4.6L3 8.5Z"/><path d="M4.6 19.5h14.8"/>`, size, true),
+
+  star: (size = 26) =>
+    svg(`<path d="m12 3.6 2.6 5.5 6 .8-4.4 4.2 1.1 6-5.3-2.9-5.3 2.9 1.1-6L3.4 9.9l6-.8L12 3.6Z"/>`, size, true),
+
+  chevron: (size = 22) => svg(`<path d="m9 5 7 7-7 7"/>`, size),
+
+  flag: (size = 20) => svg(`<path d="M6 20V4M6 5h11l-2.5 4L17 13H6"/>`, size),
+
+  clock: (size = 44) =>
+    svg(`<circle cx="12" cy="12" r="9"/><path d="M12 6.5V12l4 2.2"/>`, size),
+
+  cross: (size = 44) => svg(`<path d="m7 7 10 10M17 7 7 17"/>`, size),
+
+  tick: (size = 44) => svg(`<path d="m5 12.5 4.5 4.5L19 7.5"/>`, size),
+
+  info: (size = 24) => svg(`<circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.6v.3"/>`, size),
+
+  bulb: (size = 24) =>
+    svg(`<path d="M9 17.5h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2h5c0-.8.4-1.5 1-2A6 6 0 0 0 12 3Z"/>`, size),
+
+  refresh: (size = 22) =>
+    svg(`<path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 4v5h-5"/>`, size),
+
+  target: (size = 26) =>
+    svg(`<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="1"/>`, size),
 };
 
 /** Decorative artwork for the two mode cards.

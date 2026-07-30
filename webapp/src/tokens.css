@@ -1,65 +1,104 @@
-/* Design tokens, taken from the owner's Home mockup.
+/* Design tokens — the owner's specification, transcribed exactly.
  *
- * The app anchors to ITS OWN light palette rather than inheriting Telegram's theme.
- * That is a deliberate departure from what was here before: the design is specified as
- * light, and a card whose whole meaning is "soft red = the test you can fail" stops
- * meaning anything if a dark theme repaints it. Telegram's colours are still read for
- * one thing — the accent — so the app does not clash with the client chrome.
+ * This file is the contract. Every value below came from the design spec, and screens
+ * must consume these rather than inventing their own: that is the difference between a
+ * system and a pile of hex values, and it is what stops screen seven drifting from
+ * screen one.
  *
- * Semantic naming on purpose. `--exam` and `--practice` rather than `--red` and
- * `--green`, so the next screen inherits the meaning instead of re-deciding which red.
+ * Two rules from the spec are load-bearing and are encoded in the NAMES, not just the
+ * values, so a future screen inherits the meaning:
+ *
+ *   · Gold is reserved EXCLUSIVELY for Premium. If something is gold, it is selling a
+ *     subscription. Nothing else may use it — the moment gold means two things it stops
+ *     signalling either.
+ *   · Blue is actions and navigation, green is success and progress, red is urgency,
+ *     countdowns and errors. Hence --exam using red and --practice using green: the exam
+ *     is the timed thing you can fail, practice is progress without stakes.
  */
 
 :root {
+  /* The design is specified light. The app deliberately does NOT inherit Telegram's
+     theme: the mode cards and the premium blocks carry meaning in their tint, and a dark
+     repaint would erase exactly that. */
   color-scheme: light;
 
-  /* surfaces */
-  --bg: #f6f7f9;
+  /* --- core ---------------------------------------------------------- */
+  --bg: #f8fafc;
   --card: #ffffff;
-  --surface: #f1f3f6;
-  --edge: #e6e9ee;
-  --edge-strong: #d6dae1;
+  --text: #0f172a;
+  --text-2: #64748b;
 
-  /* type */
-  --text: #101828;
-  --text-2: #667085;
-  --text-3: #98a2b3;
+  --accent: #2563eb;          /* actions and navigation, nothing else */
+  --ok: #16a34a;              /* success and progress */
+  --bad: #dc2626;             /* urgency, countdowns, errors */
+  --warn: #d4a017;
 
-  /* the two modes. Each has a tint for the card, a solid for the accent, and a deep
-     for text that must stay legible on the tint. */
-  --exam-tint: #fdf2f2;
-  --exam: #d92d20;
-  --exam-deep: #9b1c1c;
-  --exam-chip: #fbe3e3;
+  /* --- premium (gold) ------------------------------------------------ */
+  /* Reserved for subscription promotion. See the rule above. */
+  --gold: #d4a017;
+  --gold-light: #f7e8a3;
+  --gold-dark: #a87400;
+  --gold-bg: #fff9e6;
+  --gold-border: #f2d47b;
 
-  --practice-tint: #f0f9f2;
-  --practice: #12854a;
-  --practice-deep: #0d6b3b;
-  --practice-chip: #dcf2e3;
+  /* --- semantic mode colours ----------------------------------------- */
+  /* Derived from the core palette rather than newly invented, so the "red = urgency,
+     green = progress" rule holds on the home screen too. */
+  --exam: var(--bad);
+  --exam-tint: #fef2f2;
+  --exam-deep: #991b1b;
+  --exam-chip: #fee2e2;
 
-  /* interactive */
-  --accent: #2e7cf6;
-  --accent-soft: #e8f1fe;
+  --practice: var(--ok);
+  --practice-tint: #f0fdf4;
+  --practice-deep: #15803d;
+  --practice-chip: #dcfce7;
 
-  /* status */
-  --ok: #12854a;
-  --bad: #d92d20;
-  --warn: #e8a200;
+  /* --- surfaces ------------------------------------------------------ */
+  --edge: #e5e7eb;
+  --surface: #f1f5f9;
 
-  --r-sm: 10px;
+  /* --- cards --------------------------------------------------------- */
+  --card-radius: 24px;
+  --card-pad: 24px;
+  --card-shadow: 0 6px 20px rgba(15, 23, 42, .06);
+
+  /* --- radii --------------------------------------------------------- */
+  --r-sm: 12px;
   --r: 16px;
-  --r-lg: 22px;
+  --r-lg: 24px;
 
-  --shadow-card: 0 1px 2px rgba(16, 24, 40, .04);
-  --shadow-lift: 0 4px 16px -6px rgba(16, 24, 40, .16);
+  /* --- spacing scale -------------------------------------------------- */
+  --xs: 4px;
+  --sm: 8px;
+  --md: 12px;
+  --lg: 16px;
+  --xl: 24px;
+  --2xl: 32px;
+  --3xl: 40px;
+  --4xl: 56px;
+
+  /* --- type ----------------------------------------------------------- */
+  /* Inter: verified to cover Latin and Latin-ext (Italian), Cyrillic (Russian), and
+     U+02BB — the modifier apostrophe Uzbek needs for oʻ and gʻ. Self-hosted as a
+     variable font so no request leaves Telegram's webview. */
+  --font: 'Inter', 'SF Pro Text', 'Roboto', system-ui, sans-serif;
+
+  --t-title: 40px;      --lh-title: 44px;      --w-title: 800;
+  --t-question: 24px;   --lh-question: 34px;   --w-question: 700;
+  --t-body: 18px;       --lh-body: 28px;       --w-body: 400;
+  --t-caption: 15px;    --lh-caption: 22px;    --w-caption: 400;
+
+  /* Display: the timer, the readiness percentage, the verdict. Deliberately enormous —
+     these are the three numbers the whole product exists to deliver. */
+  --t-display: 72px;    --lh-display: 72px;    --w-display: 800;
+  --t-verdict: 64px;    --w-verdict: 800;
+
+  /* --- buttons -------------------------------------------------------- */
+  --btn-h: 56px;
+  --btn-r: 16px;
+  --btn-primary-size: 20px;   --btn-primary-weight: 700;
+  --btn-secondary-size: 18px; --btn-secondary-weight: 600;
 
   --ease: cubic-bezier(.22, .61, .36, 1);
-
-  /* type scale */
-  --t-display: 40px;
-  --t-title: 26px;
-  --t-question: 19px;
-  --t-body: 16px;
-  --t-small: 14px;
-  --t-label: 12px;
 }
