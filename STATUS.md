@@ -3,7 +3,7 @@
 **Last updated:** 30 July 2026 — explanations generate on demand and are live in the API
 **Bot:** [@quizpatente_bot](https://t.me/quizpatente_bot) — working, free tier only
 **Repo:** https://github.com/zee-ibrokhimov/patente
-**Tests:** 266 passing
+**Tests:** 289 passing
 **Plan:** [patente-bot-plan.md](patente-bot-plan.md) · **How to run:** [README.md](README.md)
 
 > **Read first:** §13 is the architecture as it now works, §14 is the measurement that
@@ -29,7 +29,7 @@
 | 7 · Review loop (CSV out/in) | ✅ done, round-tripped against a real database |
 | 8 · Question translations (RU+EN on serve) | ✅ done — on demand, cached, §15 |
 | 8 · ~~`translate.py`~~ | ⛔ not being written — one call returns all three languages |
-| 9 · Entitlement + Tribute webhook | ⛔ blocked on Tribute credentials |
+| 9 · Entitlement + Tribute webhook | ✅ written and tested, §18 — only the credential is blocked |
 | 10 · Mini App | ⬜ not started |
 | 11 · Exam simulation | ⬜ not started |
 
@@ -864,3 +864,54 @@ finding.
 
 Not yet scheduled — the `schtasks` line is in the README, and creating a scheduled task is
 a change to the machine rather than to the repo.
+
+---
+
+## 18. Step 9: the Tribute webhook is written and tested
+
+`api/services/purchases.py` and `api/routes/webhooks.py`. Payments were listed as blocked
+on credentials, and the *credential* still is — but almost none of the work was. The
+handler, the idempotency, the refund path and the failure modes are all written and
+covered; what remains is a secret and a product id in `.env`.
+
+The schema was already right for it: `purchases.tribute_purchase_id` is UNIQUE, and that
+constraint **is** the idempotency guarantee rather than a "select then insert" with a race
+in it. `extended_to` existed because stacking is not derivable afterwards.
+
+Three things it had to get right, all tested (plan §14.1 names webhook idempotency as one
+of the three things the suite exists to defend):
+
+  1. **The signature covers the raw bytes.** Parsing the JSON and re-serialising produces
+     different bytes and the comparison breaks, so the route hands `bytes` to the service
+     and parsing happens only after the HMAC is confirmed. There is a test that signs a
+     re-serialised copy and expects a rejection, and one that replays an authentic
+     signature with a tampered amount.
+  2. **Redelivery does not extend a pass twice**, and a duplicate answers **200** — a 4xx
+     would make Tribute retry forever and eventually alert on a webhook that is working.
+  3. **A refund takes back what that purchase granted, and no more.** Bought twice with one
+     refunded, the customer keeps what they still paid for. If that leaves the expiry in the
+     past the pass is over, which is the immediate revocation the **EU right of withdrawal**
+     requires — §4.1 is explicit that this is built from day one, not later.
+
+Smaller decisions worth knowing:
+
+  · **No secret configured refuses everything.** An unsigned webhook that grants a paid pass
+    hands the product to anyone who can guess the URL. Verified live: `400` with
+    "TRIBUTE_WEBHOOK_SECRET is not configured".
+  · **Paying before ever opening the bot still credits you.** The user row is created —
+    losing a payment is much worse than an unexpected row, and `/start` is idempotent.
+  · **An unclassifiable product grants the shorter tier** rather than being refused. Erring
+    short under-serves a customer, which is recoverable; refusing keeps their money for
+    nothing. It is logged.
+  · **A refund for a purchase we never recorded** returns 200 and logs at ERROR — there is
+    nothing to revoke so retrying will not help, but it means a purchase webhook was missed.
+
+### ⚠️ The payload field names are a guess
+
+`parse_event` is written from the plan's description of the webhook, not from a real
+delivery. The *structure* is right and the field names may not be. So a body that does not
+parse is logged **in full at ERROR level**: the first real delivery documents the true shape,
+and adapting is a change in one function. Several plausible spellings are accepted already.
+
+Still needed from you (§4): creator verification, both products created, the API key and
+webhook secret in `.env`, and the merchant-of-record / EU VAT answer in writing.
