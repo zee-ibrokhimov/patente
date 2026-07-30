@@ -82,6 +82,8 @@ const STRINGS = {
     avg_errors: "Errori medi",
     history: "Ultimi esami",
     no_exams: "Nessun esame ancora. Provane uno.",
+    exam_badge: "Si può bocciare",
+    practice_badge: "Impara senza stress",
   },
   ru: {
     study: "Учёба",
@@ -153,6 +155,8 @@ const STRINGS = {
     avg_errors: "Ошибок в среднем",
     history: "Последние экзамены",
     no_exams: "Экзаменов пока нет. Попробуйте.",
+    exam_badge: "Можно не сдать",
+    practice_badge: "Учитесь без стресса",
   },
   en: {
     study: "Study",
@@ -224,6 +228,8 @@ const STRINGS = {
     avg_errors: "Avg errors",
     history: "Recent exams",
     no_exams: "No exams yet. Try one.",
+    exam_badge: "You can fail",
+    practice_badge: "Learn without stress",
   },
 } as const;
 

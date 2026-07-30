@@ -1,0 +1,65 @@
+/* Design tokens, taken from the owner's Home mockup.
+ *
+ * The app anchors to ITS OWN light palette rather than inheriting Telegram's theme.
+ * That is a deliberate departure from what was here before: the design is specified as
+ * light, and a card whose whole meaning is "soft red = the test you can fail" stops
+ * meaning anything if a dark theme repaints it. Telegram's colours are still read for
+ * one thing — the accent — so the app does not clash with the client chrome.
+ *
+ * Semantic naming on purpose. `--exam` and `--practice` rather than `--red` and
+ * `--green`, so the next screen inherits the meaning instead of re-deciding which red.
+ */
+
+:root {
+  color-scheme: light;
+
+  /* surfaces */
+  --bg: #f6f7f9;
+  --card: #ffffff;
+  --surface: #f1f3f6;
+  --edge: #e6e9ee;
+  --edge-strong: #d6dae1;
+
+  /* type */
+  --text: #101828;
+  --text-2: #667085;
+  --text-3: #98a2b3;
+
+  /* the two modes. Each has a tint for the card, a solid for the accent, and a deep
+     for text that must stay legible on the tint. */
+  --exam-tint: #fdf2f2;
+  --exam: #d92d20;
+  --exam-deep: #9b1c1c;
+  --exam-chip: #fbe3e3;
+
+  --practice-tint: #f0f9f2;
+  --practice: #12854a;
+  --practice-deep: #0d6b3b;
+  --practice-chip: #dcf2e3;
+
+  /* interactive */
+  --accent: #2e7cf6;
+  --accent-soft: #e8f1fe;
+
+  /* status */
+  --ok: #12854a;
+  --bad: #d92d20;
+  --warn: #e8a200;
+
+  --r-sm: 10px;
+  --r: 16px;
+  --r-lg: 22px;
+
+  --shadow-card: 0 1px 2px rgba(16, 24, 40, .04);
+  --shadow-lift: 0 4px 16px -6px rgba(16, 24, 40, .16);
+
+  --ease: cubic-bezier(.22, .61, .36, 1);
+
+  /* type scale */
+  --t-display: 40px;
+  --t-title: 26px;
+  --t-question: 19px;
+  --t-body: 16px;
+  --t-small: 14px;
+  --t-label: 12px;
+}

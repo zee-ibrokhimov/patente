@@ -1,4 +1,5 @@
 import { api, ApiError, sessions } from "./api";
+import { art, icons } from "./icons";
 import { lang, setLang, t } from "./i18n";
 import { haptic, inTelegram, initTelegram, tg } from "./telegram";
 import type {
@@ -280,30 +281,56 @@ async function finishRun(timedOut = false): Promise<void> {
 function homeScreen(): HTMLElement {
   const wrap = el("section", "screen");
 
-  const hero = el("div", "hero");
-  hero.append(el("h1", "display", "Quiz Patente"));
-  hero.append(el("span", "label", t("tagline")));
-  wrap.append(hero);
+  const brand = el("div", "brand");
+  const mark = el("div", "brand-mark");
+  mark.append(icons.wheel(26));
+  brand.append(mark, el("h1", "brand-name", "Quiz Patente"));
+  wrap.append(brand);
+  wrap.append(el("p", "brand-sub", t("tagline")));
 
   const modes = el("div", "modes");
-  const card = (mode: Mode, title: string, desc: string) => {
-    const b = el("button", `mode ${mode}`);
-    b.append(el("div", "mode-title", title), el("div", "mode-desc", desc));
-    b.onclick = () => void startRun(mode);
-    return b;
-  };
   modes.append(
-    card("exam", t("exam"), t("exam_desc")),
-    card("practice", t("practice"), t("practice_desc")),
+    modeCard("exam", t("exam"), t("exam_desc"), t("exam_badge")),
+    modeCard("practice", t("practice"), t("practice_desc"), t("practice_badge")),
   );
   wrap.append(modes);
-
-  if (state.me && !state.me.has_pass) {
-    const note = el("p", "hint");
-    note.append(document.createTextNode(t("unlock_in_chat")));
-    wrap.append(el("h2", "", t("translations")), note);
-  }
   return wrap;
+}
+
+/** One mode card.
+ *
+ *  Everything that MATTERS is text: icon, title, description and chip. The artwork is
+ *  decoration layered behind them and is the first thing to be clipped on a narrow
+ *  phone, so it must never be what tells you which mode you are looking at.
+ */
+function modeCard(mode: Mode, title: string, desc: string, badge: string): HTMLElement {
+  const card = el("button", `mode ${mode}`);
+  card.type = "button";
+
+  const artwork = el("div", "mode-art");
+  artwork.append(mode === "exam" ? art.exam() : art.practice());
+  card.append(artwork);
+
+  const icon = el("div", "mode-icon");
+  icon.append(mode === "exam" ? icons.clipboard(26) : icons.cap(26));
+  card.append(icon);
+
+  card.append(el("div", "mode-title", title));
+
+  // Two short lines rather than one long one: the mockup breaks the description, and a
+  // single line would run under the artwork at this width.
+  const description = el("div", "mode-desc");
+  for (const part of desc.split(". ").filter(Boolean)) {
+    description.append(el("div", "", part.endsWith(".") ? part : `${part}.`));
+  }
+  card.append(description);
+
+  const chip = el("div", "mode-chip");
+  chip.append(mode === "exam" ? icons.alert(16) : icons.check(16), document.createTextNode(badge));
+  card.append(chip);
+
+  card.onclick = () => void startRun(mode);
+  return card;
 }
 
 function currentQuestion(run: Run): Question | undefined {
@@ -695,15 +722,17 @@ function settingsScreen(): HTMLElement {
 
 function tabs(): HTMLElement {
   const bar = el("nav", "tabs");
-  const add = (id: Screen, label: string) => {
-    const b = el("button", `tab ${state.screen === id ? "on" : ""}`, label);
+  const add = (id: Screen, label: string, icon: SVGSVGElement) => {
+    const b = el("button", `tab ${state.screen === id ? "on" : ""}`);
+    b.type = "button";
+    b.append(icon, el("span", "", label));
     b.onclick = () => { state.screen = id; render(); };
     bar.append(b);
   };
-  add("home", t("home"));
-  add("profile", t("profile"));
-  add("stats", t("stats"));
-  add("settings", t("settings"));
+  add("home", t("home"), icons.home(23));
+  add("profile", t("profile"), icons.person(23));
+  add("stats", t("stats"), icons.chart(23));
+  add("settings", t("settings"), icons.gear(23));
   return bar;
 }
 
@@ -732,9 +761,6 @@ function render(): void {
     root.append(tabs());
   }
 
-  const tri = el("div", "tricolore");
-  tri.append(el("i"), el("i"), el("i"));
-  root.append(tri);
 }
 
 async function boot(): Promise<void> {

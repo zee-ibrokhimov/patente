@@ -1,74 +1,17 @@
-/* Quiz Patente — "segnaletica"
+/* Quiz Patente — built to the owner's design.
  *
- * The design language is the product's own subject matter: Italian road signage and the
- * ministerial answer sheet. That is not decoration, it is the most honest thing this
- * interface could look like — every figure on screen is literally a plate from the
- * Regolamento, so the UI frames them the way a sign is actually mounted, and presents
- * progress the way an exam sheet actually reads.
+ * Tokens live in tokens.css and are semantic (--exam, --practice) rather than literal
+ * (--red, --green), so a screen inherits the meaning instead of re-picking a colour.
  *
- *   · Golos Text throughout, in three weights. Chosen for COVERAGE first: it carries
- *     Cyrillic properly, plus Latin and Latin-ext for Italian and for Uzbek, which is
- *     written in Latin script.
- *
- *     This replaced a Bebas Neue / Barlow pairing that was chosen for its signage
- *     character without checking the subsets. Neither face covers Cyrillic — Barlow has
- *     none at all upstream — so for a Russian reader EVERY character fell back to the
- *     system font and none of the typography described here was ever applied to them.
- *     A typeface that does not cover your users' language is not a design decision, it
- *     is a bug. Check `unicode-range` before choosing, not after.
- *   · The tricolore appears once, as a 3px hairline. A flag would be a costume; a hairline
- *     is a signature. The product is explicitly "not an official ministry product" and the
- *     visual language must not overclaim.
- *
- * Colour comes from Telegram's theme where it concerns chrome, so the app sits inside the
- * client rather than fighting it. The signage accents are ours and are constant in both
- * themes, because a stop sign is the same red at night.
+ * Golos Text throughout: chosen for COVERAGE. It carries Cyrillic, plus Latin and
+ * Latin-ext for Italian and for Uzbek, which is written in Latin script. The previous
+ * pairing was picked for its look without checking subsets and covered no Cyrillic at
+ * all, so for a Russian reader every character fell back to the system font. Check
+ * `unicode-range` before choosing a typeface, not after.
  */
 
 @import url('/fonts/fonts.css');
-
-:root {
-  /* Telegram overwrites these at runtime (see telegram.ts). Values here are the
-     fallbacks for a client that sends no theme, and for `npm run dev`. */
-  --bg: #ffffff;
-  --text: #16181c;
-  --hint: #707579;
-  --link: #0b5fa5;
-  --button: #0b5fa5;
-  --button-text: #ffffff;
-  --surface: #f2f3f5;
-
-  /* Signage. Taken from Italian sign specifications rather than from a palette tool. */
-  --sign-red: #cc2229;
-  --sign-blue: #0b5fa5;
-  --sign-green: #007a3d;
-  --sign-amber: #e8a200;
-
-  --tri-green: #008c45;
-  --tri-white: #f4f5f0;
-  --tri-red: #cd212a;
-
-  --plate: #ffffff;
-  --edge: color-mix(in srgb, var(--text) 12%, transparent);
-  --edge-strong: color-mix(in srgb, var(--text) 22%, transparent);
-
-  --r-sm: 8px;
-  --r: 14px;
-  --r-lg: 20px;
-
-  --shadow: 0 1px 2px rgba(0, 0, 0, .06), 0 8px 24px -12px rgba(0, 0, 0, .28);
-  --shadow-lift: 0 2px 4px rgba(0, 0, 0, .08), 0 18px 44px -18px rgba(0, 0, 0, .4);
-
-  --ease: cubic-bezier(.22, .61, .36, 1);
-}
-
-:root[data-scheme="dark"] {
-  --plate: #ffffff;                 /* a sign plate stays white. That is the point. */
-  --edge: color-mix(in srgb, #ffffff 14%, transparent);
-  --edge-strong: color-mix(in srgb, #ffffff 26%, transparent);
-  --sign-green: #14a05a;
-  --shadow: 0 1px 2px rgba(0, 0, 0, .5), 0 10px 30px -14px rgba(0, 0, 0, .9);
-}
+@import url('./tokens.css');
 
 * { box-sizing: border-box; }
 
@@ -486,3 +429,117 @@ h2 { font-size: 17px; font-weight: 700; margin: 26px 0 10px; letter-spacing: -.0
 .run-badge.fail { background: var(--sign-red); }
 .run-meta { color: var(--hint); font-size: 14px; }
 .run-score { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 700; }
+
+/* ======================================================================
+   HOME — built to the owner's mockup
+   ====================================================================== */
+
+.brand { display: flex; align-items: center; gap: 12px; padding: 22px 0 4px; }
+
+.brand-mark {
+  width: 46px; height: 46px; border-radius: 13px; flex: none;
+  background: linear-gradient(160deg, #3b8bfd, #1f63d6);
+  display: grid; place-items: center; color: #fff;
+  box-shadow: 0 4px 12px -4px rgba(46, 124, 246, .55);
+}
+
+.brand-name {
+  font-size: var(--t-display);
+  font-weight: 700;
+  letter-spacing: -.03em;
+  line-height: 1;
+  margin: 0;
+}
+
+.brand-sub { color: var(--text-2); font-size: var(--t-body); margin: 10px 0 26px; }
+
+.modes { display: grid; gap: 18px; }
+
+/* Each card is a tinted field, not a white card with a coloured accent. The tint IS the
+   signal: soft red for the test you can fail, soft green for practice. */
+.mode {
+  position: relative; overflow: hidden;
+  display: block; width: 100%; text-align: left;
+  appearance: none; cursor: pointer;
+  border: 1px solid transparent;
+  border-radius: var(--r-lg);
+  padding: 20px;
+  min-height: 210px;
+  color: inherit;
+  transition: transform .16s var(--ease), box-shadow .16s var(--ease);
+}
+.mode:active { transform: scale(.985); }
+
+.mode.exam { background: var(--exam-tint); border-color: #f7dede; }
+.mode.practice { background: var(--practice-tint); border-color: #d8eede; }
+
+.mode-icon {
+  width: 54px; height: 54px; border-radius: 15px;
+  display: grid; place-items: center;
+  background: #fff;
+}
+.mode.exam .mode-icon { color: var(--exam); box-shadow: 0 2px 8px -3px rgba(217,45,32,.35); }
+.mode.practice .mode-icon { color: var(--practice); box-shadow: 0 2px 8px -3px rgba(18,133,74,.35); }
+
+.mode-title {
+  font-size: var(--t-title); font-weight: 700; letter-spacing: -.02em;
+  margin: 18px 0 6px;
+}
+.mode.exam .mode-title { color: var(--exam-deep); }
+.mode.practice .mode-title { color: var(--practice-deep); }
+
+.mode-desc { color: var(--text-2); font-size: var(--t-body); max-width: 60%; line-height: 1.35; }
+
+/* The honest one-liner. Exam says you can fail; practice says you cannot. That pairing
+   is what makes the choice obvious before any description is read. */
+.mode-chip {
+  display: inline-flex; align-items: center; gap: 7px;
+  margin-top: 16px; padding: 7px 14px 7px 8px;
+  border-radius: 999px;
+  font-size: var(--t-small); font-weight: 600;
+}
+.mode.exam .mode-chip { background: var(--exam-chip); color: var(--exam-deep); }
+.mode.practice .mode-chip { background: var(--practice-chip); color: var(--practice-deep); }
+.mode-chip svg { flex: none; }
+
+/* The artwork sits behind the text and is decorative only — it must never be the thing
+   that communicates which mode this is, because it is the first thing to be clipped on
+   a narrow phone. */
+.mode-art {
+  position: absolute; right: -6px; bottom: -6px;
+  width: 190px; height: 190px;
+  pointer-events: none;
+  opacity: .95;
+}
+
+@media (max-width: 360px) {
+  .mode-art { opacity: .35; }
+  .mode-desc { max-width: 100%; }
+}
+
+/* ======================================================================
+   TAB BAR
+   ====================================================================== */
+
+.tabs {
+  position: sticky; bottom: 0; z-index: 10;
+  display: flex;
+  background: rgba(255, 255, 255, .92);
+  backdrop-filter: blur(12px);
+  border-top: 1px solid var(--edge);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.tab {
+  flex: 1; appearance: none; border: none; background: transparent;
+  color: var(--text-3);
+  padding: 11px 4px 9px;
+  font-family: inherit; font-size: var(--t-label); font-weight: 600;
+  cursor: pointer; position: relative;
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+}
+.tab.on { color: var(--accent); }
+.tab.on::before {
+  content: ''; position: absolute; top: 0; left: 50%; translate: -50% 0;
+  width: 62px; height: 3px; background: var(--accent); border-radius: 0 0 3px 3px;
+}
