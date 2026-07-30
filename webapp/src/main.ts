@@ -1,7 +1,7 @@
 import { api, ApiError, sessions } from "./api";
 import { art, icons } from "./icons";
 import { lang, setLang, t } from "./i18n";
-import { haptic, inTelegram, initTelegram, tg } from "./telegram";
+import { haptic, inTelegram, initTelegram, setBackButton, tg } from "./telegram";
 import type {
   AnswerResult,
   ExamAnswer,
@@ -44,7 +44,10 @@ const state: {
   results: SessionResults | null;
   stats: Stats | null;
   profile: Profile | null;
-} = { me: null, screen: "home", run: null, results: null, stats: null, profile: null };
+  /** A sitting the user walked away from. Held so the back button cannot lose an exam. */
+  resumable: Session | null;
+} = { me: null, screen: "home", run: null, results: null, stats: null, profile: null,
+      resumable: null };
 
 const root = document.getElementById("app")!;
 
@@ -163,6 +166,7 @@ function enterRun(session: Session): void {
     skew: serverNow - Date.now(),
     busy: false,
   };
+  state.resumable = null;
   state.screen = "run";
   render();
   if (state.run.deadline) startTicking();
@@ -276,6 +280,7 @@ async function finishRun(timedOut = false): Promise<void> {
     stopTicking();
     state.results = results;
     state.run = null;
+    state.resumable = null;
     state.profile = null;   // streak, readiness and history all just changed
     state.stats = null;
     state.screen = "results";
@@ -303,6 +308,10 @@ function homeScreen(): HTMLElement {
     modeCard("practice", t("practice"), t("practice_desc"), t("practice_badge")),
   );
   wrap.append(modes);
+
+  // If a sitting was left without finishing, offer it back BEFORE the promotion. Losing
+  // an exam by tapping back would make the back button a trap.
+  if (state.resumable) wrap.append(resumeCard(state.resumable));
 
   // The promotion is the B variant of this screen and sits BELOW the cards, so it can
   // never push the two things this screen exists for off the fold.
@@ -396,6 +405,42 @@ function openSubscribe(): void {
   toast(t("unlock_in_chat"));
 }
 
+function resumeCard(session: Session): HTMLElement {
+  const card = el("button", "premium-strip");
+  card.type = "button";
+  card.style.cssText = "background:#eff6ff;border-color:#bfdbfe;margin-top:var(--lg)";
+  card.append(icons.refresh(24));
+  const body = el("div");
+  body.append(el("div", "premium-strip-title", t("resume")),
+              el("div", "premium-strip-text", t("resume_desc")));
+  card.append(body);
+  const chev = el("span", "chev");
+  chev.append(icons.chevron(20));
+  card.append(chev);
+  card.onclick = () => void resumeRun(session.id);
+  return card;
+}
+
+/** Re-fetch rather than reuse the object we held: the server may have graded it while
+ *  the user was away (an exam whose deadline passed), and its answer is authoritative. */
+async function resumeRun(id: number): Promise<void> {
+  try {
+    const session = await sessions.read(id);
+    state.resumable = null;
+    if (session.state !== "open") {
+      state.results = await sessions.results(id);
+      state.screen = "results";
+      render();
+      return;
+    }
+    enterRun(session);
+  } catch (err) {
+    state.resumable = null;
+    reportError(err);
+    render();
+  }
+}
+
 function currentQuestion(run: Run): Question | undefined {
   return run.session.questions[run.index];
 }
@@ -467,6 +512,31 @@ function runScreen(): HTMLElement {
   foot.append(finish);
   wrap.append(foot);
   return wrap;
+}
+
+/** Leave a sitting without finishing it.
+ *
+ *  For an EXAM this warns first, and the warning is honest: the deadline keeps running
+ *  while you are away, because a real exam clock does not pause when you look away. The
+ *  session stays open on the server rather than being thrown away, so it can be resumed
+ *  or graded properly later — abandoning it here would discard answers the user has
+ *  already given.
+ *
+ *  For PRACTICE there is nothing to lose, so it just goes back.
+ */
+function leaveRun(): void {
+  const run = state.run;
+  if (!run) { goHome(); return; }
+  if (run.session.mode === "exam" && !confirm(t("confirm_leave"))) return;
+  stopTicking();
+  state.resumable = run.session;
+  state.run = null;
+  goHome();
+}
+
+function goHome(): void {
+  state.screen = "home";
+  render();
 }
 
 function confirmFinish(): void {
@@ -854,6 +924,20 @@ function settingsScreen(): HTMLElement {
 // shell
 // ---------------------------------------------------------------------------
 
+/** Used only when Telegram gives us no header back button. Mirrors it rather than
+ *  duplicating it, so no client shows two back controls. */
+function fallbackBack(handler: () => void): HTMLElement {
+  const row = el("div");
+  row.style.marginBottom = "var(--md)";
+  const button = el("button", "link-btn");
+  const chevron = icons.chevron(20);
+  chevron.style.transform = "rotate(180deg)";
+  button.append(chevron, document.createTextNode(t("back_home")));
+  button.onclick = handler;
+  row.append(button);
+  return row;
+}
+
 function tabs(): HTMLElement {
   const bar = el("nav", "tabs");
   const add = (id: Screen, label: string, icon: SVGSVGElement) => {
@@ -870,8 +954,23 @@ function tabs(): HTMLElement {
   return bar;
 }
 
+/** Which screens have somewhere to go back TO.
+ *
+ *  Home is the root, and the other tabs are reachable from the tab bar — a back arrow
+ *  there would be ambiguous. A sitting and its results are the two places the tab bar is
+ *  hidden or the flow is linear, so those are the two that need it. */
+function backTarget(): (() => void) | null {
+  if (state.screen === "run") return leaveRun;
+  if (state.screen === "results") return goHome;
+  return null;
+}
+
 function render(): void {
   root.replaceChildren();
+  const back = backTarget();
+  // Returns false on clients too old to have a header back button; the screen then
+  // renders its own, so a user is never trapped on a screen with no tab bar.
+  const nativeBack = setBackButton(back);
 
   let screen: HTMLElement;
   switch (state.screen) {
@@ -882,6 +981,7 @@ function render(): void {
     case "settings": screen = settingsScreen(); break;
     default: screen = homeScreen();
   }
+  if (back && !nativeBack) screen.prepend(fallbackBack(back));
   root.append(screen);
 
   // Ask for the translation of whatever is now on screen. After render, so the Italian

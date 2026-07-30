@@ -22,6 +22,15 @@ interface WebApp {
   ready(): void;
   expand(): void;
   close(): void;
+  /** Telegram's own back arrow, in the client header. Present from Bot API 6.1; older
+   *  clients leave it undefined, which is why every call site guards. */
+  BackButton?: {
+    isVisible: boolean;
+    show(): void;
+    hide(): void;
+    onClick(cb: () => void): void;
+    offClick(cb: () => void): void;
+  };
   HapticFeedback?: {
     notificationOccurred(type: "error" | "success" | "warning"): void;
     impactOccurred(style: "light" | "medium" | "heavy"): void;
@@ -66,4 +75,34 @@ function applyTheme(app: WebApp): void {
 
 export function haptic(kind: "success" | "error"): void {
   tg?.HapticFeedback?.notificationOccurred(kind);
+}
+
+
+/** Drive Telegram's header back arrow.
+ *
+ *  Only one handler is ever registered: the previous one is removed first, because
+ *  onClick appends rather than replaces and a screen rendered twice would otherwise fire
+ *  its handler twice — which, on the exam screen, means two confirm dialogs.
+ *
+ *  Returns false when the client is too old to have a back button, so the caller can
+ *  render an in-screen control instead rather than leaving the user trapped.
+ */
+let backHandler: (() => void) | null = null;
+
+export function setBackButton(handler: (() => void) | null): boolean {
+  const button = tg?.BackButton;
+  if (!button) return false;
+
+  if (backHandler) {
+    button.offClick(backHandler);
+    backHandler = null;
+  }
+  if (handler) {
+    backHandler = handler;
+    button.onClick(handler);
+    button.show();
+  } else {
+    button.hide();
+  }
+  return true;
 }
