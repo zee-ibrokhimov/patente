@@ -3,7 +3,7 @@
 **Last updated:** 30 July 2026 — explanations generate on demand and are live in the API
 **Bot:** [@quizpatente_bot](https://t.me/quizpatente_bot) — working, free tier only
 **Repo:** https://github.com/zee-ibrokhimov/patente
-**Tests:** 289 passing
+**Tests:** 294 passing
 **Plan:** [patente-bot-plan.md](patente-bot-plan.md) · **How to run:** [README.md](README.md)
 
 > **Read first:** §13 is the architecture as it now works, §14 is the measurement that
@@ -238,7 +238,7 @@ seeding works without it.
 
 - No Dockerfile yet — Docker isn't installed on this machine.
 - ~~No backups configured~~ — `ops/backup.py`, see §17. **Not yet scheduled**: the
-  `schtasks` line is in the README, but nothing runs it automatically.
+  `schtasks` line is in the README, but nothing runs it automatically. Restore rehearsed, §19.
 - ~~No admin command to grant or extend a pass~~ — `/grant`, see §16.
 - `bot/` has no automated end-to-end test against Telegram — handlers are covered
   only through the render and i18n layers.
@@ -915,3 +915,35 @@ and adapting is a change in one function. Several plausible spellings are accept
 
 Still needed from you (§4): creator verification, both products created, the API key and
 webhook secret in `.env`, and the merchant-of-record / EU VAT answer in writing.
+
+---
+
+## 19. The restore, rehearsed
+
+Plan §12 asks for backups that are "automated, off-box, and **test a restore before
+launch**, not after". §17 delivered the first two and skipped the third, which is the half
+that matters — a backup is a belief about the future until someone has restored one.
+`ops/restore.py --rehearse` is that test.
+
+**Opening the file and counting rows is not a restore test.** A snapshot taken before a
+migration passes `PRAGMA integrity_check` cleanly and then dies on the first query touching
+a column added later. So the rehearsal restores to a scratch copy and drives the *real
+application code* against it: the models load, the columns the recent migrations added are
+selected, and the selection query the bot actually serves from is executed with its joins.
+
+Verified both ways, which is the only reason to trust it:
+
+  · the current snapshot rehearses clean;
+  · dropping `explanations.disputed` — simulating a snapshot taken before migration
+    `c7a3e91f4d28` — makes it fail with *"schema is behind the code — a migration is missing
+    from this snapshot"*, and exit 1.
+
+Restoring for real needs `--to` and `--force`, because overwriting a good database with a
+stale snapshot is a plausible 3am mistake and the whole point of the file is 3am. Any
+`-wal` or `-shm` beside the target is removed first: a journal belonging to a *different*
+database is worse than no journal.
+
+Writing it turned up a Windows-specific defect worth remembering — SQLAlchemy's connection
+pool keeps the restored file open, so the scratch directory failed to delete and the
+rehearsal ended in a traceback that read like a failed restore when it had in fact
+succeeded. The engine is now disposed explicitly.

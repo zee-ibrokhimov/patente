@@ -163,3 +163,109 @@ def test_rotation_never_removes_the_most_recent(tmp_path, keep):
         (tmp_path / name).write_text("x")
     backup.rotate(tmp_path, keep=keep)
     assert (tmp_path / names[-1]).exists()
+
+
+# --- restoring, which is the half everyone skips -----------------------------
+# Plan §12: "test a restore before launch, not after." A backup is a belief about the
+# future until someone has restored one.
+
+def seeded_db(path):
+    """A minimally real database: the tables and columns the app queries."""
+    from sqlalchemy.orm import sessionmaker
+
+    from api.models import Base, Cluster, Question, Quesito, Topic
+    from shared.db import make_sync_engine
+
+    engine = make_sync_engine(f"sqlite:///{Pathlike(path)}")
+    Base.metadata.create_all(engine)
+    with sessionmaker(engine)() as s:
+        s.add(Topic(id=1, name="Segnali di divieto"))
+        s.flush()
+        s.add(Quesito(id=1, topic_id=1, primary_image=None))
+        s.add(Cluster(id=1, natural_key="t1|txt:1", topic_id=1, rule_summary="x"))
+        s.flush()
+        s.add(Question(id=1, quesito_id=1, topic_id=1, cluster_id=1, answer=True,
+                       statement_it="Il segnale vieta il transito", source_version="v1"))
+        s.commit()
+    engine.dispose()
+
+
+def test_a_good_snapshot_rehearses_clean(tmp_path):
+    from ops import restore
+
+    live = tmp_path / "live.db"
+    seeded_db(live)
+    target, _ = backup.snapshot(live, tmp_path / "out")
+    assert restore.rehearse(target) == []
+
+
+def test_a_rehearsal_catches_a_snapshot_taken_before_a_migration(tmp_path):
+    """The failure a restore must not be discovering at 3am: the file opens, passes
+    integrity_check, and then dies on the first query touching a column added later."""
+    from ops import restore
+
+    live = tmp_path / "live.db"
+    seeded_db(live)
+    target, _ = backup.snapshot(live, tmp_path / "out")
+
+    stale = sqlite3.connect(target)
+    stale.execute("alter table explanations drop column disputed")
+    stale.commit()
+    stale.close()
+
+    problems = restore.rehearse(target)
+    assert problems, "a pre-migration snapshot must not pass a rehearsal"
+    assert any("schema is behind the code" in p for p in problems)
+
+
+def test_a_rehearsal_rejects_an_unseeded_database(tmp_path):
+    """An empty file with the right schema is not a restorable database."""
+    from sqlalchemy.orm import sessionmaker  # noqa: F401
+
+    from api.models import Base
+    from ops import restore
+    from shared.db import make_sync_engine
+
+    empty = tmp_path / "empty.db"
+    engine = make_sync_engine(f"sqlite:///{Pathlike(empty)}")
+    Base.metadata.create_all(engine)
+    engine.dispose()
+
+    problems = restore.rehearse(empty)
+    assert any("not a seeded database" in p for p in problems)
+
+
+def test_a_corrupt_snapshot_never_reaches_the_rehearsal(tmp_path):
+    from ops import restore
+
+    broken = tmp_path / "broken.db"
+    broken.write_bytes(b"not a database at all")
+    assert restore.rehearse(broken)
+
+
+def test_restoring_leaves_no_stale_wal_beside_the_target(tmp_path):
+    """A -wal belongs to the database it was written for. Leaving one next to a restored
+    file makes SQLite try to replay a journal from a different database."""
+    from ops import restore
+
+    live = tmp_path / "live.db"
+    seeded_db(live)
+    snap, _ = backup.snapshot(live, tmp_path / "out")
+
+    target = tmp_path / "restored.db"
+    target.write_bytes(b"old")
+    (tmp_path / "restored.db-wal").write_bytes(b"stale journal")
+
+    import sys
+    argv = sys.argv
+    sys.argv = ["restore.py", "--from", str(snap), "--to", str(target), "--force"]
+    try:
+        assert restore.main() == 0
+    finally:
+        sys.argv = argv
+
+    # A fresh -wal may exist again: verifying the restored file opens it, and SQLite
+    # recreates one for a WAL-mode database. What must not survive is the *old* journal,
+    # which belonged to a different database.
+    leftover = tmp_path / "restored.db-wal"
+    assert not leftover.exists() or leftover.read_bytes() != b"stale journal"

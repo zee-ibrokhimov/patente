@@ -141,6 +141,27 @@ Run it daily at 03:00 (from an elevated prompt, one line):
 schtasks /Create /TN patente-backup /SC DAILY /ST 03:00 /TR "'C:\Users\aibro\OneDrive\Desktop\patente_bot\.venv\Scripts\python.exe' 'C:\Users\aibro\OneDrive\Desktop\patente_bot\ops\backup.py'"
 ```
 
+```bash
+.venv/Scripts/python.exe ops/restore.py --rehearse
+```
+
+Restores the newest snapshot to a scratch copy and drives the **real application code**
+against it — the models load, and the selection query the bot serves from actually runs.
+Plan §12 asks for a restore to be tested *before* launch; opening the file and counting
+rows is not that test. A snapshot taken before a migration passes `integrity_check` and
+then dies on the first query touching a new column, which is exactly the failure a restore
+must not be discovering live. Verified: dropping a migrated column makes the rehearsal
+fail with "schema is behind the code".
+
+To restore for real, deliberately:
+
+```bash
+.venv/Scripts/python.exe ops/restore.py --from backups/patente-20260730-120000.db --to patente.db --force
+```
+
+`--force` is required to overwrite, and any stale `-wal`/`-shm` beside the target are
+removed first — a journal belonging to a different database is worse than none.
+
 ## Tests
 
 ```bash
