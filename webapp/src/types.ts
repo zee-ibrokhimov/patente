@@ -169,3 +169,63 @@ export interface Profile {
     recent: ExamHistory[];
   };
 }
+
+/** --- vocabulary trainer -------------------------------------------------- */
+
+export type VocabDirection = "it_to_lang" | "lang_to_it";
+
+/** One thing to type an answer to.
+ *
+ *  Deliberately carries NO expected answer: the server grades, so the paper cannot be
+ *  read out of the network tab. `answer_lang` is which language the reply must be in,
+ *  so the placeholder and the keyboard hint can be right. */
+export interface VocabItem {
+  term_id: number;
+  direction: VocabDirection;
+  prompt: string;
+  answer_lang: string;
+}
+
+export interface VocabRound {
+  lang: string;
+  size: number;
+  items: VocabItem[];
+}
+
+export type VocabVerdict = "correct" | "almost" | "wrong";
+
+export interface VocabAnswer {
+  term_id: number;
+  verdict: VocabVerdict;
+  /** Sent for every verdict, including a wrong one — the moment after committing to an
+   *  answer is the moment the learner was going to learn from. */
+  expected: string;
+  /** For `almost`: the exact form they nearly typed. */
+  correction: string | null;
+  it: string;
+  gloss: string;
+  box: number;
+}
+
+export interface VocabTerm {
+  id: number;
+  rank: number;
+  it: string;
+  gloss: string;
+  /** 0 when never answered. */
+  box: number;
+}
+
+export interface VocabList {
+  lang: string;
+  total: number;
+  offset: number;
+  terms: VocabTerm[];
+}
+
+export interface VocabStats {
+  total: number;
+  started: number;
+  learned: number;
+  almost: number;
+}

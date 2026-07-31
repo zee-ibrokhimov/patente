@@ -591,3 +591,191 @@ html, body { overflow-x: hidden; }
   border-radius: var(--r); padding: var(--lg); color: inherit;
 }
 .link-row .chev { margin-left: auto; color: var(--text-3); flex: none; }
+
+/* --- vocabulary trainer ---------------------------------------------------
+ *
+ * Gold throughout, because gold means Premium in this app and nothing else. The
+ * learner should recognise what they are looking at before reading a word of it.
+ */
+
+/* The way in, from the home screen. A row rather than a third mode card: exam and
+   practice are what the app is for, and three equal cards would deny that. */
+.v-entry {
+  display: flex; align-items: center; gap: var(--md);
+  width: 100%; margin-top: var(--lg);
+  padding: var(--lg) var(--card-pad-fluid);
+  background: var(--gold-bg);
+  border: 1px solid var(--gold-border);
+  border-radius: var(--r-lg);
+  cursor: pointer; text-align: left;
+  font-family: var(--font);
+}
+.v-entry-icon { font-size: 26px; line-height: 1; }
+.v-entry-body { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.v-entry-title {
+  font-size: var(--t-body); font-weight: 700; color: var(--text);
+}
+.v-entry-sub {
+  font-size: var(--t-caption); color: var(--gold-dark);
+}
+.v-entry-go { font-size: 26px; color: var(--gold-dark); line-height: 1; }
+
+.v-head { margin-bottom: var(--lg); }
+.v-title {
+  font-size: var(--t-title); line-height: var(--lh-title);
+  font-weight: var(--w-title); color: var(--text); margin: 0;
+}
+.v-sub {
+  font-size: var(--t-caption); color: var(--text-2); margin: var(--xs) 0 0;
+}
+
+.v-progress {
+  height: 8px; background: var(--surface);
+  border-radius: 999px; overflow: hidden;
+}
+.v-progress-fill {
+  height: 100%; background: var(--gold);
+  border-radius: 999px; transition: width .3s ease;
+}
+.v-progress-label {
+  font-size: var(--t-caption); color: var(--text-2);
+  margin: var(--sm) 0 0;
+}
+
+/* Practise / Word list */
+.v-seg {
+  display: flex; gap: var(--xs); margin: var(--lg) 0;
+  background: var(--surface); padding: var(--xs);
+  border-radius: var(--r);
+}
+.v-seg-btn {
+  flex: 1; padding: var(--sm) var(--md);
+  border: 0; background: transparent; border-radius: var(--r-sm);
+  font-family: var(--font); font-size: var(--t-caption); font-weight: 600;
+  color: var(--text-2); cursor: pointer;
+}
+.v-seg-btn.on {
+  background: var(--card); color: var(--text);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, .10);
+}
+
+.v-card {
+  background: var(--card); border: 1px solid var(--edge);
+  border-radius: var(--card-radius); padding: var(--card-pad-fluid);
+  box-shadow: var(--card-shadow);
+}
+.v-counter {
+  font-size: var(--t-caption); font-weight: 600; color: var(--text-2);
+}
+.v-direction {
+  font-size: var(--t-caption); color: var(--gold-dark);
+  margin-top: var(--xs);
+}
+/* The word under test. Large because it is the only thing on the card that matters,
+   and it has to stay readable for a 24-character phrase like `avvisatore acustico`. */
+.v-prompt {
+  font-size: var(--t-question); line-height: var(--lh-question);
+  font-weight: var(--w-question); color: var(--text);
+  margin: var(--lg) 0; overflow-wrap: anywhere;
+}
+.v-input {
+  width: 100%; box-sizing: border-box;
+  padding: var(--md) var(--lg);
+  font-family: var(--font); font-size: var(--t-body);
+  color: var(--text); background: var(--bg);
+  border: 2px solid var(--edge); border-radius: var(--r);
+}
+.v-input:focus { outline: none; border-color: var(--gold); }
+.v-input:disabled { background: var(--surface); color: var(--text-2); }
+
+.v-action {
+  width: 100%; margin-top: var(--lg);
+  padding: var(--md) var(--lg);
+  border: 0; border-radius: var(--r);
+  background: var(--accent); color: #fff;
+  font-family: var(--font); font-size: var(--t-body); font-weight: 700;
+  cursor: pointer;
+}
+.v-action:disabled { opacity: .55; cursor: default; }
+
+.v-verdict {
+  margin-top: var(--lg); padding: var(--md) var(--lg);
+  border-radius: var(--r); border: 1px solid transparent;
+}
+.v-verdict.correct { background: var(--practice-tint); border-color: var(--practice-chip); }
+/* Amber, not red and not green: "almost" is a third thing, and painting it either of
+   the other two would contradict the sentence it carries. */
+.v-verdict.almost  { background: var(--gold-bg);      border-color: var(--gold-border); }
+.v-verdict.wrong   { background: var(--exam-tint);    border-color: var(--exam-chip); }
+.v-verdict-label { font-size: var(--t-caption); font-weight: 700; }
+.v-verdict.correct .v-verdict-label { color: var(--practice-deep); }
+.v-verdict.almost  .v-verdict-label { color: var(--gold-dark); }
+.v-verdict.wrong   .v-verdict-label { color: var(--exam-deep); }
+
+.v-pair {
+  margin-top: var(--sm); font-size: var(--t-body); color: var(--text);
+  display: flex; gap: var(--sm); flex-wrap: wrap; align-items: baseline;
+}
+.v-pair-it { font-weight: 700; }
+.v-pair-sep { color: var(--text-2); }
+.v-pair-gloss { color: var(--text-2); }
+.v-answer {
+  margin-top: var(--sm); font-size: var(--t-caption);
+  font-weight: 600; color: var(--text);
+}
+
+.v-summary { text-align: center; }
+.v-summary-title { font-size: var(--t-body); color: var(--text-2); }
+.v-summary-score {
+  font-size: var(--t-display); line-height: var(--lh-display);
+  font-weight: var(--w-display); color: var(--gold-dark);
+  margin: var(--sm) 0 var(--lg);
+}
+
+.v-search {
+  width: 100%; box-sizing: border-box;
+  padding: var(--md) var(--lg); margin-bottom: var(--md);
+  font-family: var(--font); font-size: var(--t-body);
+  border: 1px solid var(--edge); border-radius: var(--r);
+  background: var(--card); color: var(--text);
+}
+.v-search:focus { outline: none; border-color: var(--gold); }
+
+.v-list {
+  background: var(--card); border: 1px solid var(--edge);
+  border-radius: var(--r); overflow: hidden;
+}
+.v-row {
+  display: flex; align-items: center; gap: var(--md);
+  padding: var(--md) var(--lg);
+  border-bottom: 1px solid var(--edge);
+}
+.v-row:last-child { border-bottom: 0; }
+.v-row-main { flex: 1; min-width: 0; }
+.v-row-it {
+  font-size: var(--t-body); font-weight: 600; color: var(--text);
+  overflow-wrap: anywhere;
+}
+.v-row-gloss {
+  font-size: var(--t-caption); color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+.v-row-known {
+  flex-shrink: 0;
+  font-size: 12px; font-weight: 700; color: var(--practice-deep);
+  background: var(--practice-chip);
+  padding: 2px var(--sm); border-radius: 999px;
+}
+
+.v-locked {
+  background: var(--card); border: 1px solid var(--gold-border);
+  border-radius: var(--card-radius); padding: var(--card-pad-fluid);
+}
+.v-locked-title {
+  font-size: var(--t-body); font-weight: 700; color: var(--text);
+  margin-bottom: var(--md);
+}
+.v-muted {
+  font-size: var(--t-body); color: var(--text-2); text-align: center;
+  padding: var(--xl) 0;
+}

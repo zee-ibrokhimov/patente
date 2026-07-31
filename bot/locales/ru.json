@@ -46,7 +46,7 @@
   "plan_premium_h": "<b>В Premium входит</b>",
   "plan_b_ai": "🤖 ИИ объясняет каждый ответ",
   "plan_b_lang": "🌍 Перевод на несколько языков",
-  "plan_b_vocab": "📚 Словарь водителя (скоро)",
+  "plan_b_vocab": "📚 Словарь водителя (1090 слов)",
   "plan_b_future": "🚀 Все будущие Premium-функции",
   "plan_prices_h": "<b>Цены</b>",
   "plan_price_line": "{label} — <b>{price}</b>  ({per_month}/мес)",

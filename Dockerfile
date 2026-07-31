@@ -29,7 +29,11 @@ COPY alembic.ini ./
 # processes racing alembic on one SQLite file is a "database is locked" waiting
 # to happen, so the bot service sets PATENTE_SKIP_MIGRATE=1.
 #
-# seed.py is diff-based and cluster.py matches on clusters.natural_key, so both
+# seed_vocab.py matches terms on the ITALIAN rather than on the sheet's rank, so a
+# re-export that renumbers the list updates glosses in place and never orphans a
+# learner's vocab_progress rows.
+#
+# seed.py is diff-based and cluster.py matches on clusters.natural_key, so all three
 # are idempotent — a rerun reports "0 new, 3382 kept, 0 removed" rather than
 # rebuilding. Re-running clustering after explanations exist would once have
 # deleted every one of them (STATUS.md §10); the natural key is what makes this
@@ -45,6 +49,8 @@ RUN printf '%s\n' \
     '    python content/seed.py' \
     '    echo "[entrypoint] clustering"' \
     '    python content/cluster.py --strategy figure --write' \
+    '    echo "[entrypoint] seeding vocabulary"' \
+    '    python content/seed_vocab.py' \
     '  fi' \
     'fi' \
     'exec "$@"' \

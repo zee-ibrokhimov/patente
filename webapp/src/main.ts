@@ -1,4 +1,4 @@
-import { api, ApiError, sessions } from "./api";
+import { api, ApiError, sessions, vocab } from "./api";
 import { readinessGauge } from "./gauge";
 import { art, icons } from "./icons";
 import { lang, setLang, t } from "./i18n";
@@ -9,15 +9,19 @@ import type {
   Me,
   Mode,
   PracticeAnswer,
-  Question,
   Profile,
+  Question,
   Session,
   SessionResults,
   Stats,
+  VocabAnswer,
+  VocabList,
+  VocabRound,
+  VocabStats,
 } from "./types";
 import "./style.css";
 
-type Screen = "home" | "run" | "results" | "profile" | "stats" | "settings";
+type Screen = "home" | "run" | "results" | "profile" | "stats" | "settings" | "vocab";
 
 /** A sitting in flight.
  *
@@ -38,9 +42,31 @@ interface Run {
   busy: boolean;
 }
 
+/** The vocabulary trainer's own state.
+ *
+ *  `current` is the graded verdict for the item on screen: its presence is what switches
+ *  the card from "type your answer" to "here is how you did", so there is one source of
+ *  truth for which half is showing rather than a separate boolean that can disagree. */
+interface VocabRun {
+  view: "test" | "list";
+  round: VocabRound | null;
+  index: number;
+  current: VocabAnswer | null;
+  right: number;
+  typed: string;
+  busy: boolean;
+  list: VocabList | null;
+  query: string;
+  stats: VocabStats | null;
+  /** Set when the API answers 402. Rendering a paywall is the honest response to a
+   *  feature the user has not bought; pretending it is broken is not. */
+  locked: boolean;
+}
+
 const state: {
   me: Me | null;
   screen: Screen;
+  vocab: VocabRun;
   run: Run | null;
   results: SessionResults | null;
   stats: Stats | null;
@@ -48,7 +74,9 @@ const state: {
   /** A sitting the user walked away from. Held so the back button cannot lose an exam. */
   resumable: Session | null;
 } = { me: null, screen: "home", run: null, results: null, stats: null, profile: null,
-      resumable: null };
+      resumable: null,
+      vocab: { view: "test", round: null, index: 0, current: null, right: 0, typed: "",
+               busy: false, list: null, query: "", stats: null, locked: false } };
 
 const root = document.getElementById("app")!;
 
@@ -310,6 +338,8 @@ function homeScreen(): HTMLElement {
   );
   wrap.append(modes);
 
+  wrap.append(vocabEntry());
+
   // If a sitting was left without finishing, offer it back BEFORE the promotion. Losing
   // an exam by tapping back would make the back button a trap.
   if (state.resumable) wrap.append(resumeCard(state.resumable));
@@ -329,6 +359,25 @@ function homeScreen(): HTMLElement {
  *
  *  The artwork is decoration: the tag, title and description carry the meaning, because
  *  artwork is the first thing to be clipped on a narrow phone. */
+/** The way into the vocabulary trainer.
+ *
+ *  A row below the two mode cards rather than a third card of the same size: exam and
+ *  practice are what this app is for, and a third equal card would say the three are
+ *  equally important. It carries the gold Premium accent because it is a paid feature,
+ *  and the learner should know that before tapping rather than after. */
+function vocabEntry(): HTMLElement {
+  const card = el("button", "v-entry");
+  card.type = "button";
+  card.append(el("span", "v-entry-icon", "\u{1F4DA}"));
+  const body = el("span", "v-entry-body");
+  body.append(el("span", "v-entry-title", t("v_title")),
+              el("span", "v-entry-sub", t("v_sub")));
+  card.append(body);
+  card.append(el("span", "v-entry-go", "\u203A"));
+  card.onclick = () => void openVocab();
+  return card;
+}
+
 function modeCard(mode: Mode, title: string, desc: string, tag: string): HTMLElement {
   const card = el("button", `mode ${mode}`);
   card.type = "button";
@@ -1182,6 +1231,259 @@ function fallbackBack(handler: () => void): HTMLElement {
   return row;
 }
 
+
+// ---------------------------------------------------------------------------
+// vocabulary
+// ---------------------------------------------------------------------------
+
+/** Enter the trainer. Stats are fetched even when the round is refused, because the
+ *  progress line is free and is what makes the paywall persuasive rather than blunt. */
+async function openVocab(): Promise<void> {
+  state.screen = "vocab";
+  state.vocab = { ...state.vocab, view: "test", round: null, index: 0, current: null,
+                  right: 0, typed: "", locked: false };
+  render();
+  void loadVocabStats();
+  await startVocabRound();
+}
+
+async function loadVocabStats(): Promise<void> {
+  try {
+    state.vocab.stats = await vocab.stats();
+    render();
+  } catch {
+    /* the progress line is decoration; losing it must not break the screen */
+  }
+}
+
+async function startVocabRound(): Promise<void> {
+  state.vocab.busy = true;
+  render();
+  try {
+    state.vocab.round = await vocab.round();
+    state.vocab.index = 0;
+    state.vocab.right = 0;
+    state.vocab.current = null;
+    state.vocab.typed = "";
+    state.vocab.locked = false;
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 402) state.vocab.locked = true;
+    else reportError(err);
+  } finally {
+    state.vocab.busy = false;
+    render();
+  }
+}
+
+async function checkVocabAnswer(): Promise<void> {
+  const v = state.vocab;
+  const item = v.round?.items[v.index];
+  if (!item || v.busy || v.current) return;
+  v.busy = true;
+  render();
+  try {
+    v.current = await vocab.answer(item.term_id, item.direction, v.typed);
+    // ALMOST counts, exactly as it does server-side: the learner produced the word and
+    // missed the ending. Scoring it as a miss would contradict the message shown.
+    if (v.current.verdict !== "wrong") v.right += 1;
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 402) v.locked = true;
+    else reportError(err);
+  } finally {
+    v.busy = false;
+    render();
+  }
+}
+
+function nextVocabItem(): void {
+  const v = state.vocab;
+  v.index += 1;
+  v.current = null;
+  v.typed = "";
+  render();
+  if (v.index >= (v.round?.items.length ?? 0)) void loadVocabStats();
+}
+
+async function loadVocabList(query: string): Promise<void> {
+  state.vocab.query = query;
+  state.vocab.busy = true;
+  render();
+  try {
+    state.vocab.list = await vocab.terms({ q: query, limit: 100 });
+    state.vocab.locked = false;
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 402) state.vocab.locked = true;
+    else reportError(err);
+  } finally {
+    state.vocab.busy = false;
+    render();
+  }
+}
+
+function vocabScreen(): HTMLElement {
+  const wrap = el("section", "screen");
+  const v = state.vocab;
+
+  const head = el("div", "v-head");
+  head.append(el("h2", "v-title", t("v_title")), el("p", "v-sub", t("v_sub")));
+  wrap.append(head);
+
+  if (v.stats) {
+    const bar = el("div", "v-progress");
+    const fill = el("div", "v-progress-fill");
+    const pct = v.stats.total ? Math.round((v.stats.learned / v.stats.total) * 100) : 0;
+    fill.style.width = `${pct}%`;
+    bar.append(fill);
+    wrap.append(bar, el("p", "v-progress-label",
+      t("v_progress", { learned: v.stats.learned, total: v.stats.total })));
+  }
+
+  const seg = el("div", "v-seg");
+  for (const [id, label] of [["test", t("v_test")], ["list", t("v_list")]] as const) {
+    const b = el("button", `v-seg-btn ${v.view === id ? "on" : ""}`, label);
+    b.type = "button";
+    b.onclick = () => {
+      v.view = id as "test" | "list";
+      render();
+      if (id === "list" && !v.list) void loadVocabList("");
+      if (id === "test" && !v.round) void startVocabRound();
+    };
+    seg.append(b);
+  }
+  wrap.append(seg);
+
+  if (v.locked) { wrap.append(vocabLocked()); return wrap; }
+  wrap.append(v.view === "test" ? vocabTest() : vocabList());
+  return wrap;
+}
+
+function vocabLocked(): HTMLElement {
+  const card = el("div", "v-locked");
+  card.append(el("div", "v-locked-title", t("v_locked")));
+  if (state.me && !state.me.has_pass) card.append(premiumBlock());
+  return card;
+}
+
+function vocabTest(): HTMLElement {
+  const v = state.vocab;
+  const box = el("div", "v-card");
+
+  if (v.busy && !v.round) { box.append(el("p", "v-muted", "…")); return box; }
+  if (!v.round || v.round.items.length === 0) {
+    box.append(el("p", "v-muted", t("v_empty")));
+    return box;
+  }
+
+  if (v.index >= v.round.items.length) return vocabSummary();
+
+  const item = v.round.items[v.index]!;
+  const counter = el("div", "v-counter", `${v.index + 1} / ${v.round.items.length}`);
+  const direction = el("div", "v-direction",
+    item.direction === "it_to_lang" ? t("v_direction_it") : t("v_direction_lang"));
+  box.append(counter, direction, el("div", "v-prompt", item.prompt));
+
+  const field = el("input", "v-input");
+  field.type = "text";
+  field.autocomplete = "off";
+  field.autocapitalize = "off";
+  field.spellcheck = false;
+  field.placeholder = item.answer_lang === "it"
+    ? t("v_placeholder_it") : t("v_placeholder_lang");
+  field.value = v.typed;
+  field.disabled = v.current !== null;
+  field.oninput = () => { v.typed = field.value; };
+  field.onkeydown = (e) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    if (v.current) nextVocabItem(); else void checkVocabAnswer();
+  };
+  box.append(field);
+
+  if (v.current) box.append(vocabVerdict(v.current));
+
+  const action = el("button", "v-action");
+  action.type = "button";
+  action.disabled = v.busy;
+  action.textContent = v.current
+    ? (v.index + 1 >= v.round.items.length ? t("v_finish") : t("v_next"))
+    : t("v_check");
+  action.onclick = () => { if (v.current) nextVocabItem(); else void checkVocabAnswer(); };
+  box.append(action);
+
+  // Focus after paint, and only while awaiting an answer — stealing focus once the
+  // verdict is up would reopen the keyboard over the correction the learner is reading.
+  if (!v.current) queueMicrotask(() => field.focus());
+  return box;
+}
+
+function vocabVerdict(a: VocabAnswer): HTMLElement {
+  const wrap = el("div", `v-verdict ${a.verdict}`);
+  const label = { correct: t("v_correct"), almost: t("v_almost"), wrong: t("v_wrong") };
+  wrap.append(el("div", "v-verdict-label", label[a.verdict]));
+
+  // Shown for every verdict, including a correct one: seeing the pair again is the
+  // repetition, and for `almost` it is the entire point.
+  const pair = el("div", "v-pair");
+  pair.append(el("span", "v-pair-it", a.it), el("span", "v-pair-sep", "—"),
+              el("span", "v-pair-gloss", a.gloss));
+  wrap.append(pair);
+
+  if (a.verdict !== "correct") {
+    wrap.append(el("div", "v-answer", `${t("v_answer_was")}: ${a.expected}`));
+  }
+  return wrap;
+}
+
+function vocabSummary(): HTMLElement {
+  const v = state.vocab;
+  const total = v.round?.items.length ?? 0;
+  const box = el("div", "v-card v-summary");
+  box.append(el("div", "v-summary-title", t("v_round_done")));
+  box.append(el("div", "v-summary-score", t("v_score", { ok: v.right, total })));
+  const again = el("button", "v-action", t("v_again"));
+  again.type = "button";
+  again.onclick = () => void startVocabRound();
+  box.append(again);
+  return box;
+}
+
+function vocabList(): HTMLElement {
+  const v = state.vocab;
+  const box = el("div", "v-list-wrap");
+
+  const search = el("input", "v-search");
+  search.type = "search";
+  search.placeholder = t("v_search");
+  search.value = v.query;
+  // Debounced: a request per keystroke over 1090 rows is a lot of round trips for a
+  // list that is not changing under the user.
+  let timer: number | undefined;
+  search.oninput = () => {
+    window.clearTimeout(timer);
+    const q = search.value;
+    timer = window.setTimeout(() => void loadVocabList(q), 250);
+  };
+  box.append(search);
+
+  if (!v.list) { box.append(el("p", "v-muted", "…")); return box; }
+  if (v.list.terms.length === 0) { box.append(el("p", "v-muted", t("v_empty"))); return box; }
+
+  const list = el("div", "v-list");
+  for (const term of v.list.terms) {
+    const row = el("div", "v-row");
+    const left = el("div", "v-row-main");
+    left.append(el("div", "v-row-it", term.it), el("div", "v-row-gloss", term.gloss));
+    row.append(left);
+    if (term.box >= 4) {
+      const tick = el("span", "v-row-known", t("v_known"));
+      row.append(tick);
+    }
+    list.append(row);
+  }
+  box.append(list);
+  return box;
+}
+
 function tabs(): HTMLElement {
   const bar = el("nav", "tabs");
   const add = (id: Screen, label: string, icon: SVGSVGElement) => {
@@ -1206,6 +1508,9 @@ function tabs(): HTMLElement {
 function backTarget(): (() => void) | null {
   if (state.screen === "run") return leaveRun;
   if (state.screen === "results") return goHome;
+  // Vocabulary is entered from the home screen rather than the tab bar, so it is the one
+  // tab-bar-visible screen with somewhere unambiguous to go back to.
+  if (state.screen === "vocab") return goHome;
   return null;
 }
 
@@ -1223,6 +1528,7 @@ function render(): void {
     case "profile": screen = profileScreen(); break;
     case "stats": screen = statsScreen(); break;
     case "settings": screen = settingsScreen(); break;
+    case "vocab": screen = vocabScreen(); break;
     default: screen = homeScreen();
   }
   if (back && !nativeBack) screen.prepend(fallbackBack(back));

@@ -16,6 +16,11 @@ import type {
   Session,
   SessionResults,
   Stats,
+  VocabAnswer,
+  VocabDirection,
+  VocabList,
+  VocabRound,
+  VocabStats,
 } from "./types";
 
 const BASE = "/webapp";
@@ -86,6 +91,32 @@ export const api = {
   /** Static, not under /webapp — an <img src> cannot carry the initData header, so a
    *  figure behind that auth is a guaranteed 401. nginx serves these directly. */
   figureUrl: (image: string) => `/figures/${image.replace(/^images\//, "")}`,
+};
+
+/** --- vocabulary trainer -------------------------------------------------- */
+
+export const vocab = {
+  /** A round of terms to type, mixed in both directions. Carries prompts and no
+   *  answers — grading is server-side, so there is nothing here to read ahead. */
+  round: () => request<VocabRound>("/vocab/round"),
+
+  answer: (termId: number, direction: VocabDirection, given: string) =>
+    request<VocabAnswer>("/vocab/answer", {
+      method: "POST",
+      body: JSON.stringify({ term_id: termId, direction, given }),
+    }),
+
+  terms: (opts: { q?: string; offset?: number; limit?: number } = {}) => {
+    const p = new URLSearchParams();
+    if (opts.q) p.set("q", opts.q);
+    if (opts.offset != null) p.set("offset", String(opts.offset));
+    if (opts.limit != null) p.set("limit", String(opts.limit));
+    const qs = p.toString();
+    return request<VocabList>(`/vocab/terms${qs ? `?${qs}` : ""}`);
+  },
+
+  /** Outside the paywall, so it can be shown to someone deciding whether to buy. */
+  stats: () => request<VocabStats>("/vocab/stats"),
 };
 
 /** --- quiz sessions ------------------------------------------------------ */
