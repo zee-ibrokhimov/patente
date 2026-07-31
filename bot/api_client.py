@@ -68,8 +68,12 @@ class ApiClient:
         return response.json()
 
     # --- users -------------------------------------------------------------
-    async def register(self, chat_id: int, lang: str | None = None) -> dict:
-        return await self._request("POST", "/users", json={"chat_id": chat_id, "lang": lang})
+    async def register(self, chat_id: int, lang: str | None = None,
+                       source: str | None = None) -> dict:
+        return await self._request(
+            "POST", "/users",
+            json={"chat_id": chat_id, "lang": lang, "source": source},
+        )
 
     async def get_user(self, chat_id: int) -> dict:
         return await self._request("GET", f"/users/{chat_id}")

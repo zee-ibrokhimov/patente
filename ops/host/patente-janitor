@@ -94,7 +94,38 @@ if ! docker ps --format '{{.Names}}' | grep -qx "$CONNECTOR"; then
   fi
 fi
 
-# --- 3. shout only if pruning was not enough ---------------------------------
+# --- 3. does the product actually answer? ------------------------------------
+#
+# Nothing anywhere checked this. Today the app was down for about an hour and the only
+# reason anyone knew was that the owner happened to look. Backups were watched, disk was
+# watched, and whether the thing people pay for responds to a request was not.
+#
+# Both hops are probed because they fail differently and the difference names the fault:
+#   · origin bad, public bad   -> the app is broken
+#   · origin OK, public bad    -> the tunnel or Cloudflare, which step 2 tries to repair
+# A state file means it alerts on the TRANSITION, not every ten minutes for hours.
+STATE="/var/lib/patente-janitor.state"
+ORIGIN=$(curl -s -o /dev/null -w '%{http_code}' -m 15 -H 'Host: patente.zeehub.xyz' http://localhost/ || echo 000)
+PUBLIC=$(curl -s -o /dev/null -w '%{http_code}' -m 25 https://patente.zeehub.xyz/ || echo 000)
+PREV=$(cat "$STATE" 2>/dev/null || echo up)
+
+if [ "$PUBLIC" = "200" ] && [ "$ORIGIN" = "200" ]; then
+  NOW_STATE=up
+  [ "$PREV" != "up" ] && notify "patente: back up. Origin ${ORIGIN}, public ${PUBLIC}."
+else
+  NOW_STATE=down
+  if [ "$PREV" = "up" ]; then
+    if [ "$ORIGIN" = "200" ]; then
+      notify "patente: patente.zeehub.xyz is answering ${PUBLIC} while the origin serves 200. The Cloudflare tunnel is the fault, not the app."
+    else
+      notify "patente: the app itself is down. Origin ${ORIGIN}, public ${PUBLIC}."
+    fi
+  fi
+fi
+echo "$NOW_STATE" > "$STATE"
+echo "$(stamp) janitor: origin ${ORIGIN} public ${PUBLIC} (${NOW_STATE})"
+
+# --- 4. shout only if pruning was not enough ---------------------------------
 if "$PY" -c "import sys; sys.path.insert(0,'${REPO}'); from ops.janitor import is_critical; sys.exit(0 if is_critical(${USED}) else 1)"; then
   notify "patente: disk is ${USED}% full on CT101 after cleaning. Containers die at 100% and take the Cloudflare tunnel with them."
 fi

@@ -58,6 +58,16 @@ class User(Base):
     # and paid up. Requiring BOTH would have cut those people off.
     #
     # One of: creator | administrator | member | restricted | left | kicked | unknown.
+    # Where this person came from: the payload on their very first /start deep link,
+    # e.g. t.me/quizpatente_bot?start=tg_uzbeks_italy. Written ONCE, at first contact,
+    # and never overwritten — a user who later arrives through a different link has still
+    # been acquired by the first one, and letting the newest link claim them would credit
+    # whichever channel they happened to revisit.
+    #
+    # Impossible to reconstruct later, which is the argument for adding it before there
+    # is any traffic rather than after.
+    source: Mapped[str | None] = mapped_column(Text, default=None)
+
     channel_status: Mapped[str | None] = mapped_column(Text, default=None)
     channel_checked_at: Mapped[datetime | None] = mapped_column(default=None)
 

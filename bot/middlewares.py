@@ -41,12 +41,33 @@ class UserMiddleware(BaseMiddleware):
                 raise
             # Telegram's UI language is a decent first guess; the user picks
             # properly during onboarding.
-            user = await self.api.register(tg_user.id, normalise(tg_user.language_code))
+            #
+            # The /start payload rides along on registration rather than being recorded
+            # by the handler, because this is the ONE moment it can be captured: the
+            # middleware creates the user, and by the time /start runs the row exists
+            # with no source on it. Attribution is unreconstructable after the fact.
+            user = await self.api.register(
+                tg_user.id, normalise(tg_user.language_code), _start_payload(event)
+            )
 
         data["user"] = user
         data["lang"] = user["lang"]
         data["api"] = self.api
         return await handler(event, data)
+
+
+def _start_payload(event: TelegramObject) -> str | None:
+    """The text after /start, if this event is one.
+
+    `t.me/quizpatente_bot?start=tg_uzbeks_italy` arrives as the message "/start
+    tg_uzbeks_italy". Anything else — a callback, a photo, any other command — has no
+    payload and returns None rather than guessing.
+    """
+    text = getattr(event, "text", None)
+    if not text or not text.startswith("/start"):
+        return None
+    parts = text.split(maxsplit=1)
+    return parts[1].strip() if len(parts) > 1 else None
 
 
 class ErrorLoggingMiddleware(BaseMiddleware):

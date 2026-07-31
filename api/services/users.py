@@ -36,11 +36,31 @@ from shared.constants import (
 )
 
 
+def _clean_source(value: str | None) -> str | None:
+    """A deep-link payload is user-controlled text arriving from a URL.
+
+    Telegram already limits it to 64 characters of [A-Za-z0-9_-], but this is written to
+    the database and read back onto an admin screen, so it is not taken on trust.
+    """
+    if not value:
+        return None
+    cleaned = "".join(c for c in value.strip() if c.isalnum() or c in "_-")[:64]
+    return cleaned or None
+
+
 async def get_or_create(
-    session: AsyncSession, chat_id: int, lang: str | None = None
+    session: AsyncSession, chat_id: int, lang: str | None = None,
+    source: str | None = None,
 ) -> tuple[User, bool]:
     user = await session.get(User, chat_id)
     if user is not None:
+        # Never overwritten. Someone who arrives again through a different link was still
+        # acquired by the first one, and letting the newest claim them would credit
+        # whichever channel they happened to revisit rather than the one that worked.
+        # Backfilled only if it was missing entirely — which is the case for everyone who
+        # signed up before this existed.
+        if source and not user.source:
+            user.source = _clean_source(source)
         return user, False
 
     # The 7-day trial, granted at first contact and to first contact only.
@@ -57,6 +77,7 @@ async def get_or_create(
     # events from the start. Events cannot be backfilled.
     now = datetime.now(timezone.utc)
     user = User(
+        source=_clean_source(source),
         chat_id=chat_id,
         lang=lang if lang in UI_LANGUAGES else DEFAULT_LANG,
         pass_expires_at=now + timedelta(days=TRIAL_DAYS) if TRIAL_DAYS else None,

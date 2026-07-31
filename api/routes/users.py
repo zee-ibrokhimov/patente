@@ -80,7 +80,7 @@ async def _out(user: User, session: AsyncSession) -> UserOut:
 @router.post("", response_model=UserOut, status_code=200)
 async def create_or_get(body: UserIn, session: AsyncSession = Depends(get_session)):
     """Idempotent. /start on an existing user must not reset their progress."""
-    user, _created = await users.get_or_create(session, body.chat_id, body.lang)
+    user, _created = await users.get_or_create(session, body.chat_id, body.lang, body.source)
     return await _out(user, session)
 
 

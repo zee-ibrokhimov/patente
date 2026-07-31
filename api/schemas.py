@@ -19,6 +19,9 @@ from shared.constants import QUIZ_MODES, TIERS, UI_LANGUAGES, VOCAB_DIRECTIONS
 class UserIn(BaseModel):
     chat_id: int
     lang: str | None = None
+    # The /start deep-link payload, so acquisition can be attributed. Recorded once, at
+    # first contact — see api/services/users.py.
+    source: str | None = Field(default=None, max_length=64)
 
 
 class UserSettingsIn(BaseModel):

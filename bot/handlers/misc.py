@@ -183,6 +183,10 @@ async def admin_overview(message: Message, lang: str, api: ApiClient):
         f"  paywall hits     <b>{d['paywall_hits_week']}</b>",
         f"  exams sat        <b>{d['exams_week']}</b>",
     ]
+    if d.get("sources"):
+        lines += ["", "<b>Where they came from</b>"]
+        for row in d["sources"]:
+            lines.append(f"  {row['source']}  <b>{row['users']}</b>")
     await message.answer("\n".join(lines))
 
 

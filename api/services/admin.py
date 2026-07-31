@@ -70,7 +70,20 @@ async def overview(session: AsyncSession, now: datetime | None = None) -> dict:
         select(func.count()).select_from(QuizSession)
         .where(QuizSession.mode == MODE_EXAM, QuizSession.started_at >= week))) or 0
 
+    # Where people came from. The whole point of recording it — a count with no
+    # breakdown cannot tell the owner which channel to post in again.
+    sources = [
+        {"source": row[0] or "direct", "users": row[1]}
+        for row in (await session.execute(
+            select(User.source, func.count())
+            .group_by(User.source)
+            .order_by(func.count().desc())
+            .limit(8)
+        )).all()
+    ]
+
     return {
+        "sources": sources,
         "users": users_total,
         "users_new_week": users_week,
         "with_pass": with_pass,
