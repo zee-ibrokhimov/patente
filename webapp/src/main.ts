@@ -2,7 +2,7 @@ import { api, ApiError, sessions, vocab } from "./api";
 import { readinessGauge } from "./gauge";
 import { art, icons } from "./icons";
 import { TRANSLATION_LANGUAGES, lang, setLang, t } from "./i18n";
-import { haptic, inTelegram, initTelegram, setBackButton, tg } from "./telegram";
+import { haptic, inTelegram, initTelegram, openChat, setBackButton, tg } from "./telegram";
 import type {
   AnswerResult,
   ExamAnswer,
@@ -502,7 +502,32 @@ function premiumBlock(): HTMLElement {
 
 /** Payment happens in the Telegram chat, never here — plan §6.2: a Mini App selling
  *  digital goods sits closer to the Stars-only rule and to Apple's review guidelines. */
+/** Take the learner to the place they can actually pay.
+ *
+ *  This used to be `toast(t("unlock_in_chat"))` and nothing else — four paid surfaces
+ *  bound to a sentence that faded after three seconds. Payments were live and there was
+ *  no route from wanting to buy to buying.
+ *
+ *  `?start=plan` makes the bot answer with /plan and its Tribute buttons the moment the
+ *  chat opens, so the learner lands on the prices rather than on an empty conversation
+ *  they have to work out.
+ *
+ *  The toast survives as the fallback for clients too old to have openTelegramLink —
+ *  telling them where to go is worse than taking them there, and much better than a
+ *  button that does nothing.
+ */
 function openSubscribe(): void {
+  const bot = state.me?.bot_username;
+  if (bot && openChat(`https://t.me/${bot}?start=plan`)) return;
+  toast(t("unlock_in_chat"));
+}
+
+/** The Settings row. NOT the same action: it promises "support, news and useful
+ *  material", and it was wired to the subscribe toast — so a learner who already had
+ *  Premium tapped it and was told to open the bot to subscribe. */
+function openSupport(): void {
+  const handle = state.me?.support_contact || state.me?.bot_username;
+  if (handle && openChat(`https://t.me/${handle.replace(/^@/, "")}`)) return;
   toast(t("unlock_in_chat"));
 }
 
@@ -1305,7 +1330,7 @@ function settingsScreen(): HTMLElement {
   const chev = el("span", "chev");
   chev.append(icons.chevron(20));
   tg.append(chev);
-  tg.onclick = openSubscribe;
+  tg.onclick = openSupport;
   wrap.append(tg);
 
   return wrap;

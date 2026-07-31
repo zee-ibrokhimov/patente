@@ -29,9 +29,25 @@ def test_the_trial_message_states_the_end_date(lang):
 
 
 @pytest.mark.parametrize("lang", LANGS)
-def test_the_trial_message_states_the_amount(lang):
-    """"Free trial" with no number is how a charge becomes a surprise."""
-    assert "€2.99" in notify.compose("trial", lang, WHEN, TIER_1M)
+def test_the_trial_message_never_quotes_a_price_it_cannot_source(lang):
+    """It used to say EUR 2.99, always, and that was a lie in writing.
+
+    Tribute sends `period: "trial"` on a trial. That period has no tier of its own, so it
+    falls back to the SHORTEST one — meaning a learner who chose the six-month plan was
+    told they would be charged 2.99 and would then be charged 10.99. A wrong number in
+    writing is what a chargeback is argued from; a phrase is honest.
+    """
+    text = notify.compose("trial", lang, WHEN, TIER_1M)
+    assert "€" not in text, "a figure here cannot be trusted — see TRIBUTE_PERIODS_WITHOUT_TIER"
+
+
+@pytest.mark.parametrize("lang", LANGS)
+def test_the_trial_message_still_says_a_charge_is_coming(lang):
+    """Dropping the number must not turn into dropping the warning."""
+    text = notify.compose("trial", lang, WHEN, TIER_1M).lower()
+    phrase = {"ru": "цена выбранного плана", "en": "the price of the plan you chose",
+              "it": "il prezzo del piano scelto", "uz": "siz tanlagan reja narxi"}[lang]
+    assert phrase in text
 
 
 @pytest.mark.parametrize("lang", LANGS)
@@ -96,12 +112,28 @@ def test_a_missing_expiry_does_not_print_none():
     assert "None" not in notify.compose("paid", "en", None, TIER_1M)
 
 
-def test_the_price_matches_the_constant():
-    """The message, the button and the checkout page must agree. This is the number
-    people compare against their card statement."""
-    text = notify.compose("trial", "en", WHEN, TIER_1M)
+def test_the_paid_message_needs_no_price_at_all():
+    """Someone who has just paid knows what they paid. It confirms receipt and the
+    expiry, which is the thing they cannot see for themselves."""
+    text = notify.compose("paid", "en", WHEN, TIER_1M)
+    assert "07.08.2026" in text
+    assert "€" not in text
+
+
+def test_a_known_tier_still_renders_its_real_price():
+    """The trial fix must not turn into "never show a price". A tier that genuinely came
+    from Tribute's `period` is trustworthy and its figure is correct."""
     cents = TIER_PRICE_CENTS[TIER_1M]
-    assert f"€{cents // 100}.{cents % 100:02d}" in text
+    assert notify._price_words(TIER_1M, "en") == f"€{cents // 100}.{cents % 100:02d}"
+
+
+@pytest.mark.parametrize("lang", LANGS)
+def test_an_unknown_tier_renders_an_honest_phrase_not_a_zero(lang):
+    """The failure mode this replaces: TIER_PRICE_CENTS.get(tier, 0) rendered "€0.00"
+    for anything unrecognised, which is worse than a wrong price."""
+    words = notify._price_words("something_unmapped", lang)
+    assert "€" not in words
+    assert words.strip()
 
 
 # --- it must never break a payment ------------------------------------------

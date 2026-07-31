@@ -62,6 +62,12 @@ export interface Me {
   /** True once the user has actually bought something. Distinguishes a paying subscriber
    *  from someone on the free trial, who also has a pass. */
   purchased: boolean;
+  /** Where to send someone who wants to pay. Telegram does not tell a Mini App which bot
+   *  opened it, so without this the buy button has nowhere to go. */
+  bot_username: string;
+  support_contact: string;
+  /** A Tribute trial with a card attached, as opposed to a hand-granted pass. */
+  trialing: boolean;
 }
 
 export interface TopicStat {

@@ -133,6 +133,30 @@ MESSAGES: dict[str, dict[str, str]] = {
 }
 
 
+# What to write where a price belongs.
+#
+# It used to be TIER_PRICE_CENTS[tier]. On a TRIAL that is always wrong: Tribute sends
+# `period: "trial"`, which has no tier of its own and falls back to the shortest one — so
+# every trial message quoted EUR 2.99 no matter which plan was bought. Someone who chose
+# six months was told in writing they would be charged 2.99 and would then be charged
+# 10.99. A number we cannot source is worse than no number, because a wrong one in
+# writing is what a chargeback is argued from.
+PRICE_UNKNOWN = {
+    "ru": "цена выбранного плана",
+    "en": "the price of the plan you chose",
+    "it": "il prezzo del piano scelto",
+    "uz": "siz tanlagan reja narxi",
+}
+
+
+def _price_words(tier: str, lang: str = "en") -> str:
+    """The price, or an honest phrase when the event does not carry one."""
+    cents = TIER_PRICE_CENTS.get(tier)
+    if not cents:
+        return PRICE_UNKNOWN.get(lang, PRICE_UNKNOWN["en"])
+    return _money(cents)
+
+
 def compose(kind: str, lang: str, expires_at: datetime | None, tier: str,
             now: datetime | None = None) -> str:
     """The message for this event in this language, falling back to English.
@@ -151,10 +175,12 @@ def compose(kind: str, lang: str, expires_at: datetime | None, tier: str,
             kind = "ended"
     table = MESSAGES[kind]
     template = table.get(lang) or table["en"]
-    return template.format(
-        date=_date(expires_at),
-        price=_money(TIER_PRICE_CENTS.get(tier, 0)),
-    )
+    # On a trial the tier is a fallback, never the plan the buyer actually chose, so no
+    # figure is quoted at all. On a real payment the tier came from Tribute's `period`
+    # and is trustworthy.
+    price = PRICE_UNKNOWN.get(lang, PRICE_UNKNOWN["en"]) if kind == "trial" \
+        else _price_words(tier, lang)
+    return template.format(date=_date(expires_at), price=price)
 
 
 async def send(chat_id: int, text: str) -> bool:

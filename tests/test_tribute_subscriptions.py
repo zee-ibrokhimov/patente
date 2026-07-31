@@ -290,3 +290,66 @@ async def test_a_trial_still_takes_its_expiry_from_tribute(client, api_db):
                             amount=0, expires=ends))
     async with api_db() as s:
         assert (await s.get(User, BUYER)).pass_expires_at.date() == ends.date()
+
+
+# --- refunds on a SUBSCRIPTION ----------------------------------------------
+#
+# Every refund test in this suite used `digital_product_refunded`, which carries a real
+# purchase id and matched. This product sells SUBSCRIPTIONS, so every real refund and
+# every chargeback arrives as `subscription_refunded` — carrying the bare subscription id,
+# with no period. Purchase rows are keyed "<sub_id>:<period_end>" so renewals are not read
+# as redeliveries, which meant the refund could never find its row.
+#
+# It failed silently: "refund for unknown purchase" in the log, the pass untouched, and
+# /admin still counting the money because it filters on refunded_at IS NULL.
+
+
+async def test_a_subscription_refund_finds_its_purchase(client, api_db):
+    from sqlalchemy import select
+
+    await post(client, body("new_subscription", sub_id=777))
+    r = await post(client, body("subscription_refunded", sub_id=777))
+    assert r.json()["status"] == "refunded", "the refund did not match its purchase row"
+
+    async with api_db() as s:
+        row = (await s.scalars(select(Purchase).where(Purchase.chat_id == BUYER))).one()
+        assert row.refunded_at is not None
+
+
+async def test_a_refunded_subscription_loses_premium(client, api_db):
+    """The point of the whole path, and what the EU withdrawal right requires."""
+    from api.services.entitlement import evaluate
+
+    await post(client, body("new_subscription", sub_id=778))
+    await post(client, body("subscription_refunded", sub_id=778))
+    async with api_db() as s:
+        user = await s.get(User, BUYER)
+        assert evaluate(user).premium is False
+
+
+async def test_a_refund_takes_the_newest_period_not_the_oldest(client, api_db):
+    """A refund names a subscription, not a month. With several renewals stored under the
+    same subscription id, taking back the first month would leave the customer holding the
+    time they were just refunded for."""
+    from sqlalchemy import select
+
+    early = datetime.now(timezone.utc) + timedelta(days=30)
+    late = datetime.now(timezone.utc) + timedelta(days=60)
+    await post(client, body("new_subscription", sub_id=779, expires=early))
+    await post(client, body("renewed_subscription", sub_id=779, expires=late))
+    await post(client, body("subscription_refunded", sub_id=779))
+
+    async with api_db() as s:
+        rows = (await s.scalars(
+            select(Purchase).where(Purchase.chat_id == BUYER).order_by(Purchase.id)
+        )).all()
+    assert rows[0].refunded_at is None, "the first period should still stand"
+    assert rows[1].refunded_at is not None, "the newest period is the one refunded"
+
+
+async def test_refunding_twice_is_not_counted_twice(client, api_db):
+    raw = body("subscription_refunded", sub_id=780)
+    await post(client, body("new_subscription", sub_id=780))
+    await post(client, raw)
+    r = await post(client, raw)
+    assert r.json()["status"] in ("duplicate", "already-refunded", "unknown")

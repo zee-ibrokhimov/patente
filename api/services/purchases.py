@@ -362,9 +362,30 @@ async def apply_refund(session: AsyncSession, event: TributeEvent) -> str:
     If that leaves the expiry in the past the pass is simply over, which is the immediate
     revocation a withdrawal requires.
     """
+    # Exact match first, then a prefix match on the subscription id.
+    #
+    # A subscription's purchase rows are keyed "<subscription_id>:<period_end>" so that
+    # month two is not mistaken for a redelivery of month one — every renewal carries the
+    # SAME subscription_id. But a refund payload has no period, so it arrives as the bare
+    # id and could never match the row it refers to. The result was silent: apply_refund
+    # returned "unknown purchase", the pass stood, and /admin still counted the money as
+    # revenue because it filters on refunded_at IS NULL.
+    #
+    # Newest un-refunded first, because a refund names a subscription rather than a
+    # particular month, and taking back the most recent period is what Tribute means.
     purchase = await session.scalar(
         select(Purchase).where(Purchase.tribute_purchase_id == event.purchase_id)
     )
+    if purchase is None:
+        purchase = await session.scalar(
+            select(Purchase)
+            .where(
+                Purchase.chat_id == event.chat_id,
+                Purchase.tribute_purchase_id.like(f"{event.purchase_id}:%"),
+                Purchase.refunded_at.is_(None),
+            )
+            .order_by(Purchase.id.desc())
+        )
     if purchase is None:
         # Refund for something never recorded. Not an error to retry — there is nothing
         # here to revoke — but it means a purchase webhook was missed, which is worth

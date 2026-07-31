@@ -7,6 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps import get_session, get_user
+from shared.config import settings
 from api.models import Purchase, User
 from api.schemas import GrantPassIn, UserIn, UserOut, UserSettingsIn
 from api.services import users
@@ -42,6 +43,18 @@ async def _out(user: User, session: AsyncSession) -> UserOut:
             )
         )
     )
+    # A zero-amount Purchase row is a Tribute trial: a card IS linked and it will be
+    # charged. A pass with no row at all came from /grant and can never be charged. Both
+    # look identical from `has_pass` and `purchased`, and /plan has to tell them opposite
+    # things — one must be warned about the charge, the other must not be told to cancel
+    # a subscription that does not exist.
+    trialing = bool(
+        await session.scalar(
+            select(func.count(Purchase.id)).where(
+                Purchase.chat_id == user.chat_id, Purchase.amount_cents == 0
+            )
+        )
+    )
     return UserOut(
         chat_id=user.chat_id,
         lang=user.lang,
@@ -49,6 +62,9 @@ async def _out(user: User, session: AsyncSession) -> UserOut:
         pass_expires_at=user.pass_expires_at,
         has_pass=ent.has_pass,
         purchased=purchased,
+        trialing=trialing,
+        bot_username=settings.bot_username,
+        support_contact=settings.support_contact,
         free_explanations_left=ent.free_explanations_left,
         onboarded_at=user.onboarded_at,
         created_at=user.created_at,

@@ -11,6 +11,9 @@ interface WebApp {
   ready(): void;
   expand(): void;
   close(): void;
+  /** Opens a t.me link INSIDE Telegram — the app closes and the chat opens. Absent on
+   *  older clients, which is why every caller checks before using it. */
+  openTelegramLink?(url: string): void;
   /** Paint the client chrome around the Mini App. Bot API 6.1 / 6.9; older clients
    *  leave these undefined, hence the guards at the call site. */
   setHeaderColor?(color: string): void;
@@ -107,4 +110,27 @@ export function setBackButton(handler: (() => void) | null): boolean {
     button.hide();
   }
   return true;
+}
+
+/** Leave the Mini App and land in a Telegram chat.
+ *
+ *  The whole reason this exists: every paid surface in the app used to call a function
+ *  that showed a toast reading "open the bot in chat to subscribe" and did nothing else.
+ *  Payments were live and the buy button was a sentence that faded after three seconds —
+ *  a learner who wanted to pay had to close the app, find the bot, and guess that /plan
+ *  existed. Nobody told them.
+ *
+ *  Returns false when the client is too old to have the method, so the caller can fall
+ *  back to telling them rather than silently doing nothing.
+ */
+export function openChat(url: string): boolean {
+  try {
+    if (tg?.openTelegramLink) {
+      tg.openTelegramLink(url);
+      return true;
+    }
+  } catch {
+    /* fall through to the caller's fallback */
+  }
+  return false;
 }

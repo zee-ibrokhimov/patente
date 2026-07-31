@@ -40,7 +40,7 @@
   "plan_perks": "Tarkibida: savolning o'z tilingizdagi tarjimasi va Italiya yo'l harakati kodeksiga asoslangan izoh.",
   "btn_subscribe": "Obunani faollashtirish",
   "plan_trial": "🎁 <b>Bepul sinov</b> — {n} kun qoldi",
-  "plan_trial_note": "Sinov davomida hammasi ochiq. So'ngra bepul rejaga qaytadi, hech qanday to'lovsiz.",
+  "plan_trial_note": "Sinov tugagach, obuna siz tanlagan reja narxida avtomatik uzaytiriladi. Shu sanagacha @tribute orqali bekor qilsangiz, hech narsa yechilmaydi.",
   "plan_free_title": "⚪ Bepul reja",
   "plan_free_body": "Sizda barcha 7106 savol, imtihon va mashq bor. Tarjima va izohlar — Premium tarkibida.",
   "plan_premium_h": "<b>Premium tarkibida</b>",
@@ -53,5 +53,6 @@
   "plan_price_best": "{label} — <b>{price}</b>  ({per_month}/oy) ⭐ eng foydali",
   "plan_1m": "1 oy",
   "plan_3m": "3 oy",
-  "plan_6m": "6 oy"
+  "plan_6m": "6 oy",
+  "plan_granted_note": "Shu sanagacha to'liq kirish. Hech qanday to'lov olinmaydi."
 }

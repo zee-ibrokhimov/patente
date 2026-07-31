@@ -40,7 +40,7 @@
   "btn_subscribe": "Subscribe",
   "error_transient": "The service isn't responding. Try again in a moment.",
   "plan_trial": "🎁 <b>Free trial</b> — {n} days left",
-  "plan_trial_note": "You have everything during the trial. It then returns to the free plan, with nothing charged.",
+  "plan_trial_note": "When the trial ends the subscription renews automatically at the price of the plan you chose. You can cancel any time before then in @tribute and nothing will be charged.",
   "plan_free_title": "⚪ Free plan",
   "plan_free_body": "You have all 7106 questions, exam mode and practice. Translations and explanations are Premium.",
   "plan_premium_h": "<b>Premium includes</b>",
@@ -53,5 +53,6 @@
   "plan_price_best": "{label} — <b>{price}</b>  ({per_month}/mo) ⭐ best value",
   "plan_1m": "1 month",
   "plan_3m": "3 months",
-  "plan_6m": "6 months"
+  "plan_6m": "6 months",
+  "plan_granted_note": "Full access until this date. Nothing will be charged."
 }

@@ -36,6 +36,15 @@ class UserOut(BaseModel):
     # A trial is a pass with an expiry and no purchase behind it, so the client needs
     # both flags to tell a paying subscriber from someone still trialling.
     purchased: bool
+    # Where to send someone who wants to pay. The Mini App cannot know the bot it was
+    # opened from — Telegram does not tell it — so without this the buy button has
+    # nowhere to go, which is exactly what it had.
+    bot_username: str = ""
+    support_contact: str = ""
+    trialing: bool = Field(
+        default=False,
+        description="a Tribute trial with a card attached, as opposed to a granted pass",
+    )
     free_explanations_left: int
     onboarded_at: datetime | None
     created_at: datetime

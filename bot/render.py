@@ -103,10 +103,20 @@ def plan(user: dict, lang: str, *, can_subscribe: bool) -> str:
     lines = [t(lang, "plan_title"), ""]
 
     if has_pass and not purchased and expires:
-        # A pass with no purchase behind it is the trial.
+        # A pass with no MONEY behind it. Two very different things land here and they
+        # need opposite sentences:
+        #
+        #   · a Tribute trial — a card is linked and it WILL be charged unless cancelled
+        #   · a hand-granted pass from /grant — no card exists, nothing can be charged
+        #
+        # `trialing` is what the API says about the first. Telling a trialist "nothing
+        # will be charged" is how a chargeback starts; telling a gifted user to go and
+        # cancel a subscription they never had is merely confusing, so the ambiguous
+        # case defaults to the honest warning.
         days = _days_left(expires)
         lines.append(t(lang, "plan_trial", n=days))
-        lines += ["", t(lang, "plan_trial_note")]
+        note = "plan_trial_note" if user.get("trialing", True) else "plan_granted_note"
+        lines += ["", t(lang, note)]
         return _clip("\n".join(lines), MESSAGE_LIMIT)
 
     if has_pass and expires:

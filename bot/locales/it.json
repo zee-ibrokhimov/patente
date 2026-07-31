@@ -40,7 +40,7 @@
   "btn_subscribe": "Attiva abbonamento",
   "error_transient": "Il servizio non risponde. Riprova tra un momento.",
   "plan_trial": "🎁 <b>Prova gratuita</b> — ancora {n} giorni",
-  "plan_trial_note": "Durante la prova hai accesso a tutto. Alla fine si torna al piano gratuito, senza addebiti.",
+  "plan_trial_note": "Al termine della prova l'abbonamento si rinnova automaticamente al prezzo del piano scelto. Puoi disdire in qualsiasi momento prima di allora su @tribute e non ti verrà addebitato nulla.",
   "plan_free_title": "⚪ Piano gratuito",
   "plan_free_body": "Hai tutte le 7106 domande, l'esame e l'allenamento. Traduzioni e spiegazioni sono Premium.",
   "plan_premium_h": "<b>Premium include</b>",
@@ -53,5 +53,6 @@
   "plan_price_best": "{label} — <b>{price}</b>  ({per_month}/mese) ⭐ più conveniente",
   "plan_1m": "1 mese",
   "plan_3m": "3 mesi",
-  "plan_6m": "6 mesi"
+  "plan_6m": "6 mesi",
+  "plan_granted_note": "Accesso completo fino a questa data. Nessun addebito."
 }

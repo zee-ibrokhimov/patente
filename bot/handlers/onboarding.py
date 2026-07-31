@@ -23,6 +23,24 @@ from bot.i18n import t
 router = Router(name="onboarding")
 
 
+@router.message(CommandStart(deep_link=True, magic=F.args == "plan"))
+async def start_plan(message: Message, user: dict, lang: str):
+    """Arrived from the Mini App's Buy button — `t.me/<bot>?start=plan`.
+
+    Answers with the prices immediately. Without this the button would drop a learner who
+    had just decided to pay into an empty chat, where they would have to guess that
+    /plan exists. Deep links are the only way a Mini App can hand off with intent
+    attached, since Telegram tells the bot nothing about why the app closed.
+    """
+    from bot import render
+    from bot.handlers.progress import _can_subscribe
+
+    await message.answer(
+        render.plan(user, lang, can_subscribe=_can_subscribe()),
+        reply_markup=keyboards.plan_actions(lang, can_subscribe=_can_subscribe()),
+    )
+
+
 @router.message(CommandStart())
 async def start(message: Message, user: dict, lang: str):
     if user["onboarded_at"] is None:
