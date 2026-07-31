@@ -39,6 +39,9 @@ euros rather than the ~€75 the explanations cost.
 
 from __future__ import annotations
 
+import asyncio
+import time
+
 import json
 import logging
 
@@ -216,6 +219,34 @@ async def generate(session: AsyncSession, question: Question, model: str | None 
     return True
 
 
+# One lock per QUESTION, not per (question, language): a single call produces all three,
+# so a Russian and an Uzbek reader arriving together should wait on the same call rather
+# than make two. Explanations have had this since they were written; translations did not,
+# and the first question of every session is requested by the client at the same moment it
+# is warmed in the background — two paid calls for one result, on every session start.
+_locks: dict[int, asyncio.Lock] = {}
+
+# Languages a question has been asked for and did not come back with, and when.
+#
+# Without this, a question the model will not produce Uzbek for regenerates on EVERY
+# request from an Uzbek reader — a paid call each time, forever, for a row that never
+# appears. In-process and deliberately not persisted: a restart is a fine moment to try
+# again, and the alternative is a schema for remembering failures.
+_missing: dict[tuple[int, str], float] = {}
+RETRY_AFTER = 3600.0
+
+
+def _recently_failed(question_id: int, lang: str, now: float | None = None) -> bool:
+    when = _missing.get((question_id, lang))
+    if when is None:
+        return False
+    now = now if now is not None else time.monotonic()
+    if now - when > RETRY_AFTER:
+        _missing.pop((question_id, lang), None)
+        return False
+    return True
+
+
 async def ensure(
     session: AsyncSession, question: Question, lang: str
 ) -> Translation | None:
@@ -229,8 +260,25 @@ async def ensure(
     row = await existing(session, question.id, lang)
     if row is not None:
         return row
-    await generate(session, question)
-    return await existing(session, question.id, lang)
+    if _recently_failed(question.id, lang):
+        return None
+
+    lock = _locks.setdefault(question.id, asyncio.Lock())
+    async with lock:
+        # Re-check inside the lock: whoever held it may have just written the row.
+        row = await existing(session, question.id, lang)
+        if row is not None:
+            return row
+        await generate(session, question)
+        row = await existing(session, question.id, lang)
+
+    if row is None:
+        # Asked for, generated, and this language still did not appear. Remember, so the
+        # next reader is not charged for the same disappointment.
+        _missing[(question.id, lang)] = time.monotonic()
+        log.warning("question %s produced no %s translation — not retrying for an hour",
+                    question.id, lang)
+    return row
 
 
 async def warm(question_id: int) -> None:
