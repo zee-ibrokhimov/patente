@@ -617,6 +617,28 @@ async def generate(
             # A human approved this wording. A regeneration must not quietly replace
             # it, in any language.
             continue
+        elif servable(row) and status not in SERVABLE_STATUSES:
+            # A REGENERATION MAY IMPROVE A ROW, NEVER DEMOTE ONE.
+            #
+            # Found by running the Uzbek backfill against production. Most regenerations
+            # now exist to fill in a MISSING language, and they re-roll the whole cluster:
+            # new text, new gates, new status for every language. The gates are partly
+            # luck — the numeric one fires on any digit in the fresh Italian — so a cluster
+            # that was `draft` can come back `flagged`.
+            #
+            # Cluster 306 did exactly that. It was servable in it/ru/en, an Uzbek row was
+            # requested, the new Italian said "M1" where the old one had not, and all four
+            # languages became `flagged`. An Uzbek reader asking one question had silently
+            # revoked a working explanation for every Russian and English reader of that
+            # cluster, and nothing anywhere would have reported it.
+            #
+            # The old text passed the gates when it was written, so keeping it is sound.
+            # The NEW language is still judged on its own merits below — if this roll is
+            # bad, Uzbek is withheld and falls back, which is the correct outcome for the
+            # reader who triggered it and costs nobody else anything.
+            log.info("cluster %s: keeping the servable %s row rather than replacing it "
+                     "with a %s one (%s)", cluster_id, code, status, flags)
+            continue
         else:
             row.text = text
             row.status = status

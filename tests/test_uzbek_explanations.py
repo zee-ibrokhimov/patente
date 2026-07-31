@@ -226,6 +226,88 @@ def test_a_cluster_never_asked_for_is_not_marked_failed():
     assert explanations._recently_failed(4242, LANG_UZ) is False
 
 
+# --- a regeneration must not cost the other languages anything --------------
+
+async def test_adding_uzbek_does_not_revoke_a_servable_russian_explanation(
+        api_db, registered, fake_openai, cluster):
+    """Found by running the backfill against PRODUCTION, not by reading the code.
+
+    Most regenerations now exist to fill in a missing language, and `generate` re-rolls the
+    whole cluster: new text, new gates, new status for every language. The gates are partly
+    luck — the numeric one fires on any digit in the fresh Italian — so a cluster that was
+    `draft` can come back `flagged`.
+
+    Cluster 306 did exactly that. Servable in it/ru/en, an Uzbek row was requested, the new
+    Italian said "M1" where the old had not, and all four languages became `flagged`. One
+    Uzbek reader asking one question silently revoked a working explanation for every
+    Russian and English reader of that cluster. Servable Italian rows went 11 to 10 and
+    nothing reported it.
+    """
+    # First roll: clean, so it/ru/en are servable and there is no Uzbek yet.
+    fake_openai.reply = {**REPLY, "spiegazione": {
+        k: v for k, v in REPLY["spiegazione"].items() if k != LANG_UZ}}
+    async with api_db() as s:
+        assert await explanations.ensure(s, 1, LANG_RU) is not None
+        before = {e.lang: (e.status, e.text) for e in (await s.scalars(
+            select(Explanation).where(Explanation.cluster_id == 1))).all()}
+    assert before["ru"][0] == STATUS_DRAFT
+    assert LANG_UZ not in before
+
+    # Second roll, triggered by an Uzbek reader: this time the Italian trips a gate.
+    explanations._missing.clear()
+    fake_openai.reply = {**REPLY, "spiegazione": {
+        **REPLY["spiegazione"], "it": "Il limite in autostrada è di 130 km/h."}}
+    async with api_db() as s:
+        await explanations.ensure(s, 1, LANG_UZ)
+        after = {e.lang: (e.status, e.text) for e in (await s.scalars(
+            select(Explanation).where(Explanation.cluster_id == 1))).all()}
+
+    assert after["ru"] == before["ru"], "the Russian explanation was demoted or rewritten"
+    assert after["en"] == before["en"], "the English explanation was demoted or rewritten"
+    assert after["it"] == before["it"], "the Italian explanation was demoted or rewritten"
+
+
+async def test_the_new_language_is_still_judged_on_its_own_roll(
+        api_db, registered, fake_openai, cluster):
+    """Protecting the other languages must NOT smuggle a withheld explanation through. The
+    Uzbek row belongs to the bad roll and has to carry the bad roll's verdict."""
+    fake_openai.reply = {**REPLY, "spiegazione": {
+        k: v for k, v in REPLY["spiegazione"].items() if k != LANG_UZ}}
+    async with api_db() as s:
+        await explanations.ensure(s, 1, LANG_RU)
+
+    explanations._missing.clear()
+    fake_openai.reply = {**REPLY, "spiegazione": {
+        **REPLY["spiegazione"], "it": "Il limite in autostrada è di 130 km/h."}}
+    async with api_db() as s:
+        row = await explanations.ensure(s, 1, LANG_UZ)
+    assert row is not None
+    assert row.status == STATUS_FLAGGED, "a gated roll was served anyway"
+
+    # And the reader falls back rather than seeing it.
+    payload, access = await deliver_as(api_db, LANG_UZ, generate=False)
+    assert access is Access.SHOWN
+    assert payload["explanation_lang"] == LANG_RU
+
+
+async def test_a_regeneration_may_still_IMPROVE_a_withheld_row(
+        api_db, registered, fake_openai, cluster):
+    """The guard is one-directional. A cluster withheld by an unlucky roll must still be
+    able to recover on a better one, or a single bad generation is permanent."""
+    fake_openai.reply = {**REPLY, "spiegazione": {
+        **REPLY["spiegazione"], "it": "Il limite in autostrada è di 130 km/h."}}
+    async with api_db() as s:
+        first = await explanations.ensure(s, 1, LANG_RU)
+        assert first.status == STATUS_FLAGGED
+
+    fake_openai.reply = REPLY
+    async with api_db() as s:
+        await explanations.generate(s, 1)
+        rows = {e.lang: e.status for e in (await s.scalars(
+            select(Explanation).where(Explanation.cluster_id == 1))).all()}
+    assert rows["ru"] == STATUS_DRAFT, "a flagged cluster could never recover"
+
+
 # --- warming, which decides whether Uzbek is fast or merely present ---------
 
 async def test_serving_a_question_warms_uzbek_not_russian(
