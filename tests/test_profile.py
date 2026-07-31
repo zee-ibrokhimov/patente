@@ -35,9 +35,26 @@ def auth(chat_id: int = OWNER) -> dict:
 
 
 async def answered(api_db, question_id: int, seen: int, wrong: int, when: datetime):
+    """`seen` answers of which `wrong` were wrong — written as individual answer EVENTS.
+
+    This used to write a single `Progress` row carrying the totals, because readiness
+    summed per-question lifetime counters. It reads the answer log now: `progress` is a
+    running total and cannot express "the last hundred answers", which is what a readiness
+    estimate has to mean. See api/services/profile.py:_readiness.
+
+    The Progress row is still written, because the rest of the profile does read it.
+    """
     async with api_db() as s:
         s.add(Progress(chat_id=OWNER, question_id=question_id, box=1, due_at=when,
                        seen=seen, wrong=wrong, last_answer_at=when))
+        for i in range(seen):
+            s.add(Event(
+                chat_id=OWNER,
+                type=EV_ANSWER_GIVEN,
+                payload={"correct": i >= wrong, "graded": True,
+                         "question_id": question_id},
+                created_at=when - timedelta(seconds=seen - i),
+            ))
         await s.commit()
 
 

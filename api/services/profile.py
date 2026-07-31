@@ -1,9 +1,12 @@
 """The profile: is this person ready, and are they coming back.
 
-Everything here is derived from rows that already exist — `events` for the streak,
-`progress` for accuracy, `quiz_sessions` for exam history. Nothing new is stored, which
-matters because a "streak" column would need a nightly job to decay it and would be
-wrong for anyone in a different timezone than the job.
+Everything here is derived from rows that already exist — `events` for the streak and for
+accuracy, `quiz_sessions` for exam history. Nothing new is stored, which matters because a
+"streak" column would need a nightly job to decay it and would be wrong for anyone in a
+different timezone than the job.
+
+Readiness read `progress` until 2026-07-31, and `progress` is a per-question RUNNING TOTAL,
+not an answer log. The difference is not academic: see `_readiness`.
 
 The number this screen lives or dies on is READINESS, and it is a claim made to someone
 about to pay money to sit a real exam. So it is defined narrowly and refuses to answer
@@ -29,7 +32,7 @@ from datetime import date, datetime, timedelta, timezone
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.models import Event, Progress, QuizSession
+from api.models import Event, QuizSession
 from shared.constants import (
     EV_ANSWER_GIVEN,
     EXAM_MAX_ERRORS,
@@ -53,6 +56,15 @@ from shared.constants import (
 MIN_SAMPLE = 100
 # How many recent answers the estimate looks at.
 RECENT_WINDOW = 100
+
+# Past this, an answer no longer says anything about how ready somebody is TODAY.
+#
+# Without it, a learner returning after a long gap keeps their old reading until they have
+# ground out RECENT_WINDOW fresh answers — the exact case that makes a stale gauge
+# dangerous, since the person most likely to check "am I ready" is the person who has just
+# come back. When too few recent answers remain the gauge returns None and the app says it
+# does not know yet, which is the honest answer and the one the None case exists for.
+STALE_AFTER = timedelta(days=90)
 # The bar the percentage is measured against: 27 of 30 correct.
 PASS_ACCURACY = round((EXAM_QUESTIONS - EXAM_MAX_ERRORS) / EXAM_QUESTIONS, 3)
 
@@ -91,28 +103,72 @@ async def _streak(session: AsyncSession, chat_id: int, today: date) -> int:
     return streak
 
 
-async def _readiness(session: AsyncSession, chat_id: int) -> tuple[float | None, int]:
-    """Accuracy over the most recently touched questions.
+async def _readiness(
+    session: AsyncSession, chat_id: int, now: datetime | None = None
+) -> tuple[float | None, int]:
+    """Accuracy over this learner's last RECENT_WINDOW answers.
 
-    `progress` keeps a per-question running total rather than an answer log, so "the last
-    100 answers" is approximated by the 100 most recently answered QUESTIONS. That is the
-    honest description of what this measures, and it is close enough for a readiness
-    estimate — it just cannot claim to be an exact rolling window.
+    THE LAST HUNDRED ANSWERS, NOT A HUNDRED LIFETIME TOTALS
+
+    This read `progress`, which keeps a per-question RUNNING TOTAL rather than an answer
+    log, and summed `seen` and `wrong` over the 100 most recently touched questions. It was
+    documented as an approximation. It is not an approximation of recent accuracy — it is
+    a different quantity, and it fails in the direction that matters:
+
+      · It can never really fall. A question answered wrong four times last month and right
+        today still contributes 5 seen / 4 wrong forever, so mistakes the learner has since
+        FIXED go on dragging the number down, and there is no action that clears them.
+      · It can go UP after a wrong answer. Measured: 0.748 to 0.754. Answering reorders the
+        window by `last_answer_at`, so a fresh wrong answer can evict a question with a
+        worse lifetime ratio and lift the total. A gauge that rises when you get something
+        wrong is not merely imprecise, it is unusable.
+      · Somebody returning after two months, getting 30 of 30 wrong, still reads 94% —
+        because ninety-odd stale lifetime totals outvote today's thirty answers.
+
+    That last one is the whole risk. This number is a claim made to someone deciding
+    whether to book a legally required exam that costs money and a re-sit to fail, and the
+    module docstring already promises exactly the right thing: "accuracy over recent
+    answers, not over all time". The code did the opposite.
+
+    `events` has carried one row per answer since the first commit, with `correct` in the
+    payload, indexed by (chat_id, created_at). So the real rolling window was already on
+    disk; nothing needed storing.
+
+    STALE ANSWERS EXPIRE RATHER THAN LINGER
+
+    A pure "last 100" would still hand a returning learner a reading built from answers
+    given months ago until they had ground out 100 fresh ones. Past STALE_AFTER the answers
+    simply stop counting, and if that leaves fewer than MIN_SAMPLE the gauge goes back to
+    saying nothing — which is the honest output for "I do not know how you are doing now",
+    and is what the None case exists for.
+
+    EXAM ANSWERS COUNT
+
+    Deliberately not filtered on `graded`. An exam is the most representative sample of
+    exam performance there is, and excluding it would mean the one activity that most
+    resembles the real thing had no effect on the readiness estimate. It stays out of the
+    Leitner SCHEDULE (see answers.py) — that is a separate concern about what to teach
+    next, not about how ready somebody is.
     """
+    now = now or datetime.now(timezone.utc)
     rows = (
-        await session.execute(
-            select(Progress.seen, Progress.wrong)
-            .where(Progress.chat_id == chat_id, Progress.last_answer_at.is_not(None))
-            .order_by(Progress.last_answer_at.desc())
+        await session.scalars(
+            select(Event.payload)
+            .where(
+                Event.chat_id == chat_id,
+                Event.type == EV_ANSWER_GIVEN,
+                Event.created_at > now - STALE_AFTER,
+            )
+            .order_by(Event.created_at.desc())
             .limit(RECENT_WINDOW)
         )
     ).all()
 
-    seen = sum(r[0] or 0 for r in rows)
-    wrong = sum(r[1] or 0 for r in rows)
-    if seen < MIN_SAMPLE:
-        return None, seen
-    return round((seen - wrong) / seen, 3), seen
+    answers = [bool((payload or {}).get("correct")) for payload in rows]
+    sample = len(answers)
+    if sample < MIN_SAMPLE:
+        return None, sample
+    return round(sum(answers) / sample, 3), sample
 
 
 async def _exams(session: AsyncSession, chat_id: int) -> dict:
@@ -128,11 +184,19 @@ async def _exams(session: AsyncSession, chat_id: int) -> dict:
             .limit(20)
         )
     )
+    # "Taken" means SAT — submitted, or run out of time. Not "started and walked away
+    # from", which is what an abandoned row is, and which `_grade` now leaves ungraded.
+    # Counting those made the screen claim exams the learner never took.
     graded = [r for r in rows if r.passed is not None]
     return {
-        "taken": len(rows),
+        "taken": len(graded),
         "passed": sum(1 for r in graded if r.passed),
         "avg_errors": round(sum(r.wrong for r in graded) / len(graded), 1) if graded else None,
+        # `graded`, not `rows`. The client renders a row as passed only when `passed` is
+        # exactly true, so an ungraded sitting would draw a red cross, a "failed" badge and
+        # a score of 0/30 — telling the learner they failed an exam they never submitted.
+        # Leaving it out is both simpler and more honest than inventing a third badge for
+        # something that is not a result. It is still in the event log either way.
         "recent": [
             {
                 "id": r.id,
@@ -143,7 +207,7 @@ async def _exams(session: AsyncSession, chat_id: int) -> dict:
                 "passed": r.passed,
                 "state": r.state,
             }
-            for r in rows[:5]
+            for r in graded[:5]
         ],
     }
 

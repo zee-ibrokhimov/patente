@@ -219,6 +219,15 @@ class SessionOut(BaseModel):
     answered: int
     questions: list[QuestionOut]
 
+    # Which ordinals already have an answer. ORDINALS ONLY — never `given` or `correct`.
+    #
+    # The client keeps no state across a reopen, so without this a resumed exam painted an
+    # empty answer sheet: right question, right clock, thirty blank circles. Returning the
+    # answers themselves would instead breach "an exam reveals nothing until it is over",
+    # which ExamAnswerOut exists to defend. Knowing you answered question 7 is not knowing
+    # whether you got it right.
+    answered_ordinals: list[int] = []
+
 
 class ExamAnswerOut(BaseModel):
     """What an exam answer returns: progress, and nothing else.

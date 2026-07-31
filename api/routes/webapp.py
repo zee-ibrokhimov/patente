@@ -60,6 +60,7 @@ from api.schemas import (
 from api.services import (
     channel,
     content,
+    explanations,
     profile as profile_service,
     quiz_sessions,
     telegram_auth,
@@ -70,13 +71,20 @@ from api.services import (
 )
 from api.services.entitlement import evaluate
 from api.services.telegram_auth import InitDataRejected
-from shared.constants import MODE_EXAM, QUIZ_MODES, UI_LANGUAGES
+from shared.constants import (
+    MODE_EXAM,
+    MODE_OFFERS_EXPLANATION,
+    QUIZ_MODES,
+    UI_LANGUAGES,
+)
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/webapp", tags=["webapp"])
 
-# How many of a paper's translations to warm at creation. Small on purpose - see the
-# comment in start_session.
+# How far ahead of the learner to warm translations and explanations. Small on purpose —
+# see the comments in start_session. Also the stride for the rolling warm in answer_session:
+# each answer warms the item this far in front of it, keeping the window moving without
+# re-scheduling a whole batch per tap.
 WARM_AHEAD = 5
 
 # Telegram hands the client this blob when the Mini App opens; the client sends it back
@@ -242,12 +250,14 @@ async def stats(
 # is a small integer and this surface is public.
 
 
-def _session_out(row, paper, now: datetime) -> SessionOut:
+def _session_out(row, paper, now: datetime,
+                 answered_ordinals: list[int] | None = None) -> SessionOut:
     return SessionOut(
         id=row.id, mode=row.mode, state=row.state,
         started_at=row.started_at, expires_at=row.expires_at, server_now=now,
         question_count=row.question_count, max_errors=row.max_errors,
         answered=row.answered, questions=paper,
+        answered_ordinals=answered_ordinals or [],
     )
 
 
@@ -289,6 +299,34 @@ async def start_session(
         for q in paper[:WARM_AHEAD]:
             background.add_task(translations.warm, q.id)
 
+    # EXPLANATIONS TOO — and this is the only place they are warmed at all any more.
+    #
+    # `explanations.warm` had exactly one call site in the repo: `serve_next` in quiz.py,
+    # behind GET /users/{chat_id}/next-question. Nothing calls that endpoint. The Mini App
+    # exports `nextQuestion` in api.ts and never uses it, the bot has no such method, and
+    # every other reference is in tests. So when drilling moved into the Mini App the
+    # warming came out of the live path and nobody noticed.
+    #
+    # What that costs: `record_answer` delivers the explanation with `generate_if_missing
+    # = False`, whose entire reason for existing is "serve it if warming already produced
+    # it". With nothing warming, that is a guaranteed miss for any cluster no other user
+    # has already paid for — and coverage is 12 of 3382 clusters. So the verdict box never
+    # carries the explanation, the learner always gets a "Why?" button instead, and tapping
+    # it runs a live model call in the foreground: 4.9s cold, bounded at 45s. The mechanism
+    # described as making the explanation "appear with the verdict instead of after a
+    # ten-second wait" fired for nobody, on the feature the product is sold on.
+    #
+    # Practice only: MODE_OFFERS_EXPLANATION says an exam must not touch the explanation
+    # path at all, and warming thirty clusters for text an exam never shows would be thirty
+    # paid calls for nothing.
+    if MODE_OFFERS_EXPLANATION.get(body.mode) and entitlement.can_explain:
+        for q in paper[:WARM_AHEAD]:
+            # Skip unclustered questions. `warm` returns immediately for a None cluster, so
+            # this is not a correctness fix — it just stops scheduling a background task,
+            # a session and a database connection to discover there is nothing to do.
+            if q.cluster_id is not None:
+                background.add_task(explanations.warm, q.cluster_id, user.lang)
+
     return _session_out(row, payloads, now)
 
 
@@ -310,6 +348,7 @@ async def read_session(
     items = (await quiz_sessions.results(session, row, user, entitlement)
              if row.state != "open" else None)
     paper = []
+    done: list[int] = []
     if items is None:
         from api.models import Question, QuizSessionItem
         from sqlalchemy import select
@@ -324,13 +363,38 @@ async def read_session(
             await content.question_payload(session, q, user, entitlement)
             for q in rows
         ]
-    return _session_out(row, paper, now)
+
+        # WHICH ORDINALS ARE ALREADY ANSWERED — and only which.
+        #
+        # The resume payload carried `answered` as a COUNT and nothing else, and the client
+        # zeroes its own record on every reopen (`answered: new Set()`), with no local
+        # storage to restore it from. So a learner who answered 20 of 30, took a phone call
+        # and came back got the right question and the right clock above an answer sheet
+        # with all thirty circles blank — the sheet being the only progress indicator on
+        # the screen, and its stated purpose being "showing which you have done".
+        #
+        # Nothing was ever lost: the server refuses a second answer for the same ordinal
+        # with a 409 before any counter moves, and Submit still returns all thirty. But for
+        # the rest of a timed exam the learner has no way to know that, and the obvious
+        # reaction — start again — abandons the sitting.
+        #
+        # ORDINALS ONLY. Not `given`, not `correct`. Returning those would put a hole in
+        # "an exam reveals nothing until it is over", which ExamAnswerOut exists to defend.
+        # Knowing you answered question 7 is not knowing whether you got it right.
+        done = list(await session.scalars(
+            select(QuizSessionItem.ordinal)
+            .where(QuizSessionItem.session_id == row.id,
+                   QuizSessionItem.given.is_not(None))
+            .order_by(QuizSessionItem.ordinal)
+        ))
+    return _session_out(row, paper, now, done)
 
 
 @router.post("/sessions/{session_id}/answers", response_model=None)
 async def answer_session(
     session_id: int,
     body: SessionAnswerIn,
+    background: BackgroundTasks,
     user: User = Depends(webapp_user),
     session: AsyncSession = Depends(get_session),
 ) -> ExamAnswerOut | PracticeAnswerOut:
@@ -342,16 +406,33 @@ async def answer_session(
     through. The mode branch lives where the mode does.
     """
     now = datetime.now(timezone.utc)
+    entitlement = evaluate(user)
     try:
         row = await quiz_sessions.load_owned(session, user, session_id, now)
         payload = await quiz_sessions.answer(
-            session, user, row, body.ordinal, body.answer, evaluate(user), now
+            session, user, row, body.ordinal, body.answer, entitlement, now
         )
     except quiz_sessions.SessionError as exc:
         raise HTTPException(exc.status, str(exc)) from exc
 
     if row.mode == MODE_EXAM:
         return ExamAnswerOut(**payload)
+
+    # Roll the warm window forward as they work. Warming only the first WARM_AHEAD at
+    # Start would leave every answer past the fifth cold again, which is most of a sitting
+    # — practice runs until the learner stops it. Warming the item WARM_AHEAD ahead of the
+    # one just answered keeps a small window in front of them for the whole session, at one
+    # cluster per answer rather than a batch per tap.
+    #
+    # Committed first, for the reason the create path documents: FastAPI runs the exit code
+    # of a yield-dependency AFTER background tasks, so an open write transaction here would
+    # be held while warming opens its own connection to the same SQLite file.
+    await session.commit()
+    if entitlement.can_explain:
+        ahead = await quiz_sessions.cluster_at(session, row, body.ordinal + WARM_AHEAD)
+        if ahead is not None:
+            background.add_task(explanations.warm, ahead, user.lang)
+
     return PracticeAnswerOut(**payload)
 
 

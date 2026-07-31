@@ -123,6 +123,10 @@ export interface Session {
   max_errors: number | null;
   answered: number;
   questions: Question[];
+  /** Which ordinals already have an answer, so a resumed sitting can paint its answer
+   *  sheet. Ordinals only — never the answers themselves, which would breach "an exam
+   *  reveals nothing until it is over". Absent on older responses, hence optional. */
+  answered_ordinals?: number[];
 }
 
 /** What an exam answer returns. Note what is absent: no verdict, no correct answer, no

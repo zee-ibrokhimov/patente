@@ -190,10 +190,16 @@ async function startRun(mode: Mode): Promise<void> {
 
 function enterRun(session: Session): void {
   const serverNow = Date.parse(session.server_now);
+  // Seed from the server rather than starting empty. The app persists nothing across a
+  // reopen, so a resumed exam used to paint every circle blank — right question, right
+  // clock, an answer sheet claiming nothing had been done. The sheet is the only progress
+  // indicator on that screen, and the obvious response to it is to start over, which
+  // abandons the sitting.
+  const done = new Set(session.answered_ordinals ?? []);
   state.run = {
     session,
     index: Math.min(session.answered, session.question_count - 1),
-    answered: new Set(),
+    answered: done,
     verdict: null,
     deadline: session.expires_at ? Date.parse(session.expires_at) : null,
     skew: serverNow - Date.now(),
@@ -227,12 +233,37 @@ async function submitAnswer(given: boolean): Promise<void> {
       if (run.index < run.session.question_count - 1) run.index += 1;
     }
   } catch (err) {
-    // Non-destructive: the sitting survives, the user can tap again.
-    reportError(err);
+    // 409 means the SERVER already has this answer — the request landed and its response
+    // was lost, or a resume left the client behind. The old comment here said "the user
+    // can tap again", which is exactly what does not work: every retry gets the same 409
+    // and a generic red toast, with no Next button rendered, so the only way out of a
+    // running exam is Submit. Treating it as done is what the state actually is.
+    if (isAlreadyAnswered(err)) {
+      run.answered.add(ordinal);
+      if (run.session.mode !== "practice" && run.index < run.session.question_count - 1) {
+        run.index += 1;
+      }
+    } else {
+      // Non-destructive: the sitting survives, the user can tap again.
+      reportError(err);
+    }
   } finally {
     run.busy = false;
     render();
   }
+}
+
+/** Did the server refuse because this ordinal is already answered?
+ *
+ *  Narrow on purpose. Any other failure — offline, 500, an expired sitting — must still
+ *  surface, because silently advancing past a question that was NOT recorded would lose
+ *  an answer rather than merely confuse.
+ */
+function isAlreadyAnswered(err: unknown): boolean {
+  const e = err as { status?: number; detail?: string; message?: string };
+  if (e?.status !== 409) return false;
+  const text = `${e.detail ?? ""} ${e.message ?? ""}`.toLowerCase();
+  return text.includes("already answered");
 }
 
 /** Fetch the translation for the question on screen.

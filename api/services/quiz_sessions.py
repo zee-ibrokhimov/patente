@@ -256,6 +256,22 @@ async def extend(
     return more
 
 
+async def cluster_at(
+    session: AsyncSession, row: QuizSession, ordinal: int
+) -> int | None:
+    """The cluster of the item at `ordinal`, or None if the paper does not go that far.
+
+    Exists so the route can warm an explanation a few questions ahead of where the learner
+    is, without the route needing to know how a sitting stores its paper.
+    """
+    return await session.scalar(
+        select(Question.cluster_id)
+        .join(QuizSessionItem, QuizSessionItem.question_id == Question.id)
+        .where(QuizSessionItem.session_id == row.id,
+               QuizSessionItem.ordinal == ordinal)
+    )
+
+
 async def _grade(
     session: AsyncSession,
     row: QuizSession,
@@ -264,9 +280,20 @@ async def _grade(
 ) -> None:
     row.state = state
     row.finished_at = finished_at
-    if row.max_errors is not None:
+    if row.max_errors is not None and state != SESSION_ABANDONED:
         # Unanswered questions count against you, exactly as in the real exam: running
-        # out of time is a way to fail, not a way to defer.
+        # out of time is a way to fail, not a way to defer. That is why EXPIRED is graded.
+        #
+        # ABANDONED is not, and the difference is the whole point. Abandoning is what
+        # happens when the learner starts anything else — `create` sweeps any open sitting,
+        # of ANY mode, so tapping Practice mid-exam lands here. Grading that produced
+        # `passed = False` (answered != question_count), and the profile then filed it as a
+        # sat exam: "Exams taken 2 · Passed 1", with a history row reading FAILED 0/30 for
+        # a sitting the learner never took — a row saying they got nothing wrong and still
+        # failed. The pass rate fell while avg_errors was diluted toward zero, so the two
+        # headline numbers on the readiness screen moved in opposite wrong directions.
+        #
+        # `passed = None` means "not a result", which `profile._exams` already understands.
         row.passed = row.wrong <= row.max_errors and row.answered == row.question_count
     await session.flush()
     if row.mode == MODE_EXAM:
