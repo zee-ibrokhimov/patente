@@ -22,9 +22,15 @@ router = Router(name="progress")
 
 
 def _can_subscribe() -> bool:
-    """Payments are live only once Tribute is actually configured. Without this the
-    Buy button would open nothing, which reads as broken rather than unfinished."""
-    return bool(settings.tribute_webhook_secret and settings.tribute_product_1m)
+    """Payments are live only once Tribute is actually configured.
+
+    The check is the webhook secret AND at least one checkout link. It used to require
+    `tribute_product_1m`, a DIGITAL PRODUCT id — but a subscription payload carries no
+    product id at all (the tier comes from `period`), so a subscription-based setup
+    could never have opened this gate. The link is the right test: it is exactly what
+    the button needs in order to lead somewhere.
+    """
+    return bool(settings.tribute_webhook_secret and settings.tribute_links)
 
 
 @router.message(Command("stats"))
@@ -43,6 +49,8 @@ async def plan(message: Message, user: dict, lang: str):
 
 @router.callback_query(Simple.filter(F.action == "subscribe"))
 async def subscribe(query: CallbackQuery, lang: str):
-    """Reachable only when Tribute is configured, since the button is otherwise not
-    rendered. Until the checkout link is wired this says so plainly."""
+    """Legacy. The tier buttons are URL buttons now and Telegram opens them itself, so
+    nothing sends this callback any more. Kept because an old message still sitting in
+    someone's chat history carries the old button, and a callback with no handler shows
+    a spinner that never resolves."""
     await query.answer(t(lang, "payments_not_live"), show_alert=True)

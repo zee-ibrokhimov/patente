@@ -50,6 +50,13 @@ services:
       - SUPPORT_CONTACT=${SUPPORT_CONTACT}
       - TRIBUTE_API_KEY=${TRIBUTE_API_KEY:-}
       - TRIBUTE_WEBHOOK_SECRET=${TRIBUTE_WEBHOOK_SECRET:-}
+      # Checkout links: what a Buy button opens. Needed for SUBSCRIPTIONS.
+      - TRIBUTE_LINK_1M=${TRIBUTE_LINK_1M:-}
+      - TRIBUTE_LINK_3M=${TRIBUTE_LINK_3M:-}
+      - TRIBUTE_LINK_6M=${TRIBUTE_LINK_6M:-}
+      # Product ids: only for one-off DIGITAL PRODUCTS. A subscription webhook carries
+      # no product id — the tier comes from `period` — so these stay empty for a
+      # subscription-based setup.
       - TRIBUTE_PRODUCT_1M=${TRIBUTE_PRODUCT_1M:-}
       - TRIBUTE_PRODUCT_3M=${TRIBUTE_PRODUCT_3M:-}
       - TRIBUTE_PRODUCT_6M=${TRIBUTE_PRODUCT_6M:-}
@@ -92,6 +99,12 @@ services:
       # 0: superseded by the 7-day trial. A taster running alongside a trial means a
       # lapsed user silently gets three more explanations for free.
       - FREE_EXPLANATIONS=${FREE_EXPLANATIONS:-0}
+      # The bot draws the Buy buttons, so it needs the links and the secret that gates
+      # them. Without these /plan correctly says payments are not connected.
+      - TRIBUTE_WEBHOOK_SECRET=${TRIBUTE_WEBHOOK_SECRET:-}
+      - TRIBUTE_LINK_1M=${TRIBUTE_LINK_1M:-}
+      - TRIBUTE_LINK_3M=${TRIBUTE_LINK_3M:-}
+      - TRIBUTE_LINK_6M=${TRIBUTE_LINK_6M:-}
     command: ["python", "-m", "bot.main"]
 
   # The Mini App. This is the ONLY service that should ever carry a domain.

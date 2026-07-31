@@ -62,6 +62,17 @@ class Settings(BaseSettings):
     tribute_webhook_secret: str = ""
     # One product id per tier. `tribute_products` below derives the mapping from these,
     # so adding a tier cannot silently miss one — see api/services/purchases.tier_for.
+    # Tribute's checkout links, one per tier — the URL its bot gives you when a
+    # subscription is published. These are what a Buy button opens.
+    #
+    # Separate from the product ids below because they answer different questions: a
+    # LINK is how someone starts paying, an ID is how an incoming webhook is matched to
+    # a tier. A subscription webhook carries no product id at all (the tier comes from
+    # `period`), so the ids are needed only for one-off digital products.
+    tribute_link_1m: str = ""
+    tribute_link_3m: str = ""
+    tribute_link_6m: str = ""
+
     tribute_product_1m: str = ""
     tribute_product_3m: str = ""
     tribute_product_6m: str = ""
@@ -72,6 +83,21 @@ class Settings(BaseSettings):
     free_explanations: int = 0
     admin_chat_ids: str = ""
     support_contact: str = ""
+
+    @property
+    def tribute_links(self) -> dict[str, str]:
+        """tier -> checkout URL, for whichever tiers have one configured."""
+        # Imported inside the method, matching tribute_products below: shared.constants
+        # is imported by modules that also read settings, and a module-level import here
+        # closes that loop.
+        from shared.constants import TIER_1M, TIER_3M, TIER_6M
+
+        pairs = {
+            TIER_1M: self.tribute_link_1m,
+            TIER_3M: self.tribute_link_3m,
+            TIER_6M: self.tribute_link_6m,
+        }
+        return {tier: url.strip() for tier, url in pairs.items() if url.strip()}
 
     @property
     def tribute_products(self) -> dict[str, str]:

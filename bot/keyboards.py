@@ -52,13 +52,35 @@ def open_app(lang: str) -> InlineKeyboardMarkup | None:
 
 
 def plan_actions(lang: str, *, can_subscribe: bool) -> InlineKeyboardMarkup | None:
-    """`can_subscribe` is False until Tribute is configured. A Buy button that leads
-    nowhere is worse than no button — it reads as a broken product rather than an
-    unfinished one."""
-    if not can_subscribe:
+    """One button per tier, each a direct link to that tier's Tribute checkout.
+
+    `can_subscribe` is False until at least one link is configured. A Buy button that
+    leads nowhere is worse than no button — it reads as a broken product rather than an
+    unfinished one.
+
+    Three buttons rather than one "Subscribe" that then asks which: /plan has just
+    listed the three prices, so asking again is a step that exists only because the
+    keyboard could not be bothered. Ordered shortest to longest, matching the message
+    above it, with the featured tier marked — the same order in both, so the eye does
+    not have to re-read.
+    """
+    from shared.constants import TIER_DAYS, TIER_FEATURED, TIER_PRICE_CENTS
+
+    links = settings.tribute_links
+    if not can_subscribe or not links:
         return None
+
     kb = InlineKeyboardBuilder()
-    kb.button(text=t(lang, "btn_subscribe"), callback_data=Simple(action="subscribe"))
+    for tier in sorted(TIER_DAYS, key=lambda x: TIER_DAYS[x]):
+        url = links.get(tier)
+        if not url:
+            continue
+        # The same key render.plan() uses for the price line, so a button can never
+        # disagree with the message immediately above it.
+        label = t(lang, f"plan_{tier.replace('pass_', '')}")
+        price = f"{TIER_PRICE_CENTS[tier] // 100}.{TIER_PRICE_CENTS[tier] % 100:02d}"
+        star = " ⭐" if tier == TIER_FEATURED else ""
+        kb.button(text=f"{label} — €{price}{star}", url=url)
     kb.adjust(1)
     return kb.as_markup()
 
