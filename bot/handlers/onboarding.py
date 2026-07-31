@@ -35,9 +35,13 @@ async def start_plan(message: Message, user: dict, lang: str):
     from bot import render
     from bot.handlers.progress import _can_subscribe
 
+    # Same single decision as /plan — see bot/handlers/progress.py. Someone who arrived
+    # here from the Mini App's Buy button can still already be Premium: the app's own
+    # paywalls read `me.premium`, but this deep link is reachable from an old message.
+    sell = render.selling(user, can_subscribe=_can_subscribe())
     await message.answer(
-        render.plan(user, lang, can_subscribe=_can_subscribe()),
-        reply_markup=keyboards.plan_actions(lang, can_subscribe=_can_subscribe()),
+        render.plan(user, lang, can_subscribe=sell),
+        reply_markup=keyboards.plan_actions(lang, can_subscribe=sell),
     )
 
 

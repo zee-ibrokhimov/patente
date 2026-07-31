@@ -36,6 +36,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.models import Event, Purchase, User
+from api.services import entitlement as entitlement_service
 from api.services import events, notify
 from shared.constants import EV_PASS_ENDING, EV_PASS_LAPSED
 
@@ -64,6 +65,35 @@ async def _already_told(session: AsyncSession, chat_id: int, kind: str,
     return any((e.payload or {}).get("expires_at") == stamp for e in rows)
 
 
+def _premium_without_the_pass(user: User) -> bool:
+    """Is this person Premium by a route OTHER than the pass column?
+
+    Deliberately not `entitlement.premium`, which includes `has_pass`. The first version
+    used that and broke the 3-day warning instantly: someone warned that their pass ends in
+    three days HAS an active pass, so `premium` is true for every candidate and the whole
+    loop went silent. `test_a_pass_ending_soon_gets_a_warning` caught it.
+
+    "Would they still be Premium once this pass is gone?" is the question both loops
+    actually ask, and for the lapsed loop — where the pass has already expired, so
+    `has_pass` is false — it gives the same answer as `premium` anyway.
+
+    The pass column is one of three sources. Telling someone their Premium ended because
+    that column expired — while channel membership or staff is still granting it, and every
+    feature still works — is worse than saying nothing at all: the message is false, it
+    points at /plan, and the obvious response is to pay a second time for what they have.
+
+    Exactly the population channel.py was written for. The 2026-07-31 outage answered
+    Tribute's webhooks 530 for three hours while buyers were being added to the channel, so
+    "their pass row lapsed but they are in the channel" is a state this product has already
+    produced once, and it includes the owner.
+
+    `evaluate` is synchronous and reads the cached `channel_status` column — no Telegram
+    call, so this is free to run over every candidate.
+    """
+    ent = entitlement_service.evaluate(user)
+    return ent.via_channel or ent.is_staff
+
+
 async def _has_subscription(session: AsyncSession, chat_id: int) -> bool:
     """Whether money has ever moved for this user.
 
@@ -89,6 +119,8 @@ async def run(session: AsyncSession, now: datetime | None = None) -> dict:
         )
     )
     for user in soon:
+        if _premium_without_the_pass(user):
+            continue          # channel or staff keeps them Premium; nothing is ending
         if await _has_subscription(session, user.chat_id):
             continue          # Tribute will renew them; saying so would be noise
         if await _already_told(session, user.chat_id, EV_PASS_ENDING, user.pass_expires_at):
@@ -109,6 +141,10 @@ async def run(session: AsyncSession, now: datetime | None = None) -> dict:
         )
     )
     for user in gone:
+        if _premium_without_the_pass(user):
+            # Their pass column expired but Premium did not. No event is recorded either:
+            # if they later leave the channel this becomes a real lapse worth announcing.
+            continue
         if await _already_told(session, user.chat_id, EV_PASS_LAPSED, user.pass_expires_at):
             continue
         if await notify.payment(user.chat_id, user.lang, "lapsed",

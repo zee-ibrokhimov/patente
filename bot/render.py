@@ -84,6 +84,27 @@ def _money(cents: int) -> str:
     return f"\u20ac{cents / 100:.2f}"
 
 
+def selling(user: dict, *, can_subscribe: bool) -> bool:
+    """Whether to put a BUY button in front of this person.
+
+    ONE decision, used by both the message and the keyboard, because they were made
+    separately and disagreed.
+
+    `can_subscribe` only ever meant "a checkout link is configured" — a deployment fact,
+    nothing about the user. So `keyboards.plan_actions` attached "Subscribe" underneath
+    every /plan, including the trial message whose entire text is *"your subscription will
+    renew automatically, cancel in @tribute"*. Message says do not buy, button says buy,
+    and the button wins because it is the only tappable thing on screen. The same button
+    sat under a channel-Premium subscriber being shown the free-tier price list.
+
+    `premium` is the single question every paid feature asks, and it is already in the
+    payload (api/routes/users.py:78). Someone Premium by ANY route — a pass, channel
+    membership, staff — is not a person to sell to. A trialist has `has_pass` and is
+    therefore premium, so they are covered by the same test.
+    """
+    return can_subscribe and not user.get("premium", user.get("has_pass", False))
+
+
 def plan(user: dict, lang: str, *, can_subscribe: bool) -> str:
     """Subscription state, in the surface that owns payment.
 
@@ -101,6 +122,24 @@ def plan(user: dict, lang: str, *, can_subscribe: bool) -> str:
     has_pass = bool(user.get("has_pass"))
     purchased = bool(user.get("purchased"))
     lines = [t(lang, "plan_title"), ""]
+
+    # PREMIUM WITHOUT A PASS ROW — channel membership, or staff.
+    #
+    # This read `has_pass` only, so the other two of the three Premium sources fell
+    # straight through to the free-tier pitch: someone whose subscription is real, whose
+    # translations and explanations and vocabulary all work, opened the surface that owns
+    # payment and was told "Free plan — translations and explanations are Premium",
+    # followed by three prices and a Subscribe button.
+    #
+    # That population is not hypothetical. Tribute adds buyers to the channel itself, and
+    # on 2026-07-31 its webhooks were refused for three hours while it did exactly that —
+    # so "in the channel, no pass row" is a state this product has already produced. It
+    # also includes every administrator and the owner.
+    if not has_pass and user.get("premium"):
+        via = user.get("premium_via")
+        lines.append(t(lang, "plan_active_staff" if via == "staff" else "plan_active_channel"))
+        lines += ["", t(lang, "plan_perks")]
+        return _clip("\n".join(lines), MESSAGE_LIMIT)
 
     if has_pass and not purchased and expires:
         # A pass with no MONEY behind it. Two very different things land here and they

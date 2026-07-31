@@ -41,9 +41,15 @@ async def stats(message: Message, lang: str, api: ApiClient):
 
 @router.message(Command("plan"))
 async def plan(message: Message, user: dict, lang: str):
+    # ONE decision for the text and the button. They used to take `can_subscribe`
+    # separately — a deployment fact meaning "a checkout link exists" — so the keyboard
+    # attached Subscribe under every /plan, including the trial message that says the
+    # subscription renews automatically and the free-tier pitch shown to people who are
+    # already Premium through the channel.
+    sell = render.selling(user, can_subscribe=_can_subscribe())
     await message.answer(
-        render.plan(user, lang, can_subscribe=_can_subscribe()),
-        reply_markup=keyboards.plan_actions(lang, can_subscribe=_can_subscribe()),
+        render.plan(user, lang, can_subscribe=sell),
+        reply_markup=keyboards.plan_actions(lang, can_subscribe=sell),
     )
 
 
