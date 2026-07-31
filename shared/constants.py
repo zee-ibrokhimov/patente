@@ -75,6 +75,17 @@ TIER_6M = "pass_6m"
 TIER_DAYS = {TIER_1M: 30, TIER_3M: 90, TIER_6M: 180}
 TIER_PRICE_CENTS = {TIER_1M: 299, TIER_3M: 799, TIER_6M: 1099}
 TIERS = tuple(TIER_DAYS)
+
+# Tribute's `period` enum -> our tier. A subscription payload has no product id: the plan
+# is identified by its billing cycle. Without this mapping every subscription falls
+# through to the shortest tier, so a quarterly subscriber pays EUR 7.99 and is granted
+# thirty days — the same defect the six-month product had before tier_for became
+# data-driven, arriving by a different route.
+TRIBUTE_PERIOD_TIERS = {
+    "monthly": TIER_1M,
+    "quarterly": TIER_3M,
+    "halfyearly": TIER_6M,
+}
 # The one to present as the default. Best per-month value, longest commitment.
 TIER_FEATURED = TIER_6M
 
@@ -191,6 +202,10 @@ EV_PASS_GRANTED = "pass_granted"
 # a trial" is the number that decides whether the trial works, and it is only separable if
 # these are different events from the very first user.
 EV_TRIAL_STARTED = "trial_started"
+# A subscriber turned off auto-renewal. NOT a revocation: they keep what they paid for
+# until it lapses. Recorded because otherwise churn leaves no trace at all — the only
+# symptom would be a renewal that never arrived.
+EV_SUBSCRIPTION_CANCELLED = "subscription_cancelled"
 # Quiz sessions. EV_SESSION_START/END already existed for the study session; these name
 # the bounded, gradeable kind so an exam is separable in the funnel.
 EV_EXAM_STARTED = "exam_started"
@@ -203,6 +218,7 @@ EVENT_TYPES = (
     EV_PASS_GRANTED,
     EV_EXAM_STARTED, EV_EXAM_FINISHED,
     EV_TRIAL_STARTED,
+    EV_SUBSCRIPTION_CANCELLED,
 )
 
 # --- vocabulary trainer -----------------------------------------------------

@@ -30,9 +30,16 @@ async def _out(user: User, session: AsyncSession) -> UserOut:
     client shows a very different screen for each.
     """
     ent = evaluate(user)
+    # `amount_cents > 0` and not merely "a row exists": a Tribute trial writes a Purchase
+    # row too, because that row's UNIQUE id is what makes webhook redelivery idempotent.
+    # It is stored at zero. Counting rows instead of money would make anyone on a trial
+    # read as a paying customer, and /plan would stop selling to exactly the people it
+    # exists to sell to.
     purchased = bool(
         await session.scalar(
-            select(func.count(Purchase.id)).where(Purchase.chat_id == user.chat_id)
+            select(func.count(Purchase.id)).where(
+                Purchase.chat_id == user.chat_id, Purchase.amount_cents > 0
+            )
         )
     )
     return UserOut(

@@ -24,13 +24,27 @@ race-prone "select then insert".
 Returning 4xx or 5xx makes Tribute retry forever and eventually alert on a webhook that is
 in fact succeeding.
 
-⚠️ THE PAYLOAD FIELD NAMES ARE UNCONFIRMED
-------------------------------------------
-`parse_event` is written from the plan's description of the webhook, not from a real
-delivery, because the credentials are still outstanding (§4). The *structure* is right —
-verify, resolve the buyer, apply once, log — and only the field names are a guess. So a
-payload that does not parse is logged **in full** at ERROR level: the first real delivery
-will tell you the true shape, and adapting is a change in one function.
+FIELD NAMES ARE NOW READ FROM TRIBUTE'S OPENAPI SPEC
+----------------------------------------------------
+They were guessed from the plan until a real delivery could correct them. They are not
+guessed any more — `telegram_user_id`, `subscription_id`, `amount`, `currency`,
+`expires_at`, `type` and `period` all come from Tribute's published schema, and the
+top-level `name` carries the event in snake_case.
+
+A payload that still does not parse is logged **in full** at ERROR level, because the
+alternative — a silent 400 — is how a working integration looks broken and a broken one
+looks fine.
+
+SUBSCRIPTIONS, NOT JUST ONE-OFF PURCHASES
+-----------------------------------------
+A subscription has a life beyond its first payment: it renews, and it gets cancelled.
+Tribute owns that clock, so for subscription events the expiry comes from THEIR
+`expires_at` rather than from our TIER_DAYS arithmetic — two systems computing the same
+date independently will disagree eventually, and the one holding the card should win.
+
+A cancellation does NOT revoke access. Cancelling means "do not bill me again", and the
+period already paid for runs to its end. Revoking on cancel would take away time the
+customer has bought, which is both wrong and a chargeback waiting to happen.
 """
 
 from __future__ import annotations
@@ -53,19 +67,36 @@ from shared.constants import (
     DEFAULT_LANG,
     EV_PURCHASE_COMPLETED,
     EV_PURCHASE_REFUNDED,
+    EV_SUBSCRIPTION_CANCELLED,
+    EV_TRIAL_STARTED,
     TIER_DAYS,
     TIER_PRICE_CENTS,
     TIERS,
+    TRIBUTE_PERIOD_TIERS,
 )
 
 log = logging.getLogger(__name__)
 
 SIGNATURE_HEADER = "trbt-signature"
 
-# Tribute's event names, per plan §4.1. The refund one is quoted there verbatim; the
-# purchase one is inferred from the same naming, so both are matched loosely below.
+# Tribute's event names, read off their OpenAPI spec rather than inferred. Their wiki
+# lists them camelCase (`newSubscription`); the JSON body carries snake_case in `name`,
+# which is what these match.
+#
+# `renewed_subscription` and `cancelled_subscription` were missing, and missing meant
+# REJECTED — parse_event raises on an unrecognised name, so the route answered 400 and
+# Tribute retried forever. A monthly subscriber's SECOND payment would have granted
+# nothing: the kind of failure nobody sees until a customer says they lost access they
+# had paid for.
 PURCHASE_EVENTS = ("new_digital_product", "digital_product_purchased", "new_subscription")
+RENEWAL_EVENTS = ("renewed_subscription",)
+# Both spellings on purpose: Tribute writes this one with two Ls and its physical-order
+# events with one, so picking either alone would be a coin flip.
+CANCEL_EVENTS = ("cancelled_subscription", "canceled_subscription")
 REFUND_EVENTS = ("digital_product_refunded", "subscription_refunded")
+
+# `payload.type` on a subscription event: regular | gift | trial.
+SUB_TRIAL = "trial"
 
 
 class WebhookRejected(Exception):
@@ -75,12 +106,19 @@ class WebhookRejected(Exception):
 
 @dataclass(frozen=True)
 class TributeEvent:
-    kind: str            # "purchase" | "refund"
+    kind: str            # "purchase" | "renewal" | "cancellation" | "refund"
     purchase_id: str
     chat_id: int | None
     tier: str
     amount_cents: int
     currency: str
+    # Tribute's own end-of-period. Authoritative for subscriptions: they hold the card
+    # and run the billing clock, and our TIER_DAYS arithmetic is only a fallback for
+    # one-off digital products that carry no expiry.
+    expires_at: datetime | None = None
+    # A trial has a card attached and will convert, but no money has moved yet. It must
+    # not read as a purchase — see apply_purchase.
+    is_trial: bool = False
 
 
 def verify(body: bytes, signature: str | None) -> None:
@@ -125,30 +163,66 @@ def parse_event(body: bytes) -> TributeEvent:
     inner = payload.get("payload") if isinstance(payload.get("payload"), dict) else {}
     merged = {**payload, **inner}
 
-    name = str(_first(merged, "name", "event", "event_name", "type") or "").lower()
+    # `type` is deliberately NOT in this list any more. On a subscription payload `type`
+    # is regular/gift/trial, so falling back to it made the *subscription category* stand
+    # in for the event name — which is how a trial could be read as an event called
+    # "trial" and rejected.
+    name = str(_first(merged, "name", "event", "event_name") or "").lower()
+
+    # Order matters. `renewed_subscription` and `cancelled_subscription` must be tested
+    # before the purchase markers, and the refund check must come first of all.
     if any(marker in name for marker in REFUND_EVENTS):
         kind = "refund"
+    elif any(marker in name for marker in CANCEL_EVENTS):
+        kind = "cancellation"
+    elif any(marker in name for marker in RENEWAL_EVENTS):
+        kind = "renewal"
     elif any(marker in name for marker in PURCHASE_EVENTS) or "purchase" in name:
         kind = "purchase"
     else:
         raise WebhookRejected(f"unrecognised event name {name!r}")
 
-    purchase_id = _first(merged, "purchase_id", "id", "payment_id", "order_id")
+    purchase_id = _first(merged, "purchase_id", "id", "payment_id", "order_id",
+                         "subscription_id")
     if purchase_id is None:
         raise WebhookRejected("no purchase id in payload")
+
+    # A subscription sends the SAME subscription_id every renewal, so using it alone as
+    # the idempotency key would make the second month look like a redelivery of the first
+    # and grant nothing. Qualify it with the period it pays for.
+    period_end = _parse_when(_first(merged, "expires_at", "expire_at", "period_end"))
+    if kind in ("purchase", "renewal") and _first(merged, "purchase_id", "payment_id") is None:
+        stamp = period_end.isoformat() if period_end else str(_first(merged, "created_at") or "")
+        purchase_id = f"{purchase_id}:{stamp}"
 
     chat_id = _first(merged, "telegram_user_id", "telegram_id", "user_id", "chat_id")
     product = str(_first(merged, "product_id", "digital_product_id", "tier") or "")
     amount = _first(merged, "amount", "amount_cents", "price") or 0
 
+    sub_type = str(_first(merged, "type") or "").lower()
     return TributeEvent(
         kind=kind,
         purchase_id=str(purchase_id),
         chat_id=int(chat_id) if chat_id is not None else None,
-        tier=tier_for(product),
+        tier=tier_for(product or str(_first(merged, "period") or "")),
         amount_cents=int(amount),
         currency=str(_first(merged, "currency") or "EUR"),
+        expires_at=period_end,
+        is_trial=sub_type == SUB_TRIAL,
     )
+
+
+def _parse_when(value) -> datetime | None:
+    """Tribute sends RFC3339 with a Z. Returns None rather than raising: a malformed
+    date must not throw away a real payment, it must fall back to our own arithmetic."""
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        log.warning("could not parse a Tribute timestamp %r", value)
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
 # The shortest tier by DAYS, not by position. TIERS is a tuple whose order is incidental,
@@ -172,6 +246,9 @@ def tier_for(product: str) -> str:
     tier = settings.tribute_products.get(product)
     if tier:
         return tier
+    # A subscription is identified by its billing period rather than by a product id.
+    if product in TRIBUTE_PERIOD_TIERS:
+        return TRIBUTE_PERIOD_TIERS[product]
     # Our own tier name, which is what the admin grant and the tests use.
     if product in TIER_DAYS:
         return product
@@ -207,12 +284,29 @@ async def apply_purchase(session: AsyncSession, event: TributeEvent) -> str:
         log.info("created user %s from a purchase — they had not started the bot",
                  event.chat_id)
 
-    expires = extend(user.pass_expires_at, days, now)
+    if event.expires_at and event.expires_at > now:
+        # A subscription: Tribute runs the billing clock and we follow it. `max` because
+        # a subscriber who also bought a one-off pass must not have it truncated by a
+        # renewal that happens to land earlier.
+        current = user.pass_expires_at
+        expires = max(event.expires_at, current) if current and current > now else event.expires_at
+    else:
+        # A one-off digital product carries no expiry, so our own arithmetic applies.
+        expires = extend(user.pass_expires_at, days, now)
+
+    # A trial is stored at ZERO, and the usual `or TIER_PRICE_CENTS[...]` fallback is
+    # skipped for it. `purchased` counts only rows with money against them, so writing
+    # the list price here would make a trialling user read as a paying one and silence
+    # the very pitch the trial exists to set up.
+    amount = event.amount_cents
+    if not event.is_trial:
+        amount = amount or TIER_PRICE_CENTS.get(event.tier, 0)
+
     purchase = Purchase(
         chat_id=event.chat_id,
         tribute_purchase_id=event.purchase_id,
         tier=event.tier,
-        amount_cents=event.amount_cents or TIER_PRICE_CENTS.get(event.tier, 0),
+        amount_cents=amount,
         currency=event.currency,
         extended_to=expires,
     )
@@ -230,18 +324,20 @@ async def apply_purchase(session: AsyncSession, event: TributeEvent) -> str:
     user.pass_expires_at = expires
     await events.record(
         session,
-        EV_PURCHASE_COMPLETED,
+        EV_TRIAL_STARTED if event.is_trial else EV_PURCHASE_COMPLETED,
         chat_id=event.chat_id,
         purchase_id=event.purchase_id,
         tier=event.tier,
         amount_cents=purchase.amount_cents,
         currency=event.currency,
         expires_at=expires.isoformat(),
+        renewal=event.kind == "renewal",
+        trial=event.is_trial,
     )
     await session.commit()
-    log.info("purchase %s: %s for %s, pass now to %s",
-             event.purchase_id, event.tier, event.chat_id, expires)
-    return "applied"
+    log.info("%s %s: %s for %s, pass now to %s",
+             event.kind, event.purchase_id, event.tier, event.chat_id, expires)
+    return "trial" if event.is_trial else ("renewed" if event.kind == "renewal" else "applied")
 
 
 async def apply_refund(session: AsyncSession, event: TributeEvent) -> str:
@@ -289,6 +385,44 @@ async def apply_refund(session: AsyncSession, event: TributeEvent) -> str:
     return "refunded"
 
 
+async def apply_cancellation(session: AsyncSession, event: TributeEvent) -> str:
+    """Record that a subscription will not renew. Deliberately does NOT revoke access.
+
+    Cancelling means "do not bill me again", not "refund me and cut me off now". The
+    period already paid for runs to its end — taking it back would be removing time the
+    customer has bought, and is how a cancellation turns into a chargeback.
+
+    So the pass is left exactly as it is. `pass_expires_at` was already set by the
+    purchase or the most recent renewal, and with nothing further to extend it, it simply
+    lapses on its own. The event is written because otherwise churn is invisible: the
+    only trace of a cancellation would be a renewal that never arrived.
+    """
+    if event.chat_id is None:
+        raise WebhookRejected("cancellation has no telegram id")
+
+    user = await session.get(User, event.chat_id)
+    if user is None:
+        # Nothing to record against, and nothing to take away. Not an error: answering
+        # 4xx would make Tribute retry a delivery that can never succeed.
+        log.warning("cancellation for unknown user %s — ignoring", event.chat_id)
+        return "unknown-user"
+
+    await events.record(
+        session,
+        EV_SUBSCRIPTION_CANCELLED,
+        chat_id=event.chat_id,
+        purchase_id=event.purchase_id,
+        tier=event.tier,
+        trial=event.is_trial,
+        # When their access actually stops, which is what support will be asked.
+        access_until=(user.pass_expires_at.isoformat() if user.pass_expires_at else None),
+    )
+    await session.commit()
+    log.info("subscription cancelled for %s (trial=%s); access stands until %s",
+             event.chat_id, event.is_trial, user.pass_expires_at)
+    return "cancelled"
+
+
 async def handle(session: AsyncSession, body: bytes, signature: str | None) -> dict:
     """The whole of it: verify, parse, apply. Raises WebhookRejected for a 4xx."""
     verify(body, signature)
@@ -303,4 +437,8 @@ async def handle(session: AsyncSession, body: bytes, signature: str | None) -> d
 
     if event.kind == "refund":
         return {"status": await apply_refund(session, event)}
+    if event.kind == "cancellation":
+        return {"status": await apply_cancellation(session, event)}
+    # A renewal is a purchase with a new period: same money, same idempotency, same
+    # extension. Only the analytics event and the log line differ.
     return {"status": await apply_purchase(session, event)}
