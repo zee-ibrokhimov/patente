@@ -1,8 +1,13 @@
-"""Uzbek (beta), and the three ways adding a language silently goes wrong.
+"""Uzbek, and the three ways adding a language silently goes wrong.
 
-Uzbek ships as UI + question translations. Explanations are deliberately NOT written in
-Uzbek: a bad translation sits under the Italian where a user can see it is off, but a bad
-explanation is the only text on screen and is the thing being sold.
+Uzbek shipped first as UI + question translations, with explanations deliberately left in
+Russian: a bad translation sits under the Italian where a reader can see it is off, but a
+bad explanation is the only text on screen and is the thing being sold.
+
+That was reversed on 2026-07-31. Someone who set the app to Uzbek got Uzbek questions,
+Uzbek vocabulary and an Uzbek interface, and then the one screen they actually have to READ
+arrived in Russian — which does not read as caution, it reads as broken. Uzbek is now a
+first-class explanation language and Russian is a per-cluster fallback.
 """
 
 from __future__ import annotations
@@ -28,10 +33,22 @@ ROOT = Path(__file__).resolve().parent.parent
 
 # --- the three lists mean three different things ---------------------------
 
-def test_uzbek_is_a_ui_and_translation_language_but_not_an_explanation_one():
+def test_uzbek_is_in_all_three_lists():
+    """The point of having three lists is that a language can be half-enabled. Uzbek was,
+    for a while, on purpose — and then stayed that way after the reason expired."""
     assert LANG_UZ in UI_LANGUAGES
     assert LANG_UZ in TRANSLATION_LANGUAGES
-    assert LANG_UZ not in EXPLANATION_LANGUAGES
+    assert LANG_UZ in EXPLANATION_LANGUAGES
+
+
+def test_the_explanation_prompt_asks_for_uzbek_and_pins_the_script():
+    """Adding 'uz' to the list is the half that changes nothing on its own: the model is
+    only ever asked for the languages named in the prompt, so the list would advertise a
+    language the call never returns."""
+    source = (ROOT / "api/services/explanations.py").read_text(encoding="utf-8")
+    assert '"uz": "..."' in source, "the JSON shape must include uz"
+    assert "uzbeko" in source, "the prompt must ask for Uzbek in words, not just in the schema"
+    assert "LATINO" in source, "the prompt must pin the script — a model will answer in Cyrillic"
 
 
 def test_italian_is_never_a_translation_target():
@@ -49,6 +66,7 @@ def test_every_ui_language_can_be_served_an_explanation():
 
 
 def test_the_uzbek_fallback_points_somewhere_real():
+    """Kept, but demoted: it now fires only for a cluster with no servable Uzbek row."""
     target = EXPLANATION_FALLBACK[LANG_UZ]
     assert target == LANG_RU
     assert target in EXPLANATION_LANGUAGES

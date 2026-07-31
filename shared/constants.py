@@ -18,17 +18,26 @@ LANG_UZ = "uz"
 #   TRANSLATION_LANGUAGES — what a QUESTION is translated into. Italian is absent because
 #                           the question is already Italian; asking for an "it" translation
 #                           is a paid call that can never produce a cacheable row.
-#   EXPLANATION_LANGUAGES — what an EXPLANATION is written in. Uzbek is absent ON PURPOSE:
-#                           a bad translation sits under the Italian where a user can see
-#                           it is off, but a bad explanation is the only text on screen and
-#                           is the thing being sold. Uzbek ships as translations first.
+#   EXPLANATION_LANGUAGES — what an EXPLANATION is written in.
+#
+# Uzbek used to be absent from the last one on purpose, and the reasoning was: a bad
+# translation sits under the Italian where a reader can see it is off, but a bad
+# explanation is the only text on screen and is the thing being sold. So Uzbek shipped as
+# translations first and read its explanations in Russian.
+#
+# Reversed on the owner's instruction (2026-07-31), and they are right. Someone who set the
+# app to Uzbek gets Uzbek questions, Uzbek vocabulary and an Uzbek interface, and then the
+# one screen they actually have to READ arrives in another language. That does not read as
+# "a language we are careful about"; it reads as broken. It also asks a group who chose
+# Uzbek over Russian to use Russian for the paid feature.
 UI_LANGUAGES = (LANG_RU, LANG_EN, LANG_IT, LANG_UZ)
 TRANSLATION_LANGUAGES = (LANG_RU, LANG_EN, LANG_UZ)
-EXPLANATION_LANGUAGES = (LANG_IT, LANG_RU, LANG_EN)
+EXPLANATION_LANGUAGES = (LANG_IT, LANG_RU, LANG_EN, LANG_UZ)
 
-# A UI language with no explanations of its own reads one in another language rather than
-# being told nothing exists. Russian for Uzbek: it is the language this market already
-# shares, and "unavailable" would be a worse answer than "available, in Russian".
+# The safety net, not the plan. Uzbek explanations are written now, so this fires only when
+# a specific cluster has no servable Uzbek row — the model declined that language, or a
+# gate withheld it. Showing a Russian explanation beats showing nothing, and the response
+# carries `explanation_lang` so the reader is told which language they got.
 EXPLANATION_FALLBACK = {LANG_UZ: LANG_RU}
 DEFAULT_LANG = LANG_RU
 

@@ -36,12 +36,12 @@ The image belongs to the cluster as much as to the question: under the figure st
 every member of a figure cluster shares one `image_path` — the figure *is* the cluster
 key — so caching per cluster stays correct.
 
-ALL THREE LANGUAGES COME BACK IN ONE CALL
+ALL FOUR LANGUAGES COME BACK IN ONE CALL
 ----------------------------------------
 Plan §3.3 had a separate pass translating the *approved* Italian into RU and EN, so that
 legal substance was reviewed once and translation fidelity separately. That pass is not
-being written (STATUS.md §13): the same request returns Italian, Russian and English,
-and three rows are stored.
+being written (STATUS.md §13): the same request returns Italian, Russian, English and
+Uzbek, and four rows are stored.
 
 The Italian is still the canonical one — the gates run on it, and it is what a reviewer
 reads — but a Russian speaker gets Russian on the first ask rather than waiting for a
@@ -77,6 +77,7 @@ import json
 import logging
 import mimetypes
 import re
+import time
 from dataclasses import dataclass
 
 from sqlalchemy import select
@@ -95,6 +96,7 @@ from api.services.articles import (
 from api.services.entitlement import Access, Entitlement
 from shared.config import CONTENT_OUT, settings
 from shared.constants import (
+    DEFAULT_LANG,
     EV_EXPLANATION_VIEWED,
     EV_PAYWALL_HIT,
     LANG_IT,
@@ -157,10 +159,16 @@ Svolgi i compiti in questo ordine:
    (per esempio "(art. 148 C.d.S.)"). Spiega la regola, non le singole affermazioni:
    la stessa spiegazione deve servire per tutte.
 
-4. Fornisci la STESSA spiegazione anche in russo e in inglese. Non è una traduzione
-   letterale da rivedere a parte: è la stessa regola espressa nelle tre lingue. I
-   riferimenti agli articoli restano nella forma italiana ("art. 148 C.d.S.") in tutte
-   le lingue, perché è così che il candidato li troverà nel codice.
+4. Fornisci la STESSA spiegazione anche in russo, in inglese e in uzbeko. Non è una
+   traduzione letterale da rivedere a parte: è la stessa regola espressa nelle quattro
+   lingue. I riferimenti agli articoli restano nella forma italiana ("art. 148 C.d.S.")
+   in tutte le lingue, perché è così che il candidato li troverà nel codice.
+
+5. L'uzbeco ("uz") va scritto in uzbeko moderno in alfabeto LATINO, quello ufficiale in
+   Uzbekistan: "yo'l belgisi", non "йўл белгиси" e non testo russo. Non lasciare parole
+   russe non tradotte e non traslitterare il russo in caratteri latini. Se non sai
+   scrivere la spiegazione in uzbeko, ometti la chiave "uz": una lingua mancante è
+   accettabile, una lingua sbagliata no.
 
 Se gli articoli forniti non bastano a decidere, imposta "insufficiente": true e lascia
 "spiegazione" vuota. NON inventare e NON tirare a indovinare: una spiegazione assente è
@@ -169,7 +177,7 @@ accettabile, una spiegazione sbagliata non lo è.
 Rispondi SOLO con un oggetto JSON di questa forma esatta:
 
 {"insufficiente": false,
- "spiegazione": {"it": "...", "ru": "...", "en": "..."},
+ "spiegazione": {"it": "...", "ru": "...", "en": "...", "uz": "..."},
  "articolo_citato": "art. 148 C.d.S.",
  "segnale_riconosciuto": "DARE PRECEDENZA",
  "verdetti": [{"n": 1, "risposta": "VERO", "certezza": "alta"}]}
@@ -182,6 +190,31 @@ Includi un verdetto per ogni affermazione, con "n" pari al suo numero.
 # One lock per cluster. Ten users answering the same question at once would otherwise
 # be ten identical paid calls, and the loser of the race would overwrite the winner.
 _locks: dict[int, asyncio.Lock] = {}
+
+# Clusters a language was asked for and did not come back with, and when.
+#
+# `ensure` is keyed on the REQUESTED language, which is what lets a new language backfill
+# itself: a cluster cached in it/ru/en before Uzbek existed misses on uz and regenerates.
+# The other half of that is this. Without it, a cluster the model will not write Uzbek for
+# regenerates on EVERY request from every Uzbek reader — a paid call each time, forever,
+# for a row that never appears. Translations hit exactly this and were fixed the same way;
+# adding Uzbek to explanations opens the identical hole here.
+#
+# In-process and deliberately not persisted: a restart is a fine moment to try again, and
+# the alternative is a schema for remembering failures.
+_missing: dict[tuple[int, str], float] = {}
+RETRY_AFTER = 3600.0
+
+
+def _recently_failed(cluster_id: int, lang: str, now: float | None = None) -> bool:
+    when = _missing.get((cluster_id, lang))
+    if when is None:
+        return False
+    now = now if now is not None else time.monotonic()
+    if now - when > RETRY_AFTER:
+        _missing.pop((cluster_id, lang), None)
+        return False
+    return True
 
 # The corpus is ~1.5M characters of JSON and never changes at runtime.
 _corpus: dict | None = None
@@ -616,17 +649,27 @@ async def ensure(
     row = await existing(session, cluster_id, lang)
     if row is not None:
         return row
+    if _recently_failed(cluster_id, lang):
+        return None
 
-    # Keyed on the cluster, not on (cluster, lang): one call produces every language, so
-    # a Russian and an English reader arriving together should wait on the same call
-    # rather than make two. Without it the loser of the race also overwrites the winner.
+    # The LOCK is keyed on the cluster, not on (cluster, lang): one call produces every
+    # language, so a Russian and an English reader arriving together should wait on the
+    # same call rather than make two. Without it the loser of the race also overwrites
+    # the winner. The MISS is keyed on both, because "this cluster has no Uzbek" must not
+    # stop a Russian reader who has a perfectly good row.
     lock = _locks.setdefault(cluster_id, asyncio.Lock())
     async with lock:
         row = await existing(session, cluster_id, lang)
         if row is not None:
             return row
         await generate(session, cluster_id)
-        return await existing(session, cluster_id, lang)
+        row = await existing(session, cluster_id, lang)
+
+    if row is None:
+        _missing[(cluster_id, lang)] = time.monotonic()
+        log.warning("cluster %s produced no %s explanation — not retrying for an hour",
+                    cluster_id, lang)
+    return row
 
 
 async def warm(cluster_id: int | None, lang: str) -> None:
@@ -703,25 +746,45 @@ async def deliver(
         await session.commit()
         return {"explanation_state": Access.LOCKED.value, "explanation": None}, Access.LOCKED
 
-    # A UI language we do not write explanations in reads one in another language rather
-    # than being told nothing exists. Uzbek falls back to Russian: it is the language this
-    # market already shares, and "unavailable" would be a worse answer than "available, in
-    # Russian". Without this, choosing Uzbek would silently switch explanations off.
-    lang = EXPLANATION_FALLBACK.get(user.lang, user.lang)
+    # The reader's OWN language first, and another only if this particular cluster has
+    # nothing servable in it.
+    #
+    # This used to redirect before looking: `EXPLANATION_FALLBACK.get(user.lang)` sent every
+    # Uzbek reader to Russian unconditionally, because Uzbek explanations were not written
+    # at all. They are now, so the fallback is what it should always have been — a per-
+    # cluster safety net for the cases where the model declined that one language, rather
+    # than a standing decision about a whole audience.
+    wanted = user.lang if user.lang in EXPLANATION_LANGUAGES else DEFAULT_LANG
+    order = [wanted]
+    fallback = EXPLANATION_FALLBACK.get(user.lang)
+    if fallback and fallback not in order:
+        order.append(fallback)
 
-    if generate_if_missing:
-        row = await ensure(session, question.cluster_id, lang)
-    else:
-        row = await existing(session, question.cluster_id, lang)
+    row: Explanation | None = None
+    lang = wanted
+    cached_anything = False
+    for candidate in order:
+        found = (
+            await ensure(session, question.cluster_id, candidate)
+            if generate_if_missing
+            else await existing(session, question.cluster_id, candidate)
+        )
+        cached_anything = cached_anything or found is not None
+        if servable(found) and not is_disputed(found, question.id):
+            row, lang = found, candidate
+            break
 
-    if not servable(row) or is_disputed(row, question.id):
+    # Costs at most one model call, not one per language: the first `ensure` generates
+    # every language at once, so the second candidate is already a cache hit.
+
+    if row is None:
         # The model declined, the call failed, a gate withheld the cluster, this
         # particular statement is one the model contradicted, or warming has not
         # finished. All read the same to a user, and none of them costs a taster — but
         # only the last is worth offering a button for.
         access = (
             Access.AVAILABLE
-            if row is None and not generate_if_missing
+            if not cached_anything and not generate_if_missing
             else Access.UNAVAILABLE
         )
         return {"explanation_state": access.value, "explanation": None}, access

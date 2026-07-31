@@ -34,6 +34,7 @@ REPLY = {
         "it": "Il segnale DARE PRECEDENZA impone di cedere il passo (art. 106 Reg.).",
         "ru": "Знак УСТУПИТЕ ДОРОГУ обязывает уступить (art. 106 Reg.).",
         "en": "The GIVE WAY sign requires yielding (art. 106 Reg.).",
+        "uz": "YO'L BERING belgisi yo'l berishni talab qiladi (art. 106 Reg.).",
     },
     "articolo_citato": "art. 106 Reg.",
     "segnale_riconosciuto": "DARE PRECEDENZA",
@@ -126,8 +127,9 @@ async def test_first_request_generates_and_stores_every_language(api_db, fake_op
         stored = {e.lang: e.text for e in (await s.scalars(
             select(Explanation).where(Explanation.cluster_id == cluster)
         )).all()}
-    assert set(stored) == {"it", "ru", "en"}
+    assert set(stored) == {"it", "ru", "en", "uz"}
     assert stored["en"].startswith("The GIVE WAY sign")
+    assert stored["uz"].startswith("YO'L BERING")
     assert fake_openai.calls == 1
 
 
@@ -135,8 +137,9 @@ async def test_a_second_request_costs_nothing(api_db, fake_openai, cluster):
     async with api_db() as s:
         await explanations.ensure(s, cluster, "ru")
         await explanations.ensure(s, cluster, "ru")
-        # A different language is a cache hit too — one call produced all three.
+        # A different language is a cache hit too — one call produced all four.
         await explanations.ensure(s, cluster, "en")
+        await explanations.ensure(s, cluster, "uz")
     assert fake_openai.calls == 1
 
 
@@ -149,7 +152,7 @@ async def test_simultaneous_requests_make_one_call(api_db, fake_openai, cluster)
             select(Explanation).where(Explanation.cluster_id == cluster)
         )).all()
     assert fake_openai.calls == 1
-    assert len(rows) == 3          # it, ru, en — not thirty
+    assert len(rows) == 4          # it, ru, en, uz — not forty
 
 
 async def test_the_figure_is_attached_to_the_request(api_db, fake_openai, cluster):
@@ -364,9 +367,9 @@ def test_a_bare_string_reply_is_accepted_as_italian():
 
 def test_languages_we_do_not_serve_are_dropped():
     texts = explanations.parsed_texts(
-        {"spiegazione": {"it": "a", "ru": "b", "en": "c", "de": "d", "fr": ""}}
+        {"spiegazione": {"it": "a", "ru": "b", "en": "c", "uz": "d", "de": "e", "fr": ""}}
     )
-    assert set(texts) == {"it", "ru", "en"}
+    assert set(texts) == {"it", "ru", "en", "uz"}
 
 
 def test_a_missing_italian_is_treated_as_no_answer():

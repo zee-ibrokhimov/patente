@@ -22,7 +22,7 @@ from api.services.answers import record_answer
 from api.services.content import question_payload
 from api.services.entitlement import Access, evaluate
 from api.services.selection import next_question
-from shared.constants import EV_QUESTION_SERVED, EV_REPORT_SUBMITTED, EXPLANATION_FALLBACK
+from shared.constants import EV_QUESTION_SERVED, EV_REPORT_SUBMITTED
 
 router = APIRouter(tags=["quiz"])
 
@@ -80,13 +80,18 @@ async def serve_next(
     # money spent on nothing. Total spend is capped either way, because the cache is per
     # cluster and there are 3382 of them.
     if entitlement.can_explain:
-        # Warm the language that will actually be SERVED. Without resolving the
-        # fallback, a Uzbek user would warm a "uz" explanation that is never written,
-        # paying for a call whose result no read can ever find.
-        background.add_task(
-            explanations.warm, question.cluster_id,
-            EXPLANATION_FALLBACK.get(user.lang, user.lang),
-        )
+        # Warm the reader's OWN language. This used to resolve EXPLANATION_FALLBACK first,
+        # correctly, because Uzbek explanations were not written at all and warming "uz"
+        # would have paid for a call whose result no read could ever find.
+        #
+        # Now that they are, resolving it here is the bug. On a cluster already cached in
+        # Russian, warming "ru" is an instant cache hit that generates nothing — so the
+        # Uzbek row is never produced and every Uzbek reader pays the foreground latency
+        # this whole mechanism exists to avoid. Translations had exactly this defect
+        # (`warm` returned early if TRANSLATION_LANGUAGES[0] existed) and it is the reason
+        # `ensure` is keyed on the requested language: asking for "uz" is what makes a
+        # cluster cached in it/ru/en regenerate and fill in the missing one.
+        background.add_task(explanations.warm, question.cluster_id, user.lang)
 
     # Translations are gated on the pass and on the user's own switch, and there is no
     # point warming a question already stored. This will not help the caller — their
