@@ -321,6 +321,7 @@ async def apply_purchase(session: AsyncSession, event: TributeEvent) -> str:
         amount = amount or TIER_PRICE_CENTS.get(event.tier, 0)
 
     purchase = Purchase(
+        extended_from=user.pass_expires_at,
         chat_id=event.chat_id,
         tribute_purchase_id=event.purchase_id,
         tier=event.tier,
@@ -414,7 +415,33 @@ async def apply_refund(session: AsyncSession, event: TributeEvent) -> str:
 
     user = await session.get(User, purchase.chat_id)
     if user is not None and user.pass_expires_at is not None:
-        reduced = user.pass_expires_at - timedelta(days=TIER_DAYS[purchase.tier])
+        # Subtract the time THIS purchase granted, rather than restoring the expiry it
+        # replaced. The difference matters when there are several: restoring an absolute
+        # previous value would, on refunding the FIRST of two purchases, throw away the
+        # second one's time as well — which an older test caught, correctly.
+        #
+        # It used to subtract TIER_DAYS[tier], our own idea of how long a tier lasts. A
+        # subscription grants TRIBUTE's expires_at, a real billing period that is not
+        # exactly 30 or 90 days, so the two disagreed: revoking a 31-day month took 30 and
+        # left a free day. `extended_from` and `extended_to` bracket what was actually
+        # given, so the subtraction is now exact.
+        granted = None
+        if purchase.extended_to is not None:
+            base = purchase.extended_from or purchase.created_at
+            if base is not None:
+                if base.tzinfo is None:
+                    base = base.replace(tzinfo=timezone.utc)
+                to = purchase.extended_to
+                if to.tzinfo is None:
+                    to = to.replace(tzinfo=timezone.utc)
+                granted = max(timedelta(0), to - base)
+
+        if granted is None:
+            # A row from before extended_from existed. Approximate, but better than
+            # refusing to revoke at all.
+            granted = timedelta(days=TIER_DAYS[purchase.tier])
+
+        reduced = user.pass_expires_at - granted
         user.pass_expires_at = reduced if reduced > now else now
 
     await events.record(

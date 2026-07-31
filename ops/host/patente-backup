@@ -140,6 +140,52 @@ if [ -n "${R2_KEY:-}" ] && [ -n "${R2_SECRET:-}" ] && [ -n "${R2_ENDPOINT:-}" ] 
   rm -rf "$ENC"
 fi
 
+# --- 6b: prune R2 with the SAME policy as the local set ----------------------
+#
+# The local set is tiered — every hour for two days, daily for a month, weekly for a
+# quarter, monthly for a year — and R2 was keeping everything for ever. Not urgent at
+# 700 KB a snapshot, but the copy that matters most was the one NOT following the
+# retention policy the runbook documents, and "we have backups" was true of a set nobody
+# had described.
+#
+# Runs only when the upload above succeeded, so a bad R2 credential never deletes
+# anything. keepers() is the same tested pure function the local prune uses; the decision
+# is made from the FILENAME, so nothing depends on R2's own timestamps.
+if [ "$OFFSITE" != "not configured" ] && [ -n "${R2_KEY:-}" ]; then
+  LISTING=$(curl -sS --fail-with-body -m 60 \
+      --aws-sigv4 "aws:amz:auto:s3" --user "${R2_KEY}:${R2_SECRET}" \
+      "${R2_ENDPOINT}/${R2_BUCKET}?list-type=2&prefix=patente/db/" 2>/dev/null || true)
+
+  if [ -n "$LISTING" ]; then
+    DOOMED=$("${REPO}/.venv/bin/python" - <<PYEOF
+import re, sys
+from datetime import datetime
+sys.path.insert(0, "${REPO}")
+from ops.prune import keepers
+
+# keepers() takes datetimes and decides from the FILENAME, never from R2's own
+# LastModified — an object re-uploaded after a restore would otherwise look new and
+# survive at the expense of the snapshot it duplicates.
+keys = re.findall(r"<Key>([^<]+)</Key>", """${LISTING}""")
+stamps = {}
+for k in keys:
+    m = re.search(r"patente-(\d{8}-\d{6})\.db", k)
+    if m:
+        stamps[datetime.strptime(m.group(1), "%Y%m%d-%H%M%S")] = k
+keep = keepers(list(stamps))
+print("\n".join(key for when, key in stamps.items() if when not in keep))
+PYEOF
+)
+    REMOVED=0
+    for KEY in $DOOMED; do
+      curl -sS --fail-with-body -m 30 -X DELETE \
+        --aws-sigv4 "aws:amz:auto:s3" --user "${R2_KEY}:${R2_SECRET}" \
+        "${R2_ENDPOINT}/${R2_BUCKET}/${KEY}" >/dev/null 2>&1 && REMOVED=$((REMOVED + 1))
+    done
+    [ "$REMOVED" -gt 0 ] && echo "$(date -Is) pruned ${REMOVED} objects from R2"
+  fi
+fi
+
 # --- 6: prune, only now that the snapshot is trusted and replicated -----------
 # Tiered, and keyed on the FILENAME rather than mtime — see ops/prune.py.
 if [ -x "${REPO}/.venv/bin/python" ]; then

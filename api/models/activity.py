@@ -122,6 +122,16 @@ class Purchase(Base):
     # after the fact.
     extended_to: Mapped[datetime | None] = mapped_column(default=None)
 
+    # What the pass expired at BEFORE this purchase. Null for rows written before this
+    # existed, and for a user who had no pass at all.
+    #
+    # A refund used to subtract TIER_DAYS[tier] — our own idea of how long the tier lasts.
+    # Subscriptions grant TRIBUTE's expires_at, which is a real billing period and not
+    # exactly 30 or 90 days, so the two disagreed: revoking a 31-day month took 30 and
+    # left a free day, and a short first period had two days taken that were never given.
+    # Storing the previous value makes a refund exact rather than approximately fair.
+    extended_from: Mapped[datetime | None] = mapped_column(default=None)
+
     created_at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
     refunded_at: Mapped[datetime | None] = mapped_column(default=None)
 

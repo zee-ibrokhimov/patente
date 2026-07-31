@@ -459,3 +459,56 @@ async def test_an_unreadable_trial_date_is_logged_loudly(client, caplog):
     with caplog.at_level(logging.ERROR, logger="api.services.purchases"):
         await post(client, raw)
     assert "no usable expires_at" in caplog.text
+
+
+# --- a refund puts the pass back exactly where it was -----------------------
+
+async def test_a_refund_restores_the_exact_previous_expiry(client, api_db):
+    """It used to subtract TIER_DAYS[tier] — our idea of how long a tier lasts. But a
+    subscription grants TRIBUTE's expires_at, which is a real billing period and not
+    exactly 30 days. Revoking a 31-day month took 30 and left a free day; a short first
+    period had two days taken that were never given."""
+    from sqlalchemy import update as sa_update
+
+    had = datetime.now(timezone.utc) + timedelta(days=5)
+    async with api_db() as s:
+        s.add(User(chat_id=BUYER, lang="ru", pass_expires_at=had))
+        await s.commit()
+
+    # A 31-day month, which no TIER_DAYS value matches.
+    await post(client, body("new_subscription", sub_id=960,
+                            expires=had + timedelta(days=31)))
+    await post(client, body("subscription_refunded", sub_id=960))
+
+    async with api_db() as s:
+        user = await s.get(User, BUYER)
+    drift = abs((user.pass_expires_at - had).total_seconds())
+    assert drift < 5, f"the pass came back {drift/86400:.2f} days away from where it was"
+
+
+async def test_a_refund_never_hands_back_time_still_owned(client, api_db):
+    """A LATER purchase may have pushed the expiry beyond what this one set. Restoring a
+    stale previous value would give away time the customer still has."""
+    async with api_db() as s:
+        s.add(User(chat_id=BUYER, lang="ru", pass_expires_at=None))
+        await s.commit()
+
+    first = datetime.now(timezone.utc) + timedelta(days=30)
+    second = datetime.now(timezone.utc) + timedelta(days=120)
+    await post(client, body("new_subscription", sub_id=961, expires=first))
+    await post(client, body("new_subscription", sub_id=962, expires=second))
+    await post(client, body("subscription_refunded", sub_id=961))
+
+    async with api_db() as s:
+        user = await s.get(User, BUYER)
+    assert user.pass_expires_at <= second, "a refund extended the pass"
+
+
+async def test_a_refund_of_the_only_purchase_ends_the_pass(client, api_db):
+    """Someone with no prior pass had nothing to restore, so the withdrawal is immediate."""
+    from api.services.entitlement import evaluate
+
+    await post(client, body("new_subscription", sub_id=963))
+    await post(client, body("subscription_refunded", sub_id=963))
+    async with api_db() as s:
+        assert evaluate(await s.get(User, BUYER)).premium is False
