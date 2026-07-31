@@ -337,6 +337,40 @@ async def finish_session(
         raise HTTPException(exc.status, str(exc)) from exc
 
 
+@router.post("/sessions/{session_id}/extend", response_model=SessionOut)
+async def extend_session(
+    session_id: int,
+    user: User = Depends(webapp_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Add another batch to a practice sitting the learner has worked to the end of.
+
+    Practice runs until they stop it; only the transport is batched. Refused for an
+    exam, in the service rather than here — an exam whose length the client can extend
+    reports a score that means nothing.
+    """
+    now = datetime.now(timezone.utc)
+    try:
+        row = await quiz_sessions.load_owned(session, user, session_id, now)
+        await quiz_sessions.extend(session, user, row, now)
+    except quiz_sessions.SessionError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+
+    entitlement = evaluate(user)
+    from sqlalchemy import select as sa_select
+
+    from api.models import Question, QuizSessionItem
+
+    rows = await session.scalars(
+        sa_select(Question)
+        .join(QuizSessionItem, QuizSessionItem.question_id == Question.id)
+        .where(QuizSessionItem.session_id == row.id)
+        .order_by(QuizSessionItem.ordinal)
+    )
+    paper = [await content.question_payload(session, q, user, entitlement) for q in rows]
+    return _session_out(row, paper, now)
+
+
 @router.get("/sessions/{session_id}/results", response_model=SessionResultsOut)
 async def session_results(
     session_id: int,

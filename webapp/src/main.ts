@@ -1,7 +1,7 @@
 import { api, ApiError, sessions, vocab } from "./api";
 import { readinessGauge } from "./gauge";
 import { art, icons } from "./icons";
-import { lang, setLang, t } from "./i18n";
+import { TRANSLATION_LANGUAGES, lang, setLang, t } from "./i18n";
 import { haptic, inTelegram, initTelegram, setBackButton, tg } from "./telegram";
 import type {
   AnswerResult,
@@ -297,8 +297,50 @@ function advance(): void {
   const run = state.run;
   if (!run) return;
   run.verdict = null;
-  if (run.index < run.session.question_count - 1) run.index += 1;
-  render();   // render() kicks off hydrateTranslation for the new question
+  if (run.index < run.session.question_count - 1) {
+    run.index += 1;
+    render();   // render() kicks off hydrateTranslation for the new question
+    void topUpPractice();
+    return;
+  }
+  // At the end of the paper. An exam stops here — thirty questions is what an exam is.
+  // Practice does not: it runs until the learner ends it, so fetch more and carry on.
+  if (run.session.mode === "practice") { void extendPractice(); return; }
+  render();
+}
+
+/** Fetch the next batch when practice reaches the end of the current one. */
+async function extendPractice(): Promise<void> {
+  const run = state.run;
+  if (!run || run.busy) return;
+  run.busy = true;
+  render();
+  try {
+    const before = run.session.question_count;
+    run.session = await sessions.extend(run.session.id);
+    // No more questions in the whole bank: leave them on the last one rather than
+    // advancing past the end, and let them end the sitting themselves.
+    if (run.session.question_count > before) run.index += 1;
+  } catch (err) {
+    reportError(err);
+  } finally {
+    run.busy = false;
+    render();
+  }
+}
+
+/** Extend BEFORE the learner reaches the last question, so the batch boundary is
+ *  invisible. Without this they would tap Next and wait on a round trip every 30. */
+async function topUpPractice(): Promise<void> {
+  const run = state.run;
+  if (!run || run.busy) return;
+  if (run.session.mode !== "practice") return;
+  if (run.index < run.session.question_count - 3) return;
+  try {
+    run.session = await sessions.extend(run.session.id);
+  } catch {
+    // Best-effort: if it fails, `advance` will try again at the actual boundary.
+  }
 }
 
 async function finishRun(timedOut = false): Promise<void> {
@@ -528,6 +570,44 @@ function currentQuestion(run: Run): Question | undefined {
 }
 
 
+/** Turn the translation on or off without leaving the sitting.
+ *
+ *  It lives here because the exam is exactly where the decision is made: a candidate
+ *  practising for the real thing wants the Italian alone, and the same person, stuck on
+ *  one phrasing, wants the translation back for that question. Sending them to Settings
+ *  means abandoning a running exam to change it — the tab bar is hidden mid-sitting
+ *  precisely so that cannot happen by accident.
+ *
+ *  Returns null for anyone who has no translation to toggle: without a pass, or with a
+ *  UI language the questions are not translated into. A switch that does nothing is
+ *  worse than no switch.
+ */
+function translationToggle(): HTMLElement | null {
+  const me = state.me;
+  if (!me || !me.has_pass) return null;
+  if (!TRANSLATION_LANGUAGES.includes(me.lang)) return null;
+
+  const row = el("label", "q-tr");
+  row.append(el("span", "q-tr-label", t("tr_toggle")));
+  const sw = el("button", `switch small ${me.translations_on ? "on" : ""}`);
+  sw.type = "button";
+  sw.setAttribute("role", "switch");
+  sw.setAttribute("aria-checked", String(me.translations_on));
+  sw.onclick = async () => {
+    try {
+      state.me = await api.settings({ translations_on: !me.translations_on });
+      render();
+      // Turning it ON mid-question must fetch the translation for the question already
+      // on screen; the usual fetch only runs when a question is first rendered.
+      if (state.me?.translations_on) void hydrateTranslation();
+    } catch (err) {
+      reportError(err);
+    }
+  };
+  row.append(sw);
+  return row;
+}
+
 function runScreen(): HTMLElement {
   const run = state.run!;
   const wrap = el("section", "screen");
@@ -550,8 +630,13 @@ function runScreen(): HTMLElement {
   }
 
   wrap.append(answerSheet(run));
-  wrap.append(el("div", "q-index",
+
+  const meta = el("div", "q-meta");
+  meta.append(el("div", "q-index",
     t("question_of", { n: run.index + 1, total: run.session.question_count })));
+  const tr = translationToggle();
+  if (tr) meta.append(tr);
+  wrap.append(meta);
 
   if (!question) { wrap.append(el("div", "spinner")); return wrap; }
 

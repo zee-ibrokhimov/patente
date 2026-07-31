@@ -137,6 +137,11 @@ export const sessions = {
       body: JSON.stringify({ ordinal, answer }),
     }),
 
+  /** Practice only. Adds another batch to a sitting the learner has worked to the end
+   *  of, and returns the sitting with its whole paper — including the new items. */
+  extend: (id: number) =>
+    request<Session>(`/sessions/${id}/extend`, { method: "POST" }),
+
   finish: (id: number) =>
     request<SessionResults>(`/sessions/${id}/finish`, { method: "POST" }),
 

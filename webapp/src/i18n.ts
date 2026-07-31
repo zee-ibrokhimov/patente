@@ -135,6 +135,7 @@ const STRINGS = {
     per_month: "{price}/mese",
     best_value: "Più conveniente",
     vocab: "Vocabolario",
+    tr_toggle: "Traduzione",
     v_title: "Vocabolario",
     v_sub: "1090 parole d'esame",
     v_test: "Allenati",
@@ -308,6 +309,7 @@ const STRINGS = {
     per_month: "{price}/мес",
     best_value: "Выгоднее всего",
     vocab: "Словарь",
+    tr_toggle: "Перевод",
     v_title: "Словарь",
     v_sub: "1090 экзаменационных слов",
     v_test: "Тренировка",
@@ -481,6 +483,7 @@ const STRINGS = {
     per_month: "{price}/mo",
     best_value: "Best value",
     vocab: "Vocabulary",
+    tr_toggle: "Translation",
     v_title: "Vocabulary",
     v_sub: "1090 exam words",
     v_test: "Practise",
@@ -654,6 +657,7 @@ const STRINGS = {
     per_month: "{price}/oy",
     best_value: "Eng foydali",
     vocab: "Lug'at",
+    tr_toggle: "Tarjima",
     v_title: "Lug'at",
     v_sub: "1090 ta imtihon so'zi",
     v_test: "Mashq",
@@ -727,3 +731,8 @@ export function t(key: Key, vars?: Record<string, string | number>): string {
 export function lang(): Lang {
   return current;
 }
+
+
+/** Languages a QUESTION is translated into — mirrors shared/constants.py.
+ *  Italian is absent: the question is already Italian. */
+export const TRANSLATION_LANGUAGES: readonly string[] = ["ru", "en", "uz"];

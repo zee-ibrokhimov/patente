@@ -141,6 +141,12 @@ MODE_PRACTICE = "practice"
 QUIZ_MODES = (MODE_EXAM, MODE_PRACTICE)
 
 EXAM_QUESTIONS = 30
+
+# Practice has no fixed length: it runs until the learner ends it. Questions are drawn in
+# batches rather than all 7106 at once — the paper travels to the client whole, and a
+# megabyte of JSON to start a session nobody may finish is the wrong trade. When the
+# learner reaches the end of a batch the sitting extends itself.
+PRACTICE_BATCH = 30
 EXAM_MINUTES = 20
 EXAM_MAX_ERRORS = 3
 

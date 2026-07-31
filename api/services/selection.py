@@ -81,7 +81,9 @@ async def next_question(
     return await session.scalar(not_excluded(topic_filtered(anything)))
 
 
-async def exam_paper(session: AsyncSession, count: int) -> list[Question]:
+async def exam_paper(
+    session: AsyncSession, count: int, exclude: set[int] | None = None
+) -> list[Question]:
     """A whole exam paper in one draw: `count` DISTINCT questions, uniformly random.
 
     Deliberately NOT built on `next_question`, for two reasons.
@@ -101,7 +103,10 @@ async def exam_paper(session: AsyncSession, count: int) -> list[Question]:
     ORDER BY random() over 7106 rows is a full scan of a table that is a few megabytes
     and entirely in page cache; measured in milliseconds, and run once per sitting.
     """
-    rows = await session.scalars(
-        select(Question).order_by(func.random()).limit(count)
-    )
+    stmt = select(Question)
+    if exclude:
+        # Practice extends the same sitting rather than starting a new one, so the next
+        # batch must not re-serve what this learner has already worked through in it.
+        stmt = stmt.where(Question.id.not_in(exclude))
+    rows = await session.scalars(stmt.order_by(func.random()).limit(count))
     return list(rows)

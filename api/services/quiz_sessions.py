@@ -32,7 +32,9 @@ from shared.constants import (
     EXAM_MAX_ERRORS,
     EXAM_MINUTES,
     EXAM_QUESTIONS,
+    PRACTICE_BATCH,
     MODE_EXAM,
+    MODE_PRACTICE,
     SESSION_ABANDONED,
     SESSION_EXPIRED,
     SESSION_OPEN,
@@ -102,7 +104,7 @@ async def create(
             await _grade(session, existing, state=SESSION_ABANDONED, finished_at=now)
 
     is_exam = mode == MODE_EXAM
-    count = EXAM_QUESTIONS if is_exam else EXAM_QUESTIONS
+    count = EXAM_QUESTIONS if is_exam else PRACTICE_BATCH
     paper = await selection.exam_paper(session, count)
     if not paper:
         raise SessionError("no questions available", status=503)
@@ -206,6 +208,44 @@ async def answer(
                 "remaining": row.question_count - row.answered}
     return {"session_id": row.id, "ordinal": ordinal, "answered": row.answered,
             "remaining": row.question_count - row.answered, **outcome}
+
+
+async def extend(
+    session: AsyncSession, user, row: QuizSession, now: datetime | None = None
+) -> list:
+    """Add another batch to a practice sitting that has run out.
+
+    Practice is unlimited by design — it ends when the learner says so, not when a
+    counter runs out. Only the transport is batched.
+
+    Refused for an exam, and not merely by convention: an exam is thirty questions
+    because the real one is, and a simulator whose length the client can extend reports
+    a score that means nothing. Refused for a closed sitting too, so a finished practice
+    run cannot be reopened and have its result quietly changed.
+    """
+    now = now or datetime.now(timezone.utc)
+    if row.mode != MODE_PRACTICE:
+        raise SessionError("only a practice sitting can be extended", status=409)
+    if row.state != SESSION_OPEN:
+        raise SessionError("this sitting is closed", status=409)
+
+    used = set((await session.scalars(
+        select(QuizSessionItem.question_id).where(QuizSessionItem.session_id == row.id)
+    )).all())
+    more = await selection.exam_paper(session, PRACTICE_BATCH, exclude=used)
+    if not more:
+        # The learner has worked through all 7106. Not an error: they have simply
+        # finished the bank, and the sitting stays open so they can end it themselves.
+        return []
+
+    for offset, question in enumerate(more, start=1):
+        session.add(QuizSessionItem(
+            session_id=row.id, ordinal=row.question_count + offset,
+            question_id=question.id,
+        ))
+    row.question_count += len(more)
+    await session.flush()
+    return more
 
 
 async def _grade(
