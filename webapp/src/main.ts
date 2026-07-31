@@ -24,6 +24,19 @@ import "./style.css";
 
 type Screen = "home" | "run" | "results" | "profile" | "stats" | "settings" | "vocab";
 
+/** The author of the vocabulary list, and the condition on which it may be used.
+ *
+ *  The 1090-term glossary was compiled by Zukhriddin Kamolov, who gave permission to use it
+ *  provided he is credited as its author. That makes the credit a TERM OF USE rather than a
+ *  courtesy: if this constant stops being rendered, the app is using someone else's work
+ *  outside the terms it was given under.
+ *
+ *  Here rather than in i18n.ts because a person's name is not a translatable string, and
+ *  putting it in four locale blocks is four chances to get it wrong. Only the surrounding
+ *  sentence is translated.
+ */
+const VOCAB_AUTHOR = { name: "Zukhriddin Kamolov", handle: "TTYMI_OKMK2" } as const;
+
 /** A sitting in flight.
  *
  *  `skew` is measured ONCE from the server's own clock at creation, and every countdown
@@ -1744,7 +1757,34 @@ function vocabScreen(): HTMLElement {
 
   if (v.locked) { wrap.append(vocabLocked()); return wrap; }
   wrap.append(v.view === "test" ? vocabTest() : vocabList());
+  wrap.append(vocabCredit());
   return wrap;
+}
+
+/** Who compiled the word list.
+ *
+ *  The 1090-term glossary is not ours. Zukhriddin Kamolov compiled it and gave permission
+ *  to use it on the condition that he is credited as its author — so this is a term of use,
+ *  not a courtesy, and it belongs on the screen the list is actually used on rather than
+ *  buried in a settings page nobody opens.
+ *
+ *  Shown on BOTH tabs, and outside the `locked` branch above it only because a locked user
+ *  sees no list at all; there is nothing to attribute until they do.
+ *
+ *  The name is not translated. It is a person's name.
+ */
+function vocabCredit(): HTMLElement {
+  const p = el("p", "v-credit");
+  p.append(document.createTextNode(`${t("v_credit")} `));
+  const link = el("button", "v-credit-link", VOCAB_AUTHOR.name);
+  link.type = "button";
+  link.onclick = () => {
+    if (!openChat(`https://t.me/${VOCAB_AUTHOR.handle}`)) {
+      toast(`@${VOCAB_AUTHOR.handle}`);
+    }
+  };
+  p.append(link);
+  return p;
 }
 
 function vocabLocked(): HTMLElement {

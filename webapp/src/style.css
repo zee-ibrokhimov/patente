@@ -654,6 +654,27 @@ html, body { overflow-x: hidden; }
   margin: var(--sm) 0 0;
 }
 
+/* Who compiled the word list.
+ *
+ * The glossary is Zukhriddin Kamolov's work, used with permission on condition of
+ * attribution — a term of use, not a footnote. Quiet enough not to compete with the
+ * trainer, legible enough to actually BE a credit: the same size as the other captions
+ * rather than smaller, and the name is a real tappable link to its author. */
+.v-credit {
+  font-size: var(--t-caption);
+  line-height: var(--lh-caption);
+  color: var(--text-2);
+  margin: var(--xl) 0 0;
+  padding-top: var(--md);
+  border-top: 1px solid var(--edge);
+  text-align: center;
+}
+.v-credit-link {
+  background: none; border: 0; padding: 0;
+  font: inherit; color: var(--accent);
+  cursor: pointer; text-decoration: underline; text-underline-offset: 2px;
+}
+
 /* Practise / Word list */
 .v-seg {
   display: flex; gap: var(--xs); margin: var(--lg) 0;

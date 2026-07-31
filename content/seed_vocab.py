@@ -1,5 +1,11 @@
 """Load the vocabulary list into the database.
 
+THE LIST IS NOT OURS. It was compiled by Zukhriddin Kamolov (Telegram @TTYMI_OKMK2) and is
+used with his permission, on the condition that he is credited as its author — a term of
+use, not a courtesy. The credit renders on the vocabulary screen in the Mini App and
+tests/test_vocab_attribution.py fails if it disappears. Read content/VOCAB-CREDITS.md before
+changing that, or the Italian column, which is his work and stays verbatim.
+
 Idempotent, like content/seed.py: run it as often as you like. Terms are matched on the
 Italian, so re-running updates glosses in place and never orphans a learner's progress —
 which is the whole reason the match is on `it` and not on `rank`. Ranks shift whenever the
