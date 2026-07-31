@@ -867,3 +867,40 @@ html, body { overflow-x: hidden; }
   background: var(--surface); border-radius: var(--r-sm);
   font-size: var(--t-caption); line-height: 1.5; color: var(--text);
 }
+
+/* --- start over -----------------------------------------------------------
+ * Deliberately plain until pressed. A permanently red "delete everything" button at the
+ * bottom of Settings reads as a threat; the danger belongs in the confirmation, where
+ * the numbers are.
+ */
+.reset-card { margin-top: var(--xl); }
+.reset-open {
+  margin-top: var(--md); width: 100%;
+  padding: var(--md); border-radius: var(--r);
+  border: 1px solid var(--edge); background: var(--bg);
+  color: var(--text-2);
+  font-family: var(--font); font-size: var(--t-caption); font-weight: 600;
+  cursor: pointer;
+}
+.reset-open:disabled { opacity: .5; }
+
+.reset-confirm {
+  margin-top: var(--md); padding: var(--lg);
+  background: var(--exam-tint); border: 1px solid var(--exam-chip);
+  border-radius: var(--r);
+}
+.reset-what {
+  margin: 0; font-size: var(--t-caption); font-weight: 700; color: var(--exam-deep);
+}
+.reset-keep {
+  margin: var(--sm) 0 0; font-size: var(--t-caption); color: var(--text-2);
+}
+.reset-actions { display: flex; gap: var(--sm); margin-top: var(--lg); }
+.reset-no, .reset-yes {
+  flex: 1; padding: var(--sm) var(--md); border-radius: var(--r-sm);
+  font-family: var(--font); font-size: var(--t-caption); font-weight: 700;
+  cursor: pointer;
+}
+.reset-no  { border: 1px solid var(--edge); background: var(--card); color: var(--text); }
+.reset-yes { border: 0; background: var(--exam); color: #fff; }
+.reset-yes:disabled, .reset-no:disabled { opacity: .55; }

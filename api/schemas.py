@@ -351,3 +351,13 @@ class VocabStatsOut(BaseModel):
     started: int
     learned: int
     almost: int
+
+
+class ResetPreviewOut(BaseModel):
+    """What a reset would destroy. Shown in the confirmation, because "this will delete
+    your progress" is a sentence people click past and "412 answers and 6 exams" is not."""
+
+    answers: int
+    questions: int
+    sittings: int
+    words: int

@@ -226,6 +226,9 @@ EV_TRIAL_STARTED = "trial_started"
 # until it lapses. Recorded because otherwise churn leaves no trace at all — the only
 # symptom would be a renewal that never arrived.
 EV_SUBSCRIPTION_CANCELLED = "subscription_cancelled"
+# A learner wiped their own progress. Recorded because "my stats vanished" is a support
+# message someone will send after forgetting they did this.
+EV_PROGRESS_RESET = "progress_reset"
 # Quiz sessions. EV_SESSION_START/END already existed for the study session; these name
 # the bounded, gradeable kind so an exam is separable in the funnel.
 EV_EXAM_STARTED = "exam_started"
@@ -239,6 +242,7 @@ EVENT_TYPES = (
     EV_EXAM_STARTED, EV_EXAM_FINISHED,
     EV_TRIAL_STARTED,
     EV_SUBSCRIPTION_CANCELLED,
+    EV_PROGRESS_RESET,
 )
 
 # --- vocabulary trainer -----------------------------------------------------

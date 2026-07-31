@@ -57,9 +57,25 @@ async def test_readiness_is_null_below_the_minimum_sample(client, registered, ap
 
 async def test_readiness_appears_once_there_is_enough_evidence(client, registered, api_db):
     now = datetime.now(timezone.utc)
-    await answered(api_db, 1, seen=20, wrong=4, when=now)
+    await answered(api_db, 1, seen=100, wrong=20, when=now)
     r = await client.get("/webapp/profile", headers=auth())
     assert r.json()["readiness"] == pytest.approx(0.8)
+
+
+async def test_twenty_answers_is_not_evidence(client, registered, api_db):
+    """MIN_SAMPLE was 20 — 0.28% of a 7106-question bank. One good evening, or one lucky
+    run on a topic someone happens to know already.
+
+    Putting a percentage on a gauge after that, about a legally required exam that costs
+    money and a re-sit to fail, is a claim the data cannot support. A learner told "84%
+    ready" on twenty answers who then fails has been misled by the thing they revised
+    with. 100 is roughly three mock exams' worth.
+    """
+    await answered(api_db, 1, seen=20, wrong=2, when=datetime.now(timezone.utc))
+    body = (await client.get("/webapp/profile", headers=auth())).json()
+    assert body["readiness"] is None, "20 answers must not produce a readiness figure"
+    assert body["readiness_sample"] == 20
+    assert body["readiness_min_sample"] >= 100
 
 
 async def test_the_pass_bar_is_reported_so_the_number_means_something(client, registered):

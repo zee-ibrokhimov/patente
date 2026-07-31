@@ -11,6 +11,7 @@ import type {
   PracticeAnswer,
   Profile,
   Question,
+  ResetPreview,
   Session,
   SessionResults,
   Stats,
@@ -1333,6 +1334,82 @@ const LANG_NAMES: Record<string, string> = {
 // when someone has reviewed it — not when the code stops changing.
 const BETA_LANGS = new Set(["uz"]);
 
+
+/** Start over.
+ *
+ *  Two steps, and the second one names numbers. "This will delete your progress" is a
+ *  sentence people click through; "this deletes 412 answers and 6 exams" is one they
+ *  read. The preview is fetched rather than guessed, so the numbers are true.
+ *
+ *  It also says what SURVIVES, because the fear that stops someone pressing a destructive
+ *  button is usually the wrong fear — here it is "will I lose my subscription", and the
+ *  answer is no.
+ */
+function resetRow(): HTMLElement {
+  const wrap = el("div", "card reset-card");
+  const head = el("div", "row-main");
+  head.append(el("div", "row-title", t("reset_title")),
+              el("div", "row-sub", t("reset_sub")));
+  wrap.append(head);
+
+  const open = el("button", "reset-open", t("reset_title"));
+  open.type = "button";
+  open.onclick = () => void beginReset(wrap, open);
+  wrap.append(open);
+  return wrap;
+}
+
+async function beginReset(card: HTMLElement, opener: HTMLButtonElement): Promise<void> {
+  opener.disabled = true;
+  let preview: ResetPreview;
+  try {
+    preview = await api.resetPreview();
+  } catch (err) {
+    opener.disabled = false;
+    reportError(err);
+    return;
+  }
+
+  const confirm = el("div", "reset-confirm");
+  confirm.append(el("p", "reset-what", t("reset_what", {
+    answers: preview.answers, sittings: preview.sittings, words: preview.words,
+  })));
+  // The reassurance sits directly under the warning, not in a help page nobody opens.
+  confirm.append(el("p", "reset-keep", t("reset_keep")));
+
+  const row = el("div", "reset-actions");
+  const no = el("button", "reset-no", t("reset_cancel"));
+  no.type = "button";
+  no.onclick = () => { confirm.remove(); opener.disabled = false; };
+
+  const yes = el("button", "reset-yes", t("reset_confirm"));
+  yes.type = "button";
+  yes.onclick = async () => {
+    yes.disabled = true;
+    no.disabled = true;
+    try {
+      await api.resetProgress();
+      // Everything on screen is now describing a past that no longer exists.
+      state.profile = null;
+      state.stats = null;
+      state.results = null;
+      state.run = null;
+      state.resumable = null;
+      state.me = await api.me();
+      toast(t("reset_done"));
+      state.screen = "home";
+      render();
+    } catch (err) {
+      yes.disabled = false;
+      no.disabled = false;
+      reportError(err);
+    }
+  };
+  row.append(no, yes);
+  confirm.append(row);
+  card.append(confirm);
+}
+
 function settingsScreen(): HTMLElement {
   const wrap = el("section", "screen");
   const me = state.me;
@@ -1450,6 +1527,8 @@ function settingsScreen(): HTMLElement {
   tg.append(chev);
   tg.onclick = openSupport;
   wrap.append(tg);
+
+  wrap.append(resetRow());
 
   return wrap;
 }

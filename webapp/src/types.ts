@@ -247,3 +247,11 @@ export interface VocabStats {
   learned: number;
   almost: number;
 }
+
+/** What a progress reset would destroy. */
+export interface ResetPreview {
+  answers: number;
+  questions: number;
+  sittings: number;
+  words: number;
+}

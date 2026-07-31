@@ -39,7 +39,18 @@ from shared.constants import (
 )
 
 # Below this, readiness is None rather than a flattering guess.
-MIN_SAMPLE = 20
+#
+# Was 20. Twenty answers is 0.28% of a 7106-question bank — one good evening, or one
+# lucky run on a topic someone happens to know. Putting a percentage on a gauge after
+# that, about a legally required exam that costs money and a re-sit to fail, is a claim
+# the data cannot support. A learner who is told "84% ready" on twenty answers and then
+# fails has been actively misled by the thing they were revising with.
+#
+# 100 is roughly three mock exams' worth. Still a small window — it is deliberately a
+# RECENT-form measure, not a coverage measure — but it is enough that one lucky run
+# cannot carry it, and the sample size now travels with the number so the app can say
+# what it is based on.
+MIN_SAMPLE = 100
 # How many recent answers the estimate looks at.
 RECENT_WINDOW = 100
 # The bar the percentage is measured against: 27 of 30 correct.

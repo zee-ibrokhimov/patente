@@ -53,6 +53,7 @@ from api.schemas import (
     VocabAnswerOut,
     VocabListOut,
     VocabRoundOut,
+    ResetPreviewOut,
     VocabStatsOut,
 )
 from api.services import (
@@ -63,6 +64,7 @@ from api.services import (
     telegram_auth,
     translations,
     users,
+    reset as reset_service,
     vocab as vocab_service,
 )
 from api.services.entitlement import evaluate
@@ -480,3 +482,29 @@ async def vocab_stats(
     """Progress through the list. Outside the paywall on purpose: this is the number
     that makes the feature worth buying, so hiding it behind itself is a poor trade."""
     return await vocab_service.stats(session, user)
+
+
+# --- starting over ----------------------------------------------------------
+
+
+@router.get("/reset/preview", response_model=ResetPreviewOut)
+async def reset_preview(
+    user: User = Depends(webapp_user), session: AsyncSession = Depends(get_session)
+):
+    """What a reset would destroy, so the confirmation can name real numbers."""
+    return await reset_service.preview(session, user.chat_id)
+
+
+@router.post("/reset", response_model=ResetPreviewOut)
+async def reset_progress(
+    user: User = Depends(webapp_user), session: AsyncSession = Depends(get_session)
+):
+    """Wipe this learner's progress and start again.
+
+    POST rather than DELETE because it destroys several things and creates an event; and
+    the caller is whoever the initData signature proves, so one user can only ever reset
+    themselves — there is no id in the request to get wrong.
+
+    A pass is NOT touched. Wiping progress must never cost someone money they have paid.
+    """
+    return await reset_service.reset_progress(session, user.chat_id)

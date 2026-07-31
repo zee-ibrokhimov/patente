@@ -13,6 +13,7 @@ import type {
   Profile,
   Question,
   QuestionTranslation,
+  ResetPreview,
   Session,
   SessionResults,
   Stats,
@@ -85,6 +86,11 @@ export const api = {
     }),
 
   stats: () => request<Stats>("/stats"),
+
+  /** What a reset would destroy — so the confirmation can name real numbers instead of
+   *  saying "your progress", which people click past. */
+  resetPreview: () => request<ResetPreview>("/reset/preview"),
+  resetProgress: () => request<ResetPreview>("/reset", { method: "POST" }),
 
   profile: () => request<Profile>("/profile"),
 
