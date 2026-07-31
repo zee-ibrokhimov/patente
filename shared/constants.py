@@ -8,8 +8,28 @@ from __future__ import annotations
 LANG_IT = "it"
 LANG_RU = "ru"
 LANG_EN = "en"
-UI_LANGUAGES = (LANG_RU, LANG_EN, LANG_IT)
-TRANSLATION_LANGUAGES = (LANG_RU, LANG_EN)
+LANG_UZ = "uz"
+
+# Three different lists, because they answer three different questions. They were two,
+# and translations filtering on one while explanations filtered on the other is exactly
+# how a language ends up half-enabled.
+#
+#   UI_LANGUAGES          — what the interface is available in.
+#   TRANSLATION_LANGUAGES — what a QUESTION is translated into. Italian is absent because
+#                           the question is already Italian; asking for an "it" translation
+#                           is a paid call that can never produce a cacheable row.
+#   EXPLANATION_LANGUAGES — what an EXPLANATION is written in. Uzbek is absent ON PURPOSE:
+#                           a bad translation sits under the Italian where a user can see
+#                           it is off, but a bad explanation is the only text on screen and
+#                           is the thing being sold. Uzbek ships as translations first.
+UI_LANGUAGES = (LANG_RU, LANG_EN, LANG_IT, LANG_UZ)
+TRANSLATION_LANGUAGES = (LANG_RU, LANG_EN, LANG_UZ)
+EXPLANATION_LANGUAGES = (LANG_IT, LANG_RU, LANG_EN)
+
+# A UI language with no explanations of its own reads one in another language rather than
+# being told nothing exists. Russian for Uzbek: it is the language this market already
+# shares, and "unavailable" would be a worse answer than "available, in Russian".
+EXPLANATION_FALLBACK = {LANG_UZ: LANG_RU}
 DEFAULT_LANG = LANG_RU
 
 

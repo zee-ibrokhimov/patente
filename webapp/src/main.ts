@@ -889,7 +889,7 @@ function settingsScreen(): HTMLElement {
 
   wrap.append(el("h2", "", t("language")));
   const langs = el("div", "chips");
-  for (const code of ["it", "ru", "en"] as const) {
+  for (const code of ["it", "ru", "en", "uz"] as const) {
     const b = el("button", `chip ${me.lang === code ? "on" : ""}`, code.toUpperCase());
     b.onclick = async () => {
       try {

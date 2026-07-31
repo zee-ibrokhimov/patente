@@ -102,7 +102,8 @@ from shared.constants import (
     STATUS_APPROVED,
     STATUS_DRAFT,
     STATUS_FLAGGED,
-    UI_LANGUAGES,
+    EXPLANATION_FALLBACK,
+    EXPLANATION_LANGUAGES,
 )
 from shared.db import async_session_factory
 
@@ -322,7 +323,7 @@ def parsed_texts(parsed: dict) -> dict[str, str]:
     return {
         code: value.strip()
         for code, value in raw.items()
-        if code in UI_LANGUAGES and isinstance(value, str) and value.strip()
+        if code in EXPLANATION_LANGUAGES and isinstance(value, str) and value.strip()
     }
 
 
@@ -681,10 +682,16 @@ async def deliver(
         await session.commit()
         return {"explanation_state": Access.LOCKED.value, "explanation": None}, Access.LOCKED
 
+    # A UI language we do not write explanations in reads one in another language rather
+    # than being told nothing exists. Uzbek falls back to Russian: it is the language this
+    # market already shares, and "unavailable" would be a worse answer than "available, in
+    # Russian". Without this, choosing Uzbek would silently switch explanations off.
+    lang = EXPLANATION_FALLBACK.get(user.lang, user.lang)
+
     if generate_if_missing:
-        row = await ensure(session, question.cluster_id, user.lang)
+        row = await ensure(session, question.cluster_id, lang)
     else:
-        row = await existing(session, question.cluster_id, user.lang)
+        row = await existing(session, question.cluster_id, lang)
 
     if not servable(row) or is_disputed(row, question.id):
         # The model declined, the call failed, a gate withheld the cluster, this

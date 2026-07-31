@@ -77,29 +77,34 @@ REGOLE, in ordine di importanza:
 5. USA QUESTI TERMINI. Sono i termini che ricorrono in migliaia di domande e che una
    traduzione generica sbaglia:
 
-   segnale (stradale)     RU: знак            EN: sign            (MAI "сигнал"/"signal")
-   segnale luminoso       RU: светофор        EN: traffic light
-   carreggiata            RU: проезжая часть  EN: carriageway
-   corsia                 RU: полоса          EN: lane
-   banchina               RU: обочина         EN: hard shoulder
-   centro abitato         RU: населённый пункт EN: built-up area
-   sorpasso               RU: обгон           EN: overtaking
-   precedenza             RU: преимущество    EN: right of way
-   arresto                RU: остановка (полная) EN: stopping
-   fermata                RU: кратковременная остановка EN: brief stop
-   sosta                  RU: стоянка         EN: parking
-   autocarro              RU: грузовой автомобиль EN: goods vehicle
-   autovettura            RU: легковой автомобиль EN: car
-   ciclomotore            RU: мопед           EN: moped
-   motociclo              RU: мотоцикл        EN: motorcycle
+   segnale (stradale)     RU: знак            EN: sign            UZ: yo'l belgisi
+                                                                  (MAI "сигнал"/"signal"/"signal")
+   segnale luminoso       RU: светофор        EN: traffic light   UZ: svetofor
+   carreggiata            RU: проезжая часть  EN: carriageway     UZ: qatnov qismi
+   corsia                 RU: полоса          EN: lane            UZ: yo'lak
+   banchina               RU: обочина         EN: hard shoulder   UZ: yo'l cheti
+   centro abitato         RU: населённый пункт EN: built-up area  UZ: aholi punkti
+   sorpasso               RU: обгон           EN: overtaking      UZ: quvib o'tish
+   precedenza             RU: преимущество    EN: right of way    UZ: ustunlik
+   arresto                RU: остановка (полная) EN: stopping     UZ: to'xtash
+   fermata                RU: кратковременная остановка EN: brief stop UZ: qisqa to'xtash
+   sosta                  RU: стоянка         EN: parking         UZ: turish (parking)
+   autocarro              RU: грузовой автомобиль EN: goods vehicle UZ: yuk avtomobili
+   autovettura            RU: легковой автомобиль EN: car          UZ: yengil avtomobil
+   ciclomotore            RU: мопед           EN: moped           UZ: moped
+   motociclo              RU: мотоцикл        EN: motorcycle      UZ: mototsikl
 
    `arresto`, `fermata` e `sosta` sono tre cose giuridicamente distinte in italiano:
-   non usare la stessa parola per due di esse.
+   non usare la stessa parola per due di esse. Lo stesso vale in uzbeco.
+
+6. UZBECO IN ALFABETO LATINO, mai in cirillico. È la grafia ufficiale in Uzbekistan.
+   Usa l'apostrofo modificatore corretto: o' e g' (o'tish, to'xtash, g'ildirak).
 
 Rispondi SOLO con un oggetto JSON di questa forma esatta:
 
 {"ru": {"stem": "...", "statement": "..."},
- "en": {"stem": "...", "statement": "..."}}
+ "en": {"stem": "...", "statement": "..."},
+ "uz": {"stem": "...", "statement": "..."}}
 
 Se non c'è una premessa, "stem" è null.
 """
@@ -193,7 +198,13 @@ async def generate(session: AsyncSession, question: Question, model: str | None 
 async def ensure(
     session: AsyncSession, question: Question, lang: str
 ) -> Translation | None:
-    """The translation for this question in this language, generating if nobody has yet."""
+    """The translation for this question in this language, generating if nobody has yet.
+
+    Keyed on the REQUESTED language, so adding a language to TRANSLATION_LANGUAGES
+    backfills correctly: a question cached in ru/en before Uzbek existed misses on uz,
+    regenerates, and the new call writes all three. Existing unreviewed rows are rewritten
+    in place by that call, which is why a human-reviewed row is spared (see `generate`).
+    """
     row = await existing(session, question.id, lang)
     if row is not None:
         return row
@@ -215,7 +226,16 @@ async def warm(question_id: int) -> None:
             question = await session.get(Question, question_id)
             if question is None:
                 return
-            if await existing(session, question_id, TRANSLATION_LANGUAGES[0]) is not None:
+            # Every language must be present, not just the first. This used to check
+            # TRANSLATION_LANGUAGES[0] as a stand-in for "fully cached", which was true
+            # only while every language was written by the same call. The day a new
+            # language is added, every question that already has Russian short-circuits
+            # here and is NEVER warmed for the new one — so every reader of it pays the
+            # ~3s foreground latency this whole module exists to avoid.
+            for code in TRANSLATION_LANGUAGES:
+                if await existing(session, question_id, code) is None:
+                    break
+            else:
                 return
             await generate(session, question)
     except Exception:  # noqa: BLE001

@@ -21,7 +21,7 @@ from shared.constants import DEFAULT_LANG, LANG_EN, UI_LANGUAGES
 LOCALES = Path(__file__).parent / "locales"
 log = logging.getLogger(__name__)
 
-LANGUAGE_NAMES = {"ru": "Русский", "en": "English", "it": "Italiano"}
+LANGUAGE_NAMES = {"ru": "Русский", "en": "English", "it": "Italiano", "uz": "O'zbekcha"}
 
 
 @lru_cache(maxsize=None)

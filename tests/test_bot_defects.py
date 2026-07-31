@@ -40,10 +40,16 @@ def test_subscribe_filter_is_a_magic_filter():
 
 def test_language_picker_survives_a_language_with_no_display_name(monkeypatch):
     """LANGUAGE_NAMES[code] would KeyError inside the FIRST screen of onboarding, so a
-    one-line edit to UI_LANGUAGES in another file took down /start for every new user."""
-    monkeypatch.setattr("bot.keyboards.UI_LANGUAGES", (*UI_LANGUAGES, "uz"))
+    one-line edit to UI_LANGUAGES in another file took down /start for every new user.
+
+    Uses a code that is deliberately NOT in LANGUAGE_NAMES. This test originally used
+    "uz" as its stand-in for an unnamed language and started passing for the wrong reason
+    the moment Uzbek was given a real name — a guard whose premise has quietly become
+    true tests nothing.
+    """
+    monkeypatch.setattr("bot.keyboards.UI_LANGUAGES", (*UI_LANGUAGES, "xx"))
     labels = [b.text for row in keyboards.language_picker().inline_keyboard for b in row]
-    assert "UZ" in labels, "an unnamed language must fall back to its code, not crash"
+    assert "XX" in labels, "an unnamed language must fall back to its code, not crash"
 
 
 def test_every_ui_language_has_a_display_name():
