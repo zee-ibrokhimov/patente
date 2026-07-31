@@ -498,6 +498,52 @@ async def apply_cancellation(session: AsyncSession, event: TributeEvent) -> str:
     return "cancelled"
 
 
+# A body is a few hundred bytes. Capped anyway: an unbounded column is how one malformed
+# delivery fills a disk, which is not a hypothetical failure mode on this machine.
+MAX_BODY = 8000
+
+
+async def record_delivery(
+    session: AsyncSession, body: bytes, *, ok: bool, outcome: str
+) -> None:
+    """Keep what Tribute sent, verbatim, whatever happened to it.
+
+    The only forensic record was a container's stdout. Today a redeploy replaced the
+    container and took six hours of webhook history with it — during an outage, which is
+    exactly when it was worth having. When a customer says "I paid and got nothing", the
+    question is what Tribute actually sent, and the answer needs to survive a deploy.
+
+    The RAW bytes are stored rather than a parsed copy: the HMAC covers exact bytes, so a
+    re-serialised version could never re-verify a disputed delivery, and the fields we did
+    not understand are the ones worth reading later.
+
+    Never raises. A delivery must not be rejected because the audit row could not be
+    written — the money side has already been decided by the time this runs.
+    """
+    from api.models import WebhookDelivery
+
+    text = body.decode("utf-8", "replace")[:MAX_BODY]
+    name = chat_id = None
+    try:
+        payload = json.loads(text)
+        inner = payload.get("payload") if isinstance(payload.get("payload"), dict) else {}
+        merged = {**payload, **inner}
+        name = str(_first(merged, "name", "event", "event_name") or "") or None
+        raw_id = _first(merged, "telegram_user_id", "telegram_id", "user_id", "chat_id")
+        chat_id = int(raw_id) if raw_id is not None else None
+    except Exception:  # noqa: BLE001 — an unparseable body is exactly what this is for
+        pass
+
+    try:
+        session.add(WebhookDelivery(
+            name=name, chat_id=chat_id, outcome=outcome[:200],
+            signature_ok=ok, body=text,
+        ))
+        await session.commit()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("could not record a webhook delivery: %s", exc)
+
+
 async def handle(session: AsyncSession, body: bytes, signature: str | None) -> dict:
     """The whole of it: verify, parse, apply. Raises WebhookRejected for a 4xx."""
     verify(body, signature)

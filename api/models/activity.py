@@ -242,3 +242,45 @@ class QuizSessionItem(Base):
     answered_at: Mapped[datetime | None] = mapped_column(default=None)
 
     session: Mapped[QuizSession] = relationship(back_populates="items")
+
+
+class WebhookDelivery(Base):
+    """Every Tribute delivery, kept verbatim.
+
+    The only forensic record was a container's stdout, and today proved what that is
+    worth: a redeploy replaced the container and six hours of webhook history went with
+    it. When a customer says "I paid and got nothing", the question is what Tribute
+    actually sent and what we actually answered — and the answer lived in a log that no
+    longer existed.
+
+    The RAW BODY is stored, not a parsed version. The HMAC covers exact bytes, so a
+    re-serialised copy could not be used to re-verify a disputed delivery, and the fields
+    we failed to understand are precisely the ones worth reading later.
+
+    Written for rejected deliveries too. A signature that did not match is the most
+    interesting row in the table — it is either a misconfiguration or someone probing —
+    and a table that only records successes cannot tell you either.
+    """
+
+    __tablename__ = "webhook_deliveries"
+    __table_args__ = (
+        Index("ix_webhook_received", "received_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+
+    # Tribute's event name, when we could read one. Null means the body did not parse.
+    name: Mapped[str | None] = mapped_column(Text, default=None)
+    chat_id: Mapped[int | None] = mapped_column(BigInteger, default=None, index=True)
+
+    # What we did: applied | duplicate | renewed | trial | cancelled | refunded |
+    # rejected | unknown-user. The same string the endpoint returned.
+    outcome: Mapped[str] = mapped_column(Text)
+
+    signature_ok: Mapped[bool] = mapped_column(default=False)
+
+    # Capped, because a body is small and an unbounded column is how one malformed
+    # delivery fills a disk — which is not hypothetical on this box.
+    body: Mapped[str] = mapped_column(Text)
+
+    received_at: Mapped[datetime] = mapped_column(default=utcnow)

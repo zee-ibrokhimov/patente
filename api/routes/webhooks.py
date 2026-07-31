@@ -40,7 +40,15 @@ async def tribute(
     """
     body = await request.body()
     try:
-        return await purchases.handle(session, body, trbt_signature)
+        result = await purchases.handle(session, body, trbt_signature)
     except purchases.WebhookRejected as exc:
         log.warning("rejected a Tribute webhook: %s", exc)
+        # Recorded BEFORE raising. A rejected delivery is the most interesting row in the
+        # table — it is either a misconfiguration or someone probing — and a record that
+        # only keeps successes cannot tell you which.
+        await purchases.record_delivery(session, body, ok=False, outcome=f"rejected: {exc}")
         raise HTTPException(400, str(exc)) from exc
+
+    await purchases.record_delivery(session, body, ok=True,
+                                    outcome=str(result.get("status", "?")))
+    return result

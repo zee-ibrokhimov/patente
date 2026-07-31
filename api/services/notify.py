@@ -112,6 +112,37 @@ MESSAGES: dict[str, dict[str, str]] = {
                "bepul qoladi.\n\n"
                "Premiumga qaytish: /plan"),
     },
+    "ending": {
+        "ru": ("⏳ <b>Premium заканчивается через {days} дн.</b>\n\n"
+               "Доступ действует до <b>{date}</b>. После этого вопросы, экзамен и "
+               "тренировка останутся бесплатными, а объяснения, переводы и словарь "
+               "отключатся.\n\nПродлить: /plan"),
+        "en": ("⏳ <b>Premium ends in {days} days</b>\n\n"
+               "You have access until <b>{date}</b>. After that the questions, the exam "
+               "and practice stay free; explanations, translations and the vocabulary "
+               "switch off.\n\nRenew: /plan"),
+        "it": ("⏳ <b>Premium finisce tra {days} giorni</b>\n\n"
+               "Hai accesso fino al <b>{date}</b>. Dopo, domande, esame ed esercitazione "
+               "restano gratuiti; spiegazioni, traduzioni e vocabolario si disattivano."
+               "\n\nRinnova: /plan"),
+        "uz": ("⏳ <b>Premium {days} kundan keyin tugaydi</b>\n\n"
+               "<b>{date}</b> gacha kirish bor. Keyin savollar, imtihon va mashq bepul "
+               "qoladi; izohlar, tarjimalar va lug'at o'chadi.\n\nUzaytirish: /plan"),
+    },
+    "lapsed": {
+        "ru": ("Premium закончился <b>{date}</b>.\n\n"
+               "Все 7106 вопросов, экзамен и тренировка по-прежнему бесплатны. "
+               "Объяснения, переводы и словарь снова появятся с подпиской.\n\n/plan"),
+        "en": ("Premium ended on <b>{date}</b>.\n\n"
+               "All 7106 questions, the exam and practice are still free. Explanations, "
+               "translations and the vocabulary come back with a subscription.\n\n/plan"),
+        "it": ("Premium è finito il <b>{date}</b>.\n\n"
+               "Tutte le 7106 domande, l'esame e l'esercitazione restano gratuiti. "
+               "Spiegazioni, traduzioni e vocabolario tornano con l'abbonamento.\n\n/plan"),
+        "uz": ("Premium <b>{date}</b> da tugadi.\n\n"
+               "Barcha 7106 ta savol, imtihon va mashq hamon bepul. Izohlar, tarjimalar "
+               "va lug'at obuna bilan qaytadi.\n\n/plan"),
+    },
     "cancelled": {
         "ru": ("Подписка отменена.\n\n"
                "Доступ сохраняется до <b>{date}</b> — вы уже оплатили этот период. "
@@ -158,7 +189,7 @@ def _price_words(tier: str, lang: str = "en") -> str:
 
 
 def compose(kind: str, lang: str, expires_at: datetime | None, tier: str,
-            now: datetime | None = None) -> str:
+            now: datetime | None = None, days: int = 0) -> str:
     """The message for this event in this language, falling back to English.
 
     A language we have not written yet must produce a real sentence, not a KeyError and
@@ -180,7 +211,7 @@ def compose(kind: str, lang: str, expires_at: datetime | None, tier: str,
     # and is trustworthy.
     price = PRICE_UNKNOWN.get(lang, PRICE_UNKNOWN["en"]) if kind == "trial" \
         else _price_words(tier, lang)
-    return template.format(date=_date(expires_at), price=price)
+    return template.format(date=_date(expires_at), price=price, days=days)
 
 
 async def send(chat_id: int, text: str) -> bool:
@@ -214,6 +245,6 @@ async def send(chat_id: int, text: str) -> bool:
 
 
 async def payment(chat_id: int, lang: str, kind: str, expires_at: datetime | None,
-                  tier: str) -> bool:
+                  tier: str, days: int = 0) -> bool:
     """Tell someone what just happened to their subscription."""
-    return await send(chat_id, compose(kind, lang, expires_at, tier))
+    return await send(chat_id, compose(kind, lang, expires_at, tier, days=days))

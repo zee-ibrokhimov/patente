@@ -34,3 +34,19 @@ async def whois(chat_id: int, session: AsyncSession = Depends(get_session)):
     if found is None:
         raise HTTPException(404, "no such user")
     return found
+
+
+@router.post("/notify-lapses")
+async def notify_lapses(session: AsyncSession = Depends(get_session)):
+    """Send "your Premium is ending / has ended" to whoever is due.
+
+    Triggered by cron rather than by a scheduler inside the app: this project has one
+    process per role and no queue, and adding a background loop to the API means a
+    long-lived task that must be reasoned about on every deploy. A cron entry that POSTs
+    here is visible in one file and stops when the box does.
+
+    Idempotent by event, so running it hourly is harmless.
+    """
+    from api.services import lapse
+
+    return await lapse.run(session)

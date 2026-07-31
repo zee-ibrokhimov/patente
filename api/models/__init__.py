@@ -22,12 +22,13 @@ from api.models.activity import (
     QuizSessionItem,
     Report,
     User,
+    WebhookDelivery,
 )
 
 __all__ = [
     "Base",
     "Topic", "Quesito", "Figure", "Question", "Translation", "Cluster", "Explanation",
     "User", "Progress", "Purchase", "Event", "Report",
-    "QuizSession", "QuizSessionItem",
+    "QuizSession", "QuizSessionItem", "WebhookDelivery",
     "VocabTerm", "VocabProgress",
 ]
