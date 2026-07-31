@@ -1,12 +1,17 @@
-"""The 7-day free trial.
+"""The trial, which is now Tribute's and not ours.
 
-Every new user gets full Premium for a week at first contact. This replaced the
-three-explanation taster: three explanations sampled one feature, a week samples the
-product.
+There used to be an internal 7-day trial granted at first contact: it needed no payment
+details, so it worked long before Tribute did. Tribute's own 7-day trial went live on
+2026-07-31 and grants access through the purchase webhook — at which point a new user was
+getting BOTH. Fourteen days free, and the internal one handed out the product before
+anyone was ever asked for a card.
 
-The tests that matter most are about what a trial is NOT — it is not a purchase, and it
-must not look like one, or the conversion number the pricing decision rests on becomes
-uninterpretable and cannot be recomputed later.
+It was not theoretical. The owner's own test account has two `trial_started` events an
+hour apart.
+
+So TRIAL_DAYS is 0 and these tests pin that: a new user gets NOTHING automatically, and
+the trial arrives only when Tribute says someone has linked a card. That path is covered
+in tests/test_tribute_subscriptions.py.
 """
 
 from __future__ import annotations
@@ -20,23 +25,25 @@ from api.models import Event, Purchase, User
 from shared.constants import EV_TRIAL_STARTED, TIER_DAYS, TIER_PRICE_CENTS, TRIAL_DAYS
 
 
-async def test_a_new_user_starts_the_trial_with_full_access(client, api_db):
-    r = await client.post("/users", json={"chat_id": 777, "lang": "ru"})
+async def test_a_new_user_gets_no_automatic_pass(client, api_db):
+    """The change itself. A new account is FREE — all 7106 questions, exam and practice —
+    and Premium starts only when Tribute reports a card."""
+    r = await client.post("/users", json={"chat_id": 77, "lang": "ru"})
     assert r.status_code == 200
-    body = r.json()
-    assert body["has_pass"] is True, "a new user should be on the trial"
-    assert body["purchased"] is False, "and must not look like a paying customer"
-
-    expires = datetime.fromisoformat(body["pass_expires_at"].replace("Z", "+00:00"))
-    days = (expires - datetime.now(timezone.utc)).total_seconds() / 86400
-    assert TRIAL_DAYS - 0.1 < days <= TRIAL_DAYS
+    body = (await client.get("/users/77")).json()
+    assert body["has_pass"] is False
+    assert body["pass_expires_at"] is None
 
 
-async def test_the_trial_unlocks_translations(client, api_db):
-    """The point of a trial: the paid features actually work during it."""
-    await client.post("/users", json={"chat_id": 777, "lang": "ru"})
-    body = (await client.get("/users/777/next-question")).json()
-    assert body["translation_state"] != "locked"
+
+
+async def test_a_new_user_cannot_reach_the_paid_features(client, api_db):
+    """The other half: with no internal trial, the paywall is what a new user meets."""
+    await client.post("/users", json={"chat_id": 78, "lang": "ru"})
+    r = await client.post("/users/78/questions/1/translation")
+    assert r.json()["translation_state"] in ("locked", "off", "unavailable")
+
+
 
 
 async def test_the_trial_is_granted_once_not_on_every_call(client, api_db):
@@ -57,18 +64,31 @@ async def test_the_trial_is_not_a_purchase(client, api_db):
     assert purchases == []
 
 
-async def test_the_trial_is_a_distinct_event(client, api_db):
-    """'Converted after a trial' is the number that decides whether the trial works, and
-    it is only separable if trials and purchases are different events from the first user.
-    Events cannot be backfilled."""
-    await client.post("/users", json={"chat_id": 777, "lang": "ru"})
-    async with api_db() as s:
-        events = (await s.scalars(
+async def test_no_trial_event_is_written_at_signup(client, api_db):
+    """`trial_started` now means one thing only: Tribute reported a card. If signup also
+    wrote it, the conversion rate would be measured against a denominator of everyone who
+    ever opened the bot."""
+    from sqlalchemy import select
+
+    from api.models import Event
+    from shared.constants import EV_TRIAL_STARTED
+
+    await client.post("/users", json={"chat_id": 79, "lang": "ru"})
+    async with api_db() as session:
+        rows = (await session.scalars(
             select(Event).where(Event.type == EV_TRIAL_STARTED)
         )).all()
-    assert len(events) == 1
-    assert events[0].chat_id == 777
-    assert events[0].payload["days"] == TRIAL_DAYS
+    assert rows == []
+
+
+def test_the_internal_trial_stays_off():
+    """A stray TRIAL_DAYS=7 would silently restore the double trial, and nothing else in
+    the suite would notice."""
+    from shared.constants import TRIAL_DAYS
+
+    assert TRIAL_DAYS == 0
+
+
 
 
 async def test_an_expired_trial_locks_the_paid_features(client, api_db):

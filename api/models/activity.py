@@ -47,6 +47,20 @@ class User(Base):
     # see a good explanation before being asked to pay for them.
     free_explanations_used: Mapped[int] = mapped_column(default=0)
 
+    # Membership of the Premium channel, cached. Telegram is the authority and asking it
+    # costs an API call, so the answer is stored and refreshed on a TTL rather than
+    # checked on every request.
+    #
+    # It is a SECOND source of entitlement beside the Tribute pass, not a requirement
+    # alongside it. Tribute adds buyers to the channel itself, so membership survives a
+    # webhook we never received — which is not hypothetical: a three-hour outage on
+    # 2026-07-31 meant deliveries were refused with 530 while people were in the channel
+    # and paid up. Requiring BOTH would have cut those people off.
+    #
+    # One of: creator | administrator | member | restricted | left | kicked | unknown.
+    channel_status: Mapped[str | None] = mapped_column(Text, default=None)
+    channel_checked_at: Mapped[datetime | None] = mapped_column(default=None)
+
     onboarded_at: Mapped[datetime | None] = mapped_column(default=None)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 

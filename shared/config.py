@@ -102,6 +102,11 @@ class Settings(BaseSettings):
     # deleted so the old behaviour is one env var away.
     free_explanations: int = 0
     admin_chat_ids: str = ""
+
+    # The Telegram channel Tribute sells access to. Membership of it is a second,
+    # independent record of who has paid — see api/services/channel.py. Empty disables
+    # every channel check, so the app runs unchanged without one.
+    premium_channel_id: str = ""
     support_contact: str = ""
 
     def checkout_url(self, lang: str) -> str:

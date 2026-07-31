@@ -18,6 +18,7 @@ import enum
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from api.services import channel
 from shared.config import settings
 from shared.constants import (
     REQUIRE_PASS_FOR_SPACED_REPETITION,
@@ -40,9 +41,24 @@ class Entitlement:
     pass_expires_at: datetime | None
     free_explanations_left: int
 
+    # Premium via membership of the Tribute channel rather than via a pass in our own
+    # database. A SECOND source, never a requirement alongside the pass: Tribute adds
+    # buyers to the channel itself, so this survives a webhook we never received.
+    via_channel: bool = False
+
+    # An administrator or the creator of that channel, or a configured owner. Always
+    # Premium — they run the product, and this is how the owner exercises paid features
+    # without subscribing to themselves.
+    is_staff: bool = False
+
+    @property
+    def premium(self) -> bool:
+        """The single question every paid feature actually asks."""
+        return self.has_pass or self.via_channel or self.is_staff
+
     @property
     def can_translate(self) -> bool:
-        return self.has_pass
+        return self.premium
 
     @property
     def can_explain(self) -> bool:
@@ -51,11 +67,11 @@ class Entitlement:
         Quality is the entire pitch, and asking someone to pay for an explanation
         whose quality they have never seen is a hard sell (plan §4.3).
         """
-        return self.has_pass or self.free_explanations_left > 0
+        return self.premium or self.free_explanations_left > 0
 
     @property
     def spends_free_explanation(self) -> bool:
-        return not self.has_pass and self.free_explanations_left > 0
+        return not self.premium and self.free_explanations_left > 0
 
     @property
     def can_use_vocabulary(self) -> bool:
@@ -65,11 +81,11 @@ class Entitlement:
         quality, which is the pitch; a single free vocabulary word demonstrates nothing,
         and the 7-day trial already gives the whole feature away long enough to judge it.
         """
-        return self.has_pass
+        return self.premium
 
     @property
     def can_use_spaced_repetition(self) -> bool:
-        return self.has_pass or not REQUIRE_PASS_FOR_SPACED_REPETITION
+        return self.premium or not REQUIRE_PASS_FOR_SPACED_REPETITION
 
     @property
     def can_see_stats(self) -> bool:
@@ -86,10 +102,19 @@ def evaluate(user, now: datetime | None = None, free_limit: int | None = None) -
     limit = settings.free_explanations if free_limit is None else free_limit
     expires = user.pass_expires_at
     active = expires is not None and expires > now
+
+    # Read from the cached column rather than asking Telegram: this function is called on
+    # every request and must stay synchronous and free. api/services/channel.py owns
+    # keeping that column fresh.
+    status = getattr(user, "channel_status", None)
+    staff = channel.is_admin(status) or user.chat_id in settings.admin_ids
+
     return Entitlement(
         has_pass=active,
         pass_expires_at=expires,
         free_explanations_left=max(0, limit - user.free_explanations_used),
+        via_channel=channel.grants_premium(status),
+        is_staff=staff,
     )
 
 

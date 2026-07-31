@@ -109,9 +109,19 @@ TIER_FEATURED = TIER_6M
 # also far easier to explain, and it needs no payment details, so it works today rather
 # than waiting on Tribute.
 #
-# Deliberately NOT auto-charging at the end: see the tier note above. The trial simply
-# lapses to free, and the paywall appears the way it does for any free user.
-TRIAL_DAYS = 7
+# NOW ZERO. Tribute owns the trial.
+#
+# This existed because it needed no payment details and so worked before Tribute did.
+# Tribute's own 7-day trial went live on 2026-07-31 and grants access through the
+# purchase webhook — which means a new user was getting BOTH: seven days here at first
+# contact, then seven more from Tribute. Fourteen days free, and the internal one
+# undercut the funnel by handing out the product before anyone was ever asked to pay.
+#
+# Observed on the owner's own test account: two `trial_started` events an hour apart.
+#
+# Left as a constant rather than deleted so it can be switched back on if Tribute is ever
+# dropped. Changing it affects only NEW users; anyone mid-trial keeps the pass they have.
+TRIAL_DAYS = 0
 
 
 # --- Leitner boxes ----------------------------------------------------------

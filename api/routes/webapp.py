@@ -56,6 +56,7 @@ from api.schemas import (
     VocabStatsOut,
 )
 from api.services import (
+    channel,
     content,
     profile as profile_service,
     quiz_sessions,
@@ -81,6 +82,7 @@ INIT_DATA_HEADER = "X-Telegram-Init-Data"
 
 
 async def webapp_user(
+    background: BackgroundTasks,
     init_data: str | None = Header(default=None, alias=INIT_DATA_HEADER),
     session: AsyncSession = Depends(get_session),
 ) -> User:
@@ -104,7 +106,35 @@ async def webapp_user(
     # Only offer it as a default if we actually speak it.
     lang = telegram.language_code if telegram.language_code in UI_LANGUAGES else "it"
     user, _created = await users.get_or_create(session, telegram.chat_id, lang)
+
+    # Channel membership is a source of Premium, so it has to be known before entitlement
+    # is evaluated — but only the FIRST check blocks. Someone whose status has never been
+    # looked up would otherwise be told they are not Premium while sitting in the channel
+    # they paid to join, which is the worst possible first impression. After that it
+    # refreshes in the background on a 15-minute TTL and the request never waits.
+    if user.channel_status is None:
+        await channel.refresh(session, user)
+    elif channel.is_stale(user.channel_checked_at):
+        background.add_task(_refresh_channel, user.chat_id)
     return user
+
+
+async def _refresh_channel(chat_id: int) -> None:
+    """Background refresh, on its own session.
+
+    Its own session for the reason quiz.py documents: FastAPI runs a yield-dependency's
+    exit code AFTER background tasks, so borrowing the request's session would hold a
+    transaction open across a network call to Telegram.
+    """
+    from shared.db import async_session_factory
+
+    factory = async_session_factory()
+    async with factory() as own:
+        user = await own.get(User, chat_id)
+        if user is None:
+            return
+        await channel.refresh(own, user)
+        await own.commit()
 
 
 @router.get("/me", response_model=UserOut)

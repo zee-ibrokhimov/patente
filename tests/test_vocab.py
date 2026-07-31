@@ -102,14 +102,28 @@ async def test_a_free_user_is_refused(client, registered, api_db, terms, method,
     assert r.status_code == 402
 
 
-async def test_a_user_on_the_trial_is_admitted(client, api_db, terms):
-    """The trial exists to let someone judge the feature before paying for it. A trial
-    that excluded the newest Premium feature would be advertising something the trial
-    cannot show.
+async def test_a_channel_member_is_admitted(client, premium, api_db, terms):
+    """Premium now has three sources — a pass, channel membership, or staff — and the
+    newest paid feature must honour all of them. A feature that only checks one is
+    Premium on one screen and not on the next.
 
-    Uses a fresh chat id rather than the `registered` fixture, because that fixture ends
-    the trial as its whole purpose."""
-    r = await client.get("/webapp/vocab/round", headers=auth(77))
+    The internal trial no longer exists (Tribute owns it), so this used to be the
+    "on the trial" case and is now the channel case."""
+    from sqlalchemy import update as sa_update
+
+    from datetime import datetime, timezone
+
+    from api.models import User
+    async with api_db() as s:
+        # channel_checked_at set to NOW deliberately: a stale timestamp would schedule
+        # the background refresh, which opens its own session from DATABASE_URL and so
+        # would reach past the test database into the real one.
+        await s.execute(sa_update(User).where(User.chat_id == OWNER).values(
+            pass_expires_at=None, channel_status="member",
+            channel_checked_at=datetime.now(timezone.utc)))
+        await s.commit()
+
+    r = await client.get("/webapp/vocab/round", headers=auth())
     assert r.status_code == 200
     assert r.json()["size"] > 0
 

@@ -47,6 +47,9 @@ services:
       # lapsed user silently gets three more explanations for free.
       - FREE_EXPLANATIONS=${FREE_EXPLANATIONS:-0}
       - ADMIN_CHAT_IDS=${ADMIN_CHAT_IDS}
+      # The Telegram channel Tribute sells access to. Membership of it is a second,
+      # independent source of Premium — see api/services/channel.py.
+      - PREMIUM_CHANNEL_ID=${PREMIUM_CHANNEL_ID:-}
       - SUPPORT_CONTACT=${SUPPORT_CONTACT}
       - TRIBUTE_API_KEY=${TRIBUTE_API_KEY:-}
       - TRIBUTE_WEBHOOK_SECRET=${TRIBUTE_WEBHOOK_SECRET:-}
@@ -103,6 +106,9 @@ services:
       - BOT_TOKEN_PROD=${BOT_TOKEN_PROD}
       - BOT_USERNAME=${BOT_USERNAME}
       - ADMIN_CHAT_IDS=${ADMIN_CHAT_IDS}
+      # The Telegram channel Tribute sells access to. Membership of it is a second,
+      # independent source of Premium — see api/services/channel.py.
+      - PREMIUM_CHANNEL_ID=${PREMIUM_CHANNEL_ID:-}
       - SUPPORT_CONTACT=${SUPPORT_CONTACT}
       # 0: superseded by the 7-day trial. A taster running alongside a trial means a
       # lapsed user silently gets three more explanations for free.
