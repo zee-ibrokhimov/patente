@@ -102,10 +102,10 @@ async def webapp_user(
 
 
 @router.get("/me", response_model=UserOut)
-async def me(user: User = Depends(webapp_user)):
+async def me(user: User = Depends(webapp_user), session: AsyncSession = Depends(get_session)):
     """Who the caller is, plus their entitlement. The frontend renders from this and
     decides nothing itself — every paid response is gated server-side regardless."""
-    return users_route._out(user)
+    return await users_route._out(user, session)
 
 
 @router.patch("/settings", response_model=UserOut)

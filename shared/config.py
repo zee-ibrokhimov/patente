@@ -63,7 +63,10 @@ class Settings(BaseSettings):
     tribute_product_1m: str = ""
     tribute_product_3m: str = ""
 
-    free_explanations: int = 3
+    # Superseded by the 7-day trial (shared.constants.TRIAL_DAYS). Three explanations
+    # sampled ONE feature; a week samples the product. Kept as a setting rather than
+    # deleted so the old behaviour is one env var away.
+    free_explanations: int = 0
     admin_chat_ids: str = ""
     support_contact: str = ""
 

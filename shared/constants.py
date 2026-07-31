@@ -53,13 +53,44 @@ SERVABLE_STATUSES = (STATUS_APPROVED, STATUS_DRAFT)
 
 
 # --- Purchase tiers ---------------------------------------------------------
-# Both one-time, never auto-renewing: no subscription lifecycle, no cancellation
-# flow, no EU auto-renewal disclosure obligations.
+# Three lengths. Plan §4.2's advice still holds — the middle option should carry the
+# per-month framing and be the default, because the spread is visible but not obvious:
+#   1 month   EUR 2.99   = 2.99/mo
+#   3 months  EUR 7.99   = 2.66/mo
+#   6 months  EUR 10.99  = 1.83/mo   <- best value, and the one to highlight
+#
+# ⚠️  ONE-TIME, NOT AUTO-RENEWING — for now. Plan §4.2 is explicit: "Both tiers must be
+# one-time purchases, not auto-renewing. Keeping it one-time preserves the main advantage
+# of the pass model — no subscription lifecycle, no cancellation flow, no failed-renewal
+# handling, and no EU auto-renewal disclosure obligations."
+#
+# The product spec now asks for auto-renewal after a trial, which reverses that. It is
+# NOT implemented here, because it is not a code change: it needs Tribute to support
+# recurring billing, card capture before the trial, a cancellation path, dunning for
+# failed renewals, and the EU pre-contractual disclosure the plan deliberately avoided —
+# on top of the merchant-of-record and VAT questions §4.1 still lists as open.
 TIER_1M = "pass_1m"
 TIER_3M = "pass_3m"
-TIER_DAYS = {TIER_1M: 30, TIER_3M: 90}
-TIER_PRICE_CENTS = {TIER_1M: 299, TIER_3M: 699}
+TIER_6M = "pass_6m"
+TIER_DAYS = {TIER_1M: 30, TIER_3M: 90, TIER_6M: 180}
+TIER_PRICE_CENTS = {TIER_1M: 299, TIER_3M: 799, TIER_6M: 1099}
 TIERS = tuple(TIER_DAYS)
+# The one to present as the default. Best per-month value, longest commitment.
+TIER_FEATURED = TIER_6M
+
+
+# --- Free trial --------------------------------------------------------------
+# Every new user gets full Premium for a week, granted at first contact.
+#
+# This REPLACES the three-explanation taster. Three explanations was a sample of one
+# feature; a week is a sample of the product — the user sees translations on every
+# question, explanations whenever they want one, and their readiness score move. It is
+# also far easier to explain, and it needs no payment details, so it works today rather
+# than waiting on Tribute.
+#
+# Deliberately NOT auto-charging at the end: see the tier note above. The trial simply
+# lapses to free, and the paywall appears the way it does for any free user.
+TRIAL_DAYS = 7
 
 
 # --- Leitner boxes ----------------------------------------------------------
@@ -150,6 +181,10 @@ EV_USER_DELETED = "user_deleted"
 # A pass given by hand, never by payment. Kept distinct from EV_PURCHASE_COMPLETED so a
 # comped tester or a repaired webhook cannot be mistaken for someone deciding to pay.
 EV_PASS_GRANTED = "pass_granted"
+# The free trial, kept distinct from both a purchase and an admin grant. "Converted after
+# a trial" is the number that decides whether the trial works, and it is only separable if
+# these are different events from the very first user.
+EV_TRIAL_STARTED = "trial_started"
 # Quiz sessions. EV_SESSION_START/END already existed for the study session; these name
 # the bounded, gradeable kind so an exam is separable in the funnel.
 EV_EXAM_STARTED = "exam_started"
@@ -161,4 +196,5 @@ EVENT_TYPES = (
     EV_USER_DELETED,
     EV_PASS_GRANTED,
     EV_EXAM_STARTED, EV_EXAM_FINISHED,
+    EV_TRIAL_STARTED,
 )

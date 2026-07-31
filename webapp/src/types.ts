@@ -59,6 +59,9 @@ export interface Me {
   free_explanations_left: number;
   onboarded_at: string | null;
   created_at: string;
+  /** True once the user has actually bought something. Distinguishes a paying subscriber
+   *  from someone on the free trial, who also has a pass. */
+  purchased: boolean;
 }
 
 export interface TopicStat {

@@ -19,14 +19,21 @@ Erasure policy, per table:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.models import Event, Progress, Report, User
 from api.services import events
-from shared.constants import DEFAULT_LANG, EV_SESSION_START, EV_USER_DELETED, UI_LANGUAGES
+from shared.constants import (
+    DEFAULT_LANG,
+    EV_SESSION_START,
+    EV_TRIAL_STARTED,
+    EV_USER_DELETED,
+    TRIAL_DAYS,
+    UI_LANGUAGES,
+)
 
 
 async def get_or_create(
@@ -36,10 +43,32 @@ async def get_or_create(
     if user is not None:
         return user, False
 
-    user = User(chat_id=chat_id, lang=lang if lang in UI_LANGUAGES else DEFAULT_LANG)
+    # The 7-day trial, granted at first contact and to first contact only.
+    #
+    # Deliberately here rather than in a route: /start, opening the Mini App and a Tribute
+    # webhook arriving before either all land in this one function, and a trial granted in
+    # two of the three would be a trial some users never got.
+    #
+    # It is NOT a Purchase row. Purchases are money — they drive revenue reporting and are
+    # what a refund is matched against (plan §4.1) — so inventing one for a trial would
+    # corrupt both. `pass_expires_at` is set directly and a distinct event records it,
+    # which also keeps trials out of the conversion funnel: someone who converts AFTER a
+    # trial is the number that matters, and it is only separable if the two are distinct
+    # events from the start. Events cannot be backfilled.
+    now = datetime.now(timezone.utc)
+    user = User(
+        chat_id=chat_id,
+        lang=lang if lang in UI_LANGUAGES else DEFAULT_LANG,
+        pass_expires_at=now + timedelta(days=TRIAL_DAYS) if TRIAL_DAYS else None,
+    )
     session.add(user)
     await session.flush()
     await events.record(session, EV_SESSION_START, chat_id=chat_id, first_seen=True)
+    if TRIAL_DAYS:
+        await events.record(
+            session, EV_TRIAL_STARTED, chat_id=chat_id,
+            days=TRIAL_DAYS, expires_at=user.pass_expires_at.isoformat(),
+        )
     return user, True
 
 

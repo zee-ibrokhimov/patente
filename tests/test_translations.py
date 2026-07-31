@@ -16,6 +16,8 @@ import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
+
+from tests.conftest import end_trial
 from sqlalchemy import select
 
 from api.models import Question, Translation, User
@@ -233,6 +235,9 @@ async def test_serving_a_question_does_not_wait_for_the_translation(
 async def test_a_locked_user_is_not_warmed_for(client, api_db, fake_openai, untranslated, monkeypatch):
     monkeypatch.setattr(translations, "async_session_factory", lambda: api_db)
     await client.post("/users", json={"chat_id": 42, "lang": "ru"})
+    # New users start on the free trial, so this one must be put past it —
+    # "just created" and "free" stopped being the same state when the trial landed.
+    await end_trial(api_db, 42)
     body = (await client.get("/users/42/next-question?topic_id=1&exclude_id=2")).json()
     assert body["translation_state"] == "locked"
     assert fake_openai.calls == 0

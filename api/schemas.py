@@ -33,6 +33,9 @@ class UserOut(BaseModel):
     translations_on: bool
     pass_expires_at: datetime | None
     has_pass: bool
+    # A trial is a pass with an expiry and no purchase behind it, so the client needs
+    # both flags to tell a paying subscriber from someone still trialling.
+    purchased: bool
     free_explanations_left: int
     onboarded_at: datetime | None
     created_at: datetime

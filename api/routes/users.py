@@ -3,10 +3,11 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Response
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps import get_session, get_user
-from api.models import User
+from api.models import Purchase, User
 from api.schemas import GrantPassIn, UserIn, UserOut, UserSettingsIn
 from api.services import users
 from api.services.entitlement import evaluate
@@ -16,14 +17,31 @@ from shared.constants import EV_PASS_GRANTED, EV_TRANSLATION_TOGGLED
 router = APIRouter(prefix="/users", tags=["users"])
 
 
-def _out(user: User) -> UserOut:
+async def _out(user: User, session: AsyncSession) -> UserOut:
+    """The user, plus whether they have ever paid.
+
+    `purchased` is a real query rather than a relationship read: `user.purchases` is lazy,
+    and touching a lazy relationship on an async session either raises MissingGreenlet or
+    quietly returns nothing depending on how the object was loaded — the kind of bug that
+    reads as "trials never end" in production and as nothing at all in a test.
+
+    It matters because a trial is a pass with an expiry and no money behind it, so pass
+    state alone cannot tell a paying subscriber from someone still trialling — and the
+    client shows a very different screen for each.
+    """
     ent = evaluate(user)
+    purchased = bool(
+        await session.scalar(
+            select(func.count(Purchase.id)).where(Purchase.chat_id == user.chat_id)
+        )
+    )
     return UserOut(
         chat_id=user.chat_id,
         lang=user.lang,
         translations_on=user.translations_on,
         pass_expires_at=user.pass_expires_at,
         has_pass=ent.has_pass,
+        purchased=purchased,
         free_explanations_left=ent.free_explanations_left,
         onboarded_at=user.onboarded_at,
         created_at=user.created_at,
@@ -34,12 +52,12 @@ def _out(user: User) -> UserOut:
 async def create_or_get(body: UserIn, session: AsyncSession = Depends(get_session)):
     """Idempotent. /start on an existing user must not reset their progress."""
     user, _created = await users.get_or_create(session, body.chat_id, body.lang)
-    return _out(user)
+    return await _out(user, session)
 
 
 @router.get("/{chat_id}", response_model=UserOut)
-async def read(user: User = Depends(get_user)):
-    return _out(user)
+async def read(user: User = Depends(get_user), session: AsyncSession = Depends(get_session)):
+    return await _out(user, session)
 
 
 @router.patch("/{chat_id}", response_model=UserOut)
@@ -64,7 +82,7 @@ async def update(
         await record(
             session, EV_TRANSLATION_TOGGLED, chat_id=user.chat_id, on=body.translations_on
         )
-    return _out(user)
+    return await _out(user, session)
 
 
 @router.post("/{chat_id}/pass", response_model=UserOut)
@@ -100,7 +118,7 @@ async def grant_pass(
         expires_at=user.pass_expires_at.isoformat(),
     )
     await session.flush()
-    return _out(user)
+    return await _out(user, session)
 
 
 @router.delete("/{chat_id}", status_code=204)

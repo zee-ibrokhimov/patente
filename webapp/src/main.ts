@@ -313,6 +313,11 @@ function homeScreen(): HTMLElement {
   // an exam by tapping back would make the back button a trap.
   if (state.resumable) wrap.append(resumeCard(state.resumable));
 
+  // During the trial the user already HAS everything, so selling to them would be noise.
+  // Show what they have and when it ends instead.
+  const days = trialDaysLeft();
+  if (days !== null) wrap.append(trialBanner(days));
+
   // The promotion is the B variant of this screen and sits BELOW the cards, so it can
   // never push the two things this screen exists for off the fold.
   if (state.me && !state.me.has_pass) wrap.append(premiumBlock());
@@ -358,13 +363,17 @@ function modeCard(mode: Mode, title: string, desc: string, tag: string): HTMLEle
  *  Both promotion blocks list the same features in a different order, and having them
  *  twice is how the pitch on one screen quietly stops matching the pitch on another. */
 function premiumFeatures(order: "sell" | "explain"): Array<{ title: string; sub: string }> {
-  const tr = { title: t("f_tr"), sub: t("f_tr_s") };
-  const expl = { title: t("f_expl"), sub: t("f_expl_s") };
-  const stats = { title: t("f_stats"), sub: t("f_stats_s") };
-  const all = { title: t("f_all"), sub: t("f_all_s") };
-  // "explain" leads with explanations because the user got something wrong and is
-  // asking why; "sell" leads with translation, which is the broader hook.
-  return order === "explain" ? [expl, tr, stats, all] : [tr, expl, stats, all];
+  const ai = { title: t("f_ai"), sub: t("f_ai_s") };
+  const lang = { title: t("f_lang"), sub: t("f_lang_s") };
+  const vocab = { title: t("f_vocab"), sub: t("f_vocab_s") };
+  const future = { title: t("f_future"), sub: t("f_future_s") };
+  const trial = { title: t("f_trial"), sub: t("f_trial_s") };
+  // "explain" leads with the AI explanation because the user has just got something
+  // wrong and is asking why; "sell" leads with translation, the broader hook. The trial
+  // is last in both: it is the closer, not the pitch.
+  return order === "explain"
+    ? [ai, lang, vocab, future, trial]
+    : [lang, ai, vocab, future, trial];
 }
 
 function premiumList(order: "sell" | "explain"): HTMLElement {
@@ -403,6 +412,29 @@ function premiumBlock(): HTMLElement {
  *  digital goods sits closer to the Stars-only rule and to Apple's review guidelines. */
 function openSubscribe(): void {
   toast(t("unlock_in_chat"));
+}
+
+/** Days left on the trial, or null if the user is not on one.
+ *
+ *  A trial is just a pass with an expiry, so "on a trial" is inferred: they have a pass
+ *  and have never bought anything. That keeps trials out of the purchase record entirely
+ *  — see the note in api/services/users.py about why a trial is not a Purchase row. */
+function trialDaysLeft(): number | null {
+  const me = state.me;
+  if (!me?.has_pass || !me.pass_expires_at || me.purchased) return null;
+  const ms = Date.parse(me.pass_expires_at) - Date.now();
+  return ms > 0 ? Math.max(1, Math.ceil(ms / 86_400_000)) : null;
+}
+
+function trialBanner(days: number): HTMLElement {
+  const card = el("div", "premium-strip");
+  card.style.marginTop = "var(--lg)";
+  card.append(icons.crown(24));
+  const body = el("div");
+  body.append(el("div", "premium-strip-title", t("trial_active")),
+              el("div", "premium-strip-text", t("trial_days_left", { n: days })));
+  card.append(body);
+  return card;
 }
 
 function resumeCard(session: Session): HTMLElement {

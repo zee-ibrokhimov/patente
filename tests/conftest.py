@@ -130,12 +130,42 @@ async def client(api_db):
     app.dependency_overrides.clear()
 
 
+async def end_trial(api_db, chat_id: int) -> None:
+    """Put a user past their free trial.
+
+    Every new user is granted TRIAL_DAYS of full access at first contact, so any test
+    that wants to exercise the FREE tier has to say so explicitly now. Before the trial
+    existed, "just created" and "free" were the same state; they are not any more, and a
+    test relying on the old equivalence silently tests a paying user instead.
+    """
+    from sqlalchemy import update as sa_update
+
+    from api.models import User
+
+    async with api_db() as session:
+        await session.execute(
+            sa_update(User).where(User.chat_id == chat_id).values(pass_expires_at=None)
+        )
+        await session.commit()
+
+
 @pytest_asyncio.fixture
-async def registered(client):
-    """A user who has completed /start."""
+async def registered(client, api_db):
+    """An ESTABLISHED user: onboarded, and past the free trial.
+
+    Every new user is granted TRIAL_DAYS of full access at first contact, so a
+    freshly-created account is a PAYING-equivalent one and is the wrong baseline for the
+    many tests here that exercise the free tier and the paywall. Those tests were written
+    when "new" and "free" were the same thing; they are not any more.
+
+    The trial is cleared explicitly rather than by setting TRIAL_DAYS=0 for the suite,
+    because that would stop the trial itself ever being exercised. Tests that care about
+    the trial create their own user and assert on it — see tests/test_trial.py.
+    """
     r = await client.post("/users", json={"chat_id": 42, "lang": "ru"})
     assert r.status_code == 200
-    return r.json()
+    await end_trial(api_db, 42)
+    return (await client.get("/users/42")).json()
 
 
 @pytest.fixture

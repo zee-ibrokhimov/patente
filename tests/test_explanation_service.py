@@ -18,6 +18,8 @@ import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
+
+from tests.conftest import end_trial
 from sqlalchemy import select
 
 from api.models import Explanation, Question, User
@@ -345,6 +347,9 @@ async def test_a_free_user_with_no_taster_is_not_warmed_for(
     monkeypatch.setattr(explanations, "async_session_factory", lambda: api_db)
     monkeypatch.setattr(settings, "free_explanations", 0)
     await client.post("/users", json={"chat_id": 42, "lang": "ru"})
+    # New users start on the free trial, so this one must be put past it —
+    # "just created" and "free" stopped being the same state when the trial landed.
+    await end_trial(api_db, 42)
 
     await client.get("/users/42/next-question?topic_id=1&exclude_id=2")
     assert fake_openai.calls == 0
