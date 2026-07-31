@@ -13,6 +13,7 @@ import type {
   Profile,
   Question,
   QuestionTranslation,
+  RepeatSource,
   ResetPreview,
   Session,
   SessionResults,
@@ -139,8 +140,11 @@ export const vocab = {
 export const sessions = {
   /** Returns the sitting AND its whole paper. The paper is frozen server-side, so there
    *  is nothing to fetch per question and no round trip on a running clock. */
-  start: (mode: Mode) =>
-    request<Session>("/sessions", { method: "POST", body: JSON.stringify({ mode }) }),
+  start: (mode: Mode, source: RepeatSource = "smart") =>
+    request<Session>("/sessions", {
+      method: "POST",
+      body: JSON.stringify({ mode, source }),
+    }),
 
   /** Resume. The app persists nothing across a reopen, so this is how a backgrounded
    *  exam comes back — with the server's deadline, not a remembered one. */

@@ -17,6 +17,7 @@ import type {
   Stats,
   VocabAnswer,
   VocabList,
+  RepeatSource,
   VocabRound,
   VocabStats,
 } from "./types";
@@ -192,13 +193,51 @@ function tick(): void {
 // running a sitting
 // ---------------------------------------------------------------------------
 
-async function startRun(mode: Mode): Promise<void> {
+async function startRun(mode: Mode, source: RepeatSource = "smart"): Promise<void> {
   try {
-    const session = await sessions.start(mode);
+    const session = await sessions.start(mode, source);
     enterRun(session);
   } catch (err) {
+    // "Nothing to repeat yet" is a normal state, not a failure — a learner who has never
+    // got one wrong asking for their mistakes. The generic red error toast would read as
+    // a broken app, so it gets its own sentence.
+    if (err instanceof ApiError && err.status === 409 && source !== "smart") {
+      toast(source === "wrong" ? t("repeat_none_wrong") : t("repeat_none_correct"));
+      return;
+    }
     reportError(err);
   }
+}
+
+/** Throw away everything the server rendered in the OLD language.
+ *
+ *  Changing the language changes what the server returns, not just how the app labels it —
+ *  and the vocabulary is the clearest case, because its glosses ARE the content:
+ *  `vocab.pair_language(user)` picks the column from `user.lang`.
+ *
+ *  This used to clear `stats` and `profile` and stop there, so a learner who opened the
+ *  word list in Uzbek and then switched the app to English kept the cached Uzbek list —
+ *  `openVocab` spreads `...state.vocab`, which preserves `list`, `stats` and `query` while
+ *  resetting the round. The result was an English interface listing `carreggiata → qatnov
+ *  qismi`, reported from a real screenshot.
+ *
+ *  Clearing rather than refetching: the next screen that needs one asks for it, and a
+ *  language change should not fire four requests for screens the user may not open.
+ */
+function dropLocalisedCaches(): void {
+  state.stats = null;
+  state.profile = null;
+  state.vocab = {
+    ...state.vocab,
+    list: null,
+    stats: null,
+    round: null,
+    current: null,
+    query: "",
+    index: 0,
+    right: 0,
+    typed: "",
+  };
 }
 
 function enterRun(session: Session): void {
@@ -428,6 +467,7 @@ function homeScreen(): HTMLElement {
   );
   wrap.append(modes);
 
+  wrap.append(repeatRow());
   wrap.append(vocabEntry());
 
   // If a sitting was left without finishing, offer it back BEFORE the promotion. Losing
@@ -455,6 +495,32 @@ function homeScreen(): HTMLElement {
  *  practice are what this app is for, and a third equal card would say the three are
  *  equally important. It carries the gold Premium accent because it is a paid feature,
  *  and the learner should know that before tapping rather than after. */
+/** Go back over questions you have already answered.
+ *
+ *  Practice already resurfaces mistakes, but on the Leitner schedule — when the algorithm
+ *  decides, mixed with new material, never on demand. That is the right default and the
+ *  wrong tool for "my test is Friday, show me everything I have got wrong".
+ *
+ *  Two small chips rather than two more mode cards. This screen has already been called too
+ *  big once, exam and practice are what the app is FOR, and a third and fourth full-size
+ *  card would claim they matter equally. A learner only reaches for these once they have a
+ *  history worth repeating, so they are quiet until wanted — and the server answers 409
+ *  when there is nothing to repeat, which is what the toast reports.
+ */
+function repeatRow(): HTMLElement {
+  const row = el("div", "repeat-row");
+  for (const [source, label] of [
+    ["wrong", t("repeat_wrong")],
+    ["correct", t("repeat_correct")],
+  ] as const) {
+    const chip = el("button", `repeat-chip ${source}`, label);
+    chip.type = "button";
+    chip.onclick = () => void startRun("practice", source);
+    row.append(chip);
+  }
+  return row;
+}
+
 function vocabEntry(): HTMLElement {
   const card = el("button", "v-entry");
   card.type = "button";
@@ -1532,8 +1598,7 @@ function settingsScreen(): HTMLElement {
         state.me = await api.settings({ lang: code });
         setLang(state.me.lang);
         document.documentElement.lang = lang();
-        state.stats = null;
-        state.profile = null;
+        dropLocalisedCaches();
         render();
       } catch (err) { reportError(err); }
     };
@@ -1645,6 +1710,16 @@ async function openVocab(): Promise<void> {
   state.screen = "vocab";
   state.vocab = { ...state.vocab, view: "test", round: null, index: 0, current: null,
                   right: 0, typed: "", locked: false };
+
+  // The word list is language-dependent CONTENT, not just labels — the server picks the
+  // gloss column from `user.lang`. The spread above deliberately keeps `list` so returning
+  // to this screen is instant, which is right only while the language has not moved under
+  // it. `dropLocalisedCaches` handles the in-app switch; this catches every other route to
+  // the same state, including changing the language from the bot with the app still open.
+  if (state.vocab.list && state.vocab.list.lang !== state.me?.lang) {
+    state.vocab = { ...state.vocab, list: null, query: "" };
+  }
+
   render();
   void loadVocabStats();
   await startVocabRound();

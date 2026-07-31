@@ -107,6 +107,14 @@ export interface Stats {
 /** --- quiz sessions ------------------------------------------------------ */
 
 export type Mode = "exam" | "practice";
+
+/** What a PRACTICE sitting draws from. Mirrors REPEAT_SOURCES in shared/constants.py.
+ *
+ *  Only the draw changes — a repeat round grades answers and moves the Leitner schedule
+ *  exactly like any other practice, because the learner is genuinely studying. An exam
+ *  ignores this outright: a simulator built from your own mistakes reports a score that
+ *  means nothing. */
+export type RepeatSource = "smart" | "wrong" | "correct";
 export type SessionState = "open" | "submitted" | "expired" | "abandoned";
 
 export interface Session {

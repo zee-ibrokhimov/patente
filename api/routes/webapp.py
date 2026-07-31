@@ -60,7 +60,6 @@ from api.schemas import (
 from api.services import (
     channel,
     content,
-    explanations,
     profile as profile_service,
     quiz_sessions,
     telegram_auth,
@@ -71,20 +70,16 @@ from api.services import (
 )
 from api.services.entitlement import evaluate
 from api.services.telegram_auth import InitDataRejected
-from shared.constants import (
-    MODE_EXAM,
-    MODE_OFFERS_EXPLANATION,
-    QUIZ_MODES,
-    UI_LANGUAGES,
-)
+from shared.constants import MODE_EXAM, QUIZ_MODES, REPEAT_SOURCES, UI_LANGUAGES
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/webapp", tags=["webapp"])
 
-# How far ahead of the learner to warm translations and explanations. Small on purpose —
-# see the comments in start_session. Also the stride for the rolling warm in answer_session:
-# each answer warms the item this far in front of it, keeping the window moving without
-# re-scheduling a whole batch per tap.
+# How many of a paper's TRANSLATIONS to warm at creation. Small on purpose — see the
+# comment in start_session.
+#
+# Translations only. Explanations are deliberately never warmed; the note in start_session
+# explains the arithmetic that decided it.
 WARM_AHEAD = 5
 
 # Telegram hands the client this blob when the Mini App opens; the client sends it back
@@ -271,10 +266,13 @@ async def start_session(
     """Start an exam or a practice run, and return the whole paper with it."""
     if body.mode not in QUIZ_MODES:
         raise HTTPException(422, f"mode must be one of {QUIZ_MODES}")
+    if body.source not in REPEAT_SOURCES:
+        raise HTTPException(422, f"source must be one of {REPEAT_SOURCES}")
 
     now = datetime.now(timezone.utc)
     try:
-        row, paper = await quiz_sessions.create(session, user, body.mode, now)
+        row, paper = await quiz_sessions.create(
+            session, user, body.mode, now, source=body.source)
     except quiz_sessions.SessionError as exc:
         raise HTTPException(exc.status, str(exc)) from exc
 
@@ -299,34 +297,24 @@ async def start_session(
         for q in paper[:WARM_AHEAD]:
             background.add_task(translations.warm, q.id)
 
-    # EXPLANATIONS TOO — and this is the only place they are warmed at all any more.
+    # EXPLANATIONS ARE DELIBERATELY *NOT* WARMED. Do not add it back.
     #
-    # `explanations.warm` had exactly one call site in the repo: `serve_next` in quiz.py,
-    # behind GET /users/{chat_id}/next-question. Nothing calls that endpoint. The Mini App
-    # exports `nextQuestion` in api.ts and never uses it, the bot has no such method, and
-    # every other reference is in tests. So when drilling moved into the Mini App the
-    # warming came out of the live path and nobody noticed.
+    # An audit found that `explanations.warm` had become unreachable — its only call site
+    # was an endpoint nothing calls — and warming was briefly added here to fix that. The
+    # owner reversed it the same day, on cost, and they are right.
     #
-    # What that costs: `record_answer` delivers the explanation with `generate_if_missing
-    # = False`, whose entire reason for existing is "serve it if warming already produced
-    # it". With nothing warming, that is a guaranteed miss for any cluster no other user
-    # has already paid for — and coverage is 12 of 3382 clusters. So the verdict box never
-    # carries the explanation, the learner always gets a "Why?" button instead, and tapping
-    # it runs a live model call in the foreground: 4.9s cold, bounded at 45s. The mechanism
-    # described as making the explanation "appear with the verdict instead of after a
-    # ten-second wait" fired for nobody, on the feature the product is sold on.
+    # The arithmetic: a translation is ~150 tokens in and ~300 out, and EVERY non-Italian
+    # learner needs one on EVERY question, so warming it ahead is cheap and always used.
+    # An explanation is ~8000 tokens in, because the statute goes in the prompt, and only
+    # some fraction of learners ever tap "Why?". Warming the next five questions therefore
+    # buys a faster explanation for the few who ask by paying for it for everyone who does
+    # not — on a product with a handful of users and no revenue yet, that is the wrong
+    # trade, and it is unbounded per Start tap.
     #
-    # Practice only: MODE_OFFERS_EXPLANATION says an exam must not touch the explanation
-    # path at all, and warming thirty clusters for text an exam never shows would be thirty
-    # paid calls for nothing.
-    if MODE_OFFERS_EXPLANATION.get(body.mode) and entitlement.can_explain:
-        for q in paper[:WARM_AHEAD]:
-            # Skip unclustered questions. `warm` returns immediately for a None cluster, so
-            # this is not a correctness fix — it just stops scheduling a background task,
-            # a session and a database connection to discover there is nothing to do.
-            if q.cluster_id is not None:
-                background.add_task(explanations.warm, q.cluster_id, user.lang)
-
+    # So an explanation is generated at the moment someone asks for it, and cached per
+    # CLUSTER for everyone afterwards. The cost is a one-time ~5s wait for the first person
+    # to ask about that rule; the saving is never paying for the 3370 clusters nobody
+    # reaches. Revisit only when traffic makes the cache fill itself.
     return _session_out(row, payloads, now)
 
 
@@ -394,7 +382,6 @@ async def read_session(
 async def answer_session(
     session_id: int,
     body: SessionAnswerIn,
-    background: BackgroundTasks,
     user: User = Depends(webapp_user),
     session: AsyncSession = Depends(get_session),
 ) -> ExamAnswerOut | PracticeAnswerOut:
@@ -418,21 +405,9 @@ async def answer_session(
     if row.mode == MODE_EXAM:
         return ExamAnswerOut(**payload)
 
-    # Roll the warm window forward as they work. Warming only the first WARM_AHEAD at
-    # Start would leave every answer past the fifth cold again, which is most of a sitting
-    # — practice runs until the learner stops it. Warming the item WARM_AHEAD ahead of the
-    # one just answered keeps a small window in front of them for the whole session, at one
-    # cluster per answer rather than a batch per tap.
-    #
-    # Committed first, for the reason the create path documents: FastAPI runs the exit code
-    # of a yield-dependency AFTER background tasks, so an open write transaction here would
-    # be held while warming opens its own connection to the same SQLite file.
-    await session.commit()
-    if entitlement.can_explain:
-        ahead = await quiz_sessions.cluster_at(session, row, body.ordinal + WARM_AHEAD)
-        if ahead is not None:
-            background.add_task(explanations.warm, ahead, user.lang)
-
+    # No explanation is generated here either — see the note in start_session. Answering
+    # reports whether one CAN be offered; producing it waits until the learner taps "Why?",
+    # so the bill follows the people who actually read them.
     return PracticeAnswerOut(**payload)
 
 

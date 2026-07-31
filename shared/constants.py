@@ -199,6 +199,20 @@ PRACTICE_BATCH = 30
 EXAM_MINUTES = 20
 EXAM_MAX_ERRORS = 3
 
+# --- repeat rounds ----------------------------------------------------------
+# What a practice sitting DRAWS FROM. Only the draw changes: a repeat round records answers
+# and updates the Leitner schedule exactly like any other practice, because the learner is
+# genuinely studying.
+#
+# Asked for directly by the owner. `practice_paper` already resurfaces mistakes, but on the
+# spaced-repetition schedule — when the algorithm decides, mixed with new material. That is
+# the right default and the wrong tool for "my test is Friday, show me everything I have got
+# wrong". Revision to a deadline wants a deliberate pass over a known set.
+REPEAT_SMART = "smart"      # the default: due, then unseen, then not-yet-due
+REPEAT_WRONG = "wrong"      # every question ever answered incorrectly
+REPEAT_CORRECT = "correct"  # seen, and never once wrong
+REPEAT_SOURCES = (REPEAT_SMART, REPEAT_WRONG, REPEAT_CORRECT)
+
 SESSION_OPEN = "open"
 SESSION_SUBMITTED = "submitted"
 SESSION_EXPIRED = "expired"

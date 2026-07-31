@@ -35,6 +35,8 @@ from shared.constants import (
     EXAM_QUESTIONS,
     PRACTICE_BATCH,
     MODE_EXAM,
+    REPEAT_SMART,
+    REPEAT_SOURCES,
     MODE_PRACTICE,
     TRANSLATION_LANGUAGES,
     SESSION_ABANDONED,
@@ -87,6 +89,7 @@ async def create(
     user,
     mode: str,
     now: datetime | None = None,
+    source: str = REPEAT_SMART,
 ) -> tuple[QuizSession, list]:
     """Start a sitting and return it with its whole paper.
 
@@ -110,9 +113,24 @@ async def create(
     # The exam is a uniform random draw because that is what an exam IS. Practice is
     # teaching, so it serves what is due first — see selection.practice_paper for the
     # bug that made this necessary.
-    paper = (await selection.exam_paper(session, count) if is_exam
-             else await selection.practice_paper(session, user, evaluate(user), count))
+    #
+    # `source` only ever changes practice, and only the DRAW. A repeat round grades answers
+    # and moves the Leitner schedule exactly like any other practice, because the learner is
+    # genuinely studying — see selection.repeat_paper. An exam ignores it outright: a
+    # simulator drawn from your own mistakes reports a score that means nothing.
+    if is_exam:
+        paper = await selection.exam_paper(session, count)
+    elif source == REPEAT_SMART:
+        paper = await selection.practice_paper(session, user, evaluate(user), count)
+    else:
+        paper = await selection.repeat_paper(session, user, source, count)
+
     if not paper:
+        # A repeat round with nothing to repeat is a normal, explainable state — a learner
+        # who has never got one wrong asking for their mistakes — and it needs a different
+        # answer from "the question bank is missing", which is a 503 about the server.
+        if not is_exam and source != REPEAT_SMART:
+            raise SessionError("nothing to repeat yet", status=409)
         raise SessionError("no questions available", status=503)
 
     row = QuizSession(

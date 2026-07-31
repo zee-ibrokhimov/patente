@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.models import Progress, Question
 from api.services.entitlement import Entitlement
+from shared.constants import REPEAT_WRONG
 
 
 async def next_question(
@@ -187,3 +188,60 @@ async def practice_paper(
         take(soon)
 
     return picked
+
+
+async def repeat_paper(
+    session: AsyncSession,
+    user,
+    kind: str,
+    count: int,
+    exclude: set[int] | None = None,
+) -> list[Question]:
+    """Questions the learner has answered before — the ones they got wrong, or the ones
+    they got right.
+
+    Asked for directly by the owner: "can repeat correct answered questions and also
+    uncorrect ones? cuz this is important".
+
+    `practice_paper` already resurfaces mistakes, but it does it on the Leitner schedule —
+    when the algorithm judges you are about to forget, mixed in with new material, and never
+    on demand. That is the right default and the wrong tool for "I have my test on Friday,
+    show me everything I have ever got wrong". Someone revising to a deadline wants a
+    deliberate pass over a known set, and someone who wants reassurance wants the opposite.
+
+    WRONG means `wrong > 0`: ever missed, not currently-missed. A question got wrong twice
+    and right once is still a question they have demonstrably struggled with, and dropping
+    it the moment it goes right would make this mode quietly forget the material it exists
+    to drill.
+
+    RIGHT means seen, and never wrong. Deliberately strict: a learner asking to review what
+    they know is checking that it is still solid, so anything with a mistake against it
+    belongs in the other list rather than in both.
+
+    Ordered by `last_answer_at` OLDEST FIRST — the thing they have not looked at for longest
+    is the thing most likely to have gone stale, and it makes repeated rounds walk through
+    the set instead of re-serving the same head every time.
+
+    Untouched by all of this: `progress`. A repeat round records answers exactly as practice
+    does, because it IS practice — the learner is studying and the schedule should learn
+    from it. Only the DRAW is different.
+    """
+    exclude = exclude or set()
+    condition = (
+        Progress.wrong > 0 if kind == REPEAT_WRONG
+        else Progress.wrong == 0
+    )
+    stmt = (
+        select(Question)
+        .join(Progress, Progress.question_id == Question.id)
+        .where(
+            Progress.chat_id == user.chat_id,
+            Progress.seen > 0,
+            condition,
+        )
+        .order_by(Progress.last_answer_at.asc().nulls_last())
+        .limit(count)
+    )
+    if exclude:
+        stmt = stmt.where(Question.id.not_in(exclude))
+    return list(await session.scalars(stmt))

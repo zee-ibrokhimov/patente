@@ -13,7 +13,14 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from shared.constants import QUIZ_MODES, TIERS, UI_LANGUAGES, VOCAB_DIRECTIONS
+from shared.constants import (
+    QUIZ_MODES,
+    REPEAT_SMART,
+    REPEAT_SOURCES,
+    TIERS,
+    UI_LANGUAGES,
+    VOCAB_DIRECTIONS,
+)
 
 
 class UserIn(BaseModel):
@@ -285,6 +292,11 @@ class SessionResultsOut(BaseModel):
 
 class StartSessionIn(BaseModel):
     mode: str = Field(description=f"one of {QUIZ_MODES}")
+
+    # What a PRACTICE sitting draws from. Ignored for an exam, which is always a uniform
+    # random draw — a simulator built from your own mistakes reports a score that means
+    # nothing. Defaults to the spaced-repetition order, so existing clients are unaffected.
+    source: str = Field(default=REPEAT_SMART, description=f"one of {REPEAT_SOURCES}")
 
 
 class SessionAnswerIn(BaseModel):

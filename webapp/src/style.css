@@ -654,6 +654,38 @@ html, body { overflow-x: hidden; }
   margin: var(--sm) 0 0;
 }
 
+/* Repeat rounds — go back over what you have already answered.
+ *
+ * Two chips, not two more mode cards. Exam and practice are what the app is for and this
+ * screen has already been called too big once; a third and fourth full-size card would
+ * claim they matter equally. Sits directly under the mode cards, above the vocabulary row,
+ * because it belongs to drilling rather than to a separate feature. */
+.repeat-row {
+  display: flex;
+  gap: var(--xs);
+  margin-top: var(--sm);
+}
+.repeat-chip {
+  flex: 1;
+  min-height: 44px;              /* a real tap target, not a link */
+  padding: var(--sm) var(--md);
+  border: 1px solid var(--edge);
+  border-radius: var(--r);
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--t-caption);
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  text-align: center;
+}
+/* The same semantics the rest of the app uses: the exam palette for mistakes, the practice
+ * palette for material already known. Borrowed rather than reinvented so a learner reads
+ * the colour the same way here as on the mode cards. */
+.repeat-chip.wrong { border-color: var(--exam-chip); color: var(--exam-deep); }
+.repeat-chip.correct { border-color: var(--practice-chip); color: var(--practice-deep); }
+
 /* Who compiled the word list.
  *
  * The glossary is Zukhriddin Kamolov's work, used with permission on condition of
