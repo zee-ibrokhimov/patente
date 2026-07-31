@@ -66,8 +66,22 @@ def plan_actions(lang: str, *, can_subscribe: bool) -> InlineKeyboardMarkup | No
     """
     from shared.constants import TIER_DAYS, TIER_FEATURED, TIER_PRICE_CENTS
 
+    if not can_subscribe:
+        return None
+
+    # The shape Tribute actually produces: ONE subscription carrying every period, so
+    # one link and one button. Three buttons pointing at the same page would be three
+    # ways to reach one screen, which reads as a mistake rather than a choice — and the
+    # prices are already listed in the message above.
+    url = settings.checkout_url(lang)
+    if url:
+        kb = InlineKeyboardBuilder()
+        kb.button(text=t(lang, "btn_subscribe"), url=url)
+        kb.adjust(1)
+        return kb.as_markup()
+
     links = settings.tribute_links
-    if not can_subscribe or not links:
+    if not links:
         return None
 
     kb = InlineKeyboardBuilder()

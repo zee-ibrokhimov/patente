@@ -62,8 +62,28 @@ class Settings(BaseSettings):
     tribute_webhook_secret: str = ""
     # One product id per tier. `tribute_products` below derives the mapping from these,
     # so adding a tier cannot silently miss one — see api/services/purchases.tier_for.
-    # Tribute's checkout links, one per tier — the URL its bot gives you when a
-    # subscription is published. These are what a Buy button opens.
+    # ONE checkout link for the whole subscription. This is what Tribute actually
+    # gives you: a subscription is a single object carrying several periods, and the
+    # buyer picks the period on Tribute's own page. Prefer the t.me form
+    # (https://t.me/tribute/app?startapp=...) over web.tribute.tg — it opens inside
+    # Telegram instead of throwing the user into a browser mid-purchase.
+    tribute_link: str = ""
+
+    # Per-language checkout links. A Tribute subscription carries its own name and
+    # description, so selling to a Russian speaker and an Italian one from the same
+    # object means one of them reads the pitch in a language they did not choose — at
+    # the exact moment they are deciding whether to pay.
+    #
+    # One subscription per language, each with its own link. Missing ones fall back to
+    # `tribute_link`, so languages can be added as they are created without any code
+    # change or redeploy.
+    tribute_link_ru: str = ""
+    tribute_link_it: str = ""
+    tribute_link_en: str = ""
+    tribute_link_uz: str = ""
+
+    # Per-tier links, for the other shape: separate products, each with its own URL.
+    # Unused when `tribute_link` is set.
     #
     # Separate from the product ids below because they answer different questions: a
     # LINK is how someone starts paying, an ID is how an incoming webhook is matched to
@@ -83,6 +103,38 @@ class Settings(BaseSettings):
     free_explanations: int = 0
     admin_chat_ids: str = ""
     support_contact: str = ""
+
+    def checkout_url(self, lang: str) -> str:
+        """Where to send this user to pay. Their language if it exists, else the default.
+
+        Returns "" when nothing is configured, which is what stops the Buy button being
+        drawn at all.
+        """
+        per_language = {
+            "ru": self.tribute_link_ru,
+            "it": self.tribute_link_it,
+            "en": self.tribute_link_en,
+            "uz": self.tribute_link_uz,
+        }
+        return (per_language.get(lang) or "").strip() or self.tribute_link.strip()
+
+    @property
+    def any_checkout_link(self) -> bool:
+        return bool(
+            self.tribute_link.strip()
+            or self.tribute_link_ru.strip() or self.tribute_link_it.strip()
+            or self.tribute_link_en.strip() or self.tribute_link_uz.strip()
+        )
+
+    @property
+    def can_sell(self) -> bool:
+        """Whether a Buy button can lead anywhere at all.
+
+        The webhook secret is part of the test on purpose: verify() fails closed without
+        it, so selling first would mean taking money and rejecting every delivery that
+        says so.
+        """
+        return bool(self.tribute_webhook_secret and (self.any_checkout_link or self.tribute_links))
 
     @property
     def tribute_links(self) -> dict[str, str]:

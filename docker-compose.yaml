@@ -50,7 +50,15 @@ services:
       - SUPPORT_CONTACT=${SUPPORT_CONTACT}
       - TRIBUTE_API_KEY=${TRIBUTE_API_KEY:-}
       - TRIBUTE_WEBHOOK_SECRET=${TRIBUTE_WEBHOOK_SECRET:-}
-      # Checkout links: what a Buy button opens. Needed for SUBSCRIPTIONS.
+      # The subscription's single checkout link — what the Buy button opens.
+      - TRIBUTE_LINK=${TRIBUTE_LINK:-}
+      # Per-language subscriptions, each with its own Tribute link. Unset ones fall
+      # back to TRIBUTE_LINK, so a language can be added without touching the code.
+      - TRIBUTE_LINK_RU=${TRIBUTE_LINK_RU:-}
+      - TRIBUTE_LINK_IT=${TRIBUTE_LINK_IT:-}
+      - TRIBUTE_LINK_EN=${TRIBUTE_LINK_EN:-}
+      - TRIBUTE_LINK_UZ=${TRIBUTE_LINK_UZ:-}
+      # Per-tier links, only for the separate-products shape. Unused when TRIBUTE_LINK is set.
       - TRIBUTE_LINK_1M=${TRIBUTE_LINK_1M:-}
       - TRIBUTE_LINK_3M=${TRIBUTE_LINK_3M:-}
       - TRIBUTE_LINK_6M=${TRIBUTE_LINK_6M:-}
@@ -102,6 +110,11 @@ services:
       # The bot draws the Buy buttons, so it needs the links and the secret that gates
       # them. Without these /plan correctly says payments are not connected.
       - TRIBUTE_WEBHOOK_SECRET=${TRIBUTE_WEBHOOK_SECRET:-}
+      - TRIBUTE_LINK=${TRIBUTE_LINK:-}
+      - TRIBUTE_LINK_RU=${TRIBUTE_LINK_RU:-}
+      - TRIBUTE_LINK_IT=${TRIBUTE_LINK_IT:-}
+      - TRIBUTE_LINK_EN=${TRIBUTE_LINK_EN:-}
+      - TRIBUTE_LINK_UZ=${TRIBUTE_LINK_UZ:-}
       - TRIBUTE_LINK_1M=${TRIBUTE_LINK_1M:-}
       - TRIBUTE_LINK_3M=${TRIBUTE_LINK_3M:-}
       - TRIBUTE_LINK_6M=${TRIBUTE_LINK_6M:-}

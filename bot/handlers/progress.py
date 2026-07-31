@@ -30,7 +30,7 @@ def _can_subscribe() -> bool:
     could never have opened this gate. The link is the right test: it is exactly what
     the button needs in order to lead somewhere.
     """
-    return bool(settings.tribute_webhook_secret and settings.tribute_links)
+    return settings.can_sell
 
 
 @router.message(Command("stats"))
