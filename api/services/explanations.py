@@ -188,6 +188,23 @@ _corpus: dict | None = None
 _index: dict | None = None
 
 
+# How long a model call may hold a database connection.
+#
+# The SDK's default is 600 SECONDS, and every generation path holds the request's session
+# across the call — `ensure` passes it straight into `generate`. SQLAlchemy's async pool
+# is five connections plus ten overflow, so fifteen requests waiting on a slow OpenAI
+# exhaust it and the API stops answering anything at all: profile, stats, the exam timer.
+# A third-party being slow would have become a total outage of a product that is mostly
+# not about that third party.
+#
+# 45s against measured cold-cache times of 4.9s for an explanation and 3.8s for a
+# translation (STATUS §16) — roughly ten times the real figure, so it only ever fires on
+# something genuinely wrong. With one retry the worst case a connection can be held is
+# about 90 seconds rather than half an hour.
+OPENAI_TIMEOUT = 45.0
+OPENAI_RETRIES = 1
+
+
 def openai_client():
     """The client, behind a function so a test can replace it.
 
@@ -197,7 +214,11 @@ def openai_client():
     """
     from openai import AsyncOpenAI
 
-    return AsyncOpenAI(api_key=settings.openai_api_key)
+    return AsyncOpenAI(
+        api_key=settings.openai_api_key,
+        timeout=OPENAI_TIMEOUT,
+        max_retries=OPENAI_RETRIES,
+    )
 
 
 def corpus_and_index() -> tuple[dict, dict]:

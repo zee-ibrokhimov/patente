@@ -402,3 +402,60 @@ async def test_a_refunded_member_tribute_did_not_eject_is_logged(client, api_db,
     with caplog.at_level(logging.ERROR, logger="api.services.purchases"):
         await post(client, body("subscription_refunded", sub_id=902))
     assert "STILL in the Premium channel" in caplog.text
+
+
+# --- a payload we cannot read must not be generous --------------------------
+
+async def test_a_trial_with_an_unreadable_date_grants_seven_days_not_thirty(client, api_db):
+    """Tribute's `expires_at` is authoritative and this should never happen. When it did,
+    the code fell through to TIER_DAYS — and a trial has no tier, so it took the shortest
+    PAID one: thirty days free on the strength of a payload we could not parse."""
+    import json as _json
+
+    raw = _json.dumps({
+        "name": "new_subscription",
+        "payload": {"subscription_id": 950, "telegram_user_id": BUYER, "amount": 0,
+                    "currency": "eur", "expires_at": "not-a-date",
+                    "type": "trial", "period": "trial"},
+    }).encode()
+    await post(client, raw)
+
+    async with api_db() as s:
+        user = await s.get(User, BUYER)
+    days = (user.pass_expires_at - datetime.now(timezone.utc)).days
+    assert 5 <= days <= 8, f"granted {days} days for an unreadable trial date"
+
+
+async def test_a_paid_subscription_with_no_date_still_gets_its_tier(client, api_db):
+    """The narrowing applies to TRIALS only. Someone who actually paid for a month is
+    owed a month, whatever the payload's date field did."""
+    import json as _json
+
+    raw = _json.dumps({
+        "name": "new_subscription",
+        "payload": {"subscription_id": 951, "telegram_user_id": BUYER, "amount": 299,
+                    "currency": "eur", "expires_at": "", "type": "regular",
+                    "period": "monthly"},
+    }).encode()
+    await post(client, raw)
+
+    async with api_db() as s:
+        user = await s.get(User, BUYER)
+    days = (user.pass_expires_at - datetime.now(timezone.utc)).days
+    assert days >= 28, f"a paid month granted only {days} days"
+
+
+async def test_an_unreadable_trial_date_is_logged_loudly(client, caplog):
+    """A payment provider sending a date we cannot read is worth someone looking at."""
+    import json as _json
+    import logging
+
+    raw = _json.dumps({
+        "name": "new_subscription",
+        "payload": {"subscription_id": 952, "telegram_user_id": BUYER, "amount": 0,
+                    "currency": "eur", "expires_at": "nonsense",
+                    "type": "trial", "period": "trial"},
+    }).encode()
+    with caplog.at_level(logging.ERROR, logger="api.services.purchases"):
+        await post(client, raw)
+    assert "no usable expires_at" in caplog.text

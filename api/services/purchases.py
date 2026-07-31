@@ -74,6 +74,7 @@ from shared.constants import (
     TIERS,
     TRIBUTE_PERIOD_TIERS,
     TRIBUTE_PERIODS_WITHOUT_TIER,
+    TRIBUTE_TRIAL_FALLBACK_DAYS,
 )
 
 log = logging.getLogger(__name__)
@@ -296,6 +297,17 @@ async def apply_purchase(session: AsyncSession, event: TributeEvent) -> str:
         # renewal that happens to land earlier.
         current = user.pass_expires_at
         expires = max(event.expires_at, current) if current and current > now else event.expires_at
+    elif event.is_trial:
+        # A trial with an unreadable date. TIER_DAYS is wrong here — a trial has no tier,
+        # so it resolves to the shortest PAID one and would hand out thirty days free on
+        # the strength of a payload we could not parse. Logged at ERROR because an
+        # unreadable date from a payment provider is worth someone looking at.
+        log.error(
+            "trial for %s arrived with no usable expires_at; granting %s days rather "
+            "than the %s a tier fallback would have given",
+            event.chat_id, TRIBUTE_TRIAL_FALLBACK_DAYS, days,
+        )
+        expires = extend(user.pass_expires_at, TRIBUTE_TRIAL_FALLBACK_DAYS, now)
     else:
         # A one-off digital product carries no expiry, so our own arithmetic applies.
         expires = extend(user.pass_expires_at, days, now)

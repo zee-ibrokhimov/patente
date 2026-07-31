@@ -96,6 +96,15 @@ TRIBUTE_PERIOD_TIERS = {
 # Tribute's own `expires_at`, so the tier is only a label on the purchase row. If a
 # yearly plan is ever sold, give it its own tier rather than leaving it here.
 TRIBUTE_PERIODS_WITHOUT_TIER = ("trial", "onetime", "weekly", "yearly")
+
+# How long to grant a TRIAL whose `expires_at` we could not read.
+#
+# Tribute's date is authoritative and this should never be needed. But when it is
+# unreadable the code fell through to TIER_DAYS for the tier — and a trial has no tier, so
+# it took the shortest PAID one: thirty days free instead of seven, from a payload we
+# could not understand. Guessing generously with someone else's product is the wrong
+# instinct; this matches what the Tribute subscription is actually configured with.
+TRIBUTE_TRIAL_FALLBACK_DAYS = 7
 # The one to present as the default. Best per-month value, longest commitment.
 TIER_FEATURED = TIER_6M
 
