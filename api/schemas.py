@@ -228,6 +228,15 @@ class SessionItemOut(BaseModel):
     given: bool | None
     correct: bool | None
 
+    # The question itself, so a candidate can see WHAT they got wrong rather than only
+    # how many. Free content: the whole bank is in the free tier already.
+    statement: str = ""
+    stem: str | None = None
+    answer: bool | None = None
+    image: str | None = None
+    # Present only for a user entitled to translations who has them switched on.
+    translation: str | None = None
+
 
 class SessionResultsOut(BaseModel):
     session_id: int

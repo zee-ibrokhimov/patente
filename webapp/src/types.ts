@@ -137,6 +137,12 @@ export interface SessionItem {
   question_id: number;
   given: boolean | null;
   correct: boolean | null;
+  /** The question itself, so a failed exam can be reviewed rather than merely counted. */
+  statement: string;
+  stem: string | null;
+  answer: boolean | null;
+  image: string | null;
+  translation: string | null;
 }
 
 export interface SessionResults {

@@ -304,7 +304,8 @@ async def read_session(
         raise HTTPException(exc.status, str(exc)) from exc
 
     entitlement = evaluate(user)
-    items = await quiz_sessions.results(session, row) if row.state != "open" else None
+    items = (await quiz_sessions.results(session, row, user, entitlement)
+             if row.state != "open" else None)
     paper = []
     if items is None:
         from api.models import Question, QuizSessionItem
@@ -362,7 +363,9 @@ async def finish_session(
     try:
         row = await quiz_sessions.load_owned(session, user, session_id, now)
         await quiz_sessions.finish(session, user, row, now)
-        return SessionResultsOut(**await quiz_sessions.results(session, row))
+        return SessionResultsOut(
+            **await quiz_sessions.results(session, row, user, evaluate(user))
+        )
     except quiz_sessions.SessionError as exc:
         raise HTTPException(exc.status, str(exc)) from exc
 
@@ -410,7 +413,9 @@ async def session_results(
     """The reveal, refused while the sitting is still open."""
     try:
         row = await quiz_sessions.load_owned(session, user, session_id)
-        return SessionResultsOut(**await quiz_sessions.results(session, row))
+        return SessionResultsOut(
+            **await quiz_sessions.results(session, row, user, evaluate(user))
+        )
     except quiz_sessions.SessionError as exc:
         raise HTTPException(exc.status, str(exc)) from exc
 

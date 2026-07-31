@@ -24,7 +24,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.models import QuizSession, QuizSessionItem
+from api.models import Question, QuizSession, QuizSessionItem, Translation
 from api.services import events, selection
 from api.services.entitlement import evaluate
 from shared.constants import (
@@ -36,6 +36,7 @@ from shared.constants import (
     PRACTICE_BATCH,
     MODE_EXAM,
     MODE_PRACTICE,
+    TRANSLATION_LANGUAGES,
     SESSION_ABANDONED,
     SESSION_EXPIRED,
     SESSION_OPEN,
@@ -291,17 +292,52 @@ async def finish(
     return row
 
 
-async def results(session: AsyncSession, row: QuizSession) -> dict:
+async def results(
+    session: AsyncSession, row: QuizSession, user=None, entitlement=None
+) -> dict:
     """The reveal. Refused while the session is open — this is the endpoint the whole
-    no-feedback design exists to protect."""
+    no-feedback design exists to protect.
+
+    Carries the QUESTIONS, not just which ordinals were wrong. Without them the client
+    could tell a candidate they got eleven wrong and nothing else — no way to see which,
+    no way to learn anything from a failed sitting. That is the moment a learner most
+    wants the material, and it was the one moment the app withheld it.
+
+    The statement and the correct answer are FREE: they are ministerial content and the
+    free tier already includes every question. Only the explanation is Premium, and it is
+    fetched separately by the client through the existing gated path.
+    """
     if row.state == SESSION_OPEN:
         raise SessionError("this session is still open", status=409)
 
-    items = await session.scalars(
+    items = list(await session.scalars(
         select(QuizSessionItem)
         .where(QuizSessionItem.session_id == row.id)
         .order_by(QuizSessionItem.ordinal)
+    ))
+    questions = {
+        q.id: q
+        for q in await session.scalars(
+            select(Question).where(Question.id.in_([i.question_id for i in items]))
+        )
+    }
+    # Translations only for someone entitled to them, and only when they asked for them:
+    # the review screen must not become a way to read a paid feature for free.
+    lang = getattr(user, "lang", None)
+    show_translation = bool(
+        entitlement is not None
+        and entitlement.can_translate
+        and getattr(user, "translations_on", False)
+        and lang in TRANSLATION_LANGUAGES
     )
+    translations = {}
+    if show_translation:
+        rows = await session.scalars(
+            select(Translation).where(
+                Translation.question_id.in_(list(questions)), Translation.lang == lang
+            )
+        )
+        translations = {t.question_id: t for t in rows}
     return {
         "session_id": row.id,
         "mode": row.mode,
@@ -315,6 +351,16 @@ async def results(session: AsyncSession, row: QuizSession) -> dict:
         "passed": row.passed,
         "items": [
             {
+                "statement": (questions[i.question_id].statement_it
+                              if i.question_id in questions else ""),
+                "stem": (questions[i.question_id].stem_it
+                         if i.question_id in questions else None),
+                "answer": (questions[i.question_id].answer
+                           if i.question_id in questions else None),
+                "image": (questions[i.question_id].image_path
+                          if i.question_id in questions else None),
+                "translation": (translations[i.question_id].statement
+                                if i.question_id in translations else None),
                 "ordinal": i.ordinal,
                 "question_id": i.question_id,
                 "given": i.given,

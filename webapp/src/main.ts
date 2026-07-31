@@ -73,8 +73,11 @@ const state: {
   profile: Profile | null;
   /** A sitting the user walked away from. Held so the back button cannot lose an exam. */
   resumable: Session | null;
+  /** Review list filter. Mistakes-first by default: someone who got 27 right does not
+   *  want to scroll past them to reach the three that matter. */
+  reviewWrongOnly: boolean;
 } = { me: null, screen: "home", run: null, results: null, stats: null, profile: null,
-      resumable: null,
+      resumable: null, reviewWrongOnly: true,
       vocab: { view: "test", round: null, index: 0, current: null, right: 0, typed: "",
                busy: false, list: null, query: "", stats: null, locked: false } };
 
@@ -876,6 +879,116 @@ async function askWhy(button: HTMLButtonElement, questionId: number): Promise<vo
   }
 }
 
+
+/** The review list: which questions you got wrong, and what the answer was.
+ *
+ *  The gap this fills was the largest one in the product. A candidate finished an exam,
+ *  was told "11 errors / 3 allowed", and that was the end of it — no way to see WHICH
+ *  eleven, no way to learn anything from having sat it. The moment a learner most wants
+ *  the material is the moment they have just failed, and it was the one moment the app
+ *  gave them nothing.
+ *
+ *  Defaults to mistakes only. Someone who got 27 right does not want to scroll past 27
+ *  correct answers to find the three that matter, and the toggle is there for the rare
+ *  case where they do.
+ */
+function reviewList(): HTMLElement {
+  const r = state.results!;
+  const wrap = el("section", "review");
+  wrap.append(el("h3", "review-title", t("review_title")));
+
+  const wrongOnly = state.reviewWrongOnly;
+  const seg = el("div", "v-seg");
+  for (const [only, label] of [[true, t("review_wrong_only")], [false, t("review_all")]] as const) {
+    const b = el("button", `v-seg-btn ${wrongOnly === only ? "on" : ""}`, label);
+    b.type = "button";
+    b.onclick = () => { state.reviewWrongOnly = only; render(); };
+    seg.append(b);
+  }
+  wrap.append(seg);
+
+  // `correct === false` and not `!correct`: an unanswered question is null, and in an
+  // exam that counts against you, so it belongs in the mistakes list too.
+  const items = r.items.filter((i) => (wrongOnly ? i.correct !== true : true));
+  if (items.length === 0) {
+    wrap.append(el("p", "v-muted", t("review_none")));
+    return wrap;
+  }
+
+  for (const item of items) {
+    const card = el("div", `rev ${item.correct === true ? "ok" : "bad"}`);
+
+    const head = el("div", "rev-head");
+    head.append(el("span", "rev-n", String(item.ordinal)));
+    const mark = el("span", "rev-mark");
+    mark.append(item.correct === true ? icons.check(16) : icons.alert(16));
+    head.append(mark);
+    card.append(head);
+
+    if (item.stem) card.append(el("p", "rev-stem", item.stem));
+    card.append(el("p", "rev-q", item.statement));
+    if (item.translation) card.append(el("p", "rev-tr", item.translation));
+
+    if (item.image) {
+      const plate = el("div", "rev-img");
+      const img = el("img");
+      img.src = api.figureUrl(item.image);
+      img.loading = "lazy";
+      img.alt = "";
+      plate.append(img);
+      card.append(plate);
+    }
+
+    const verdict = el("div", "rev-answers");
+    const say = (v: boolean | null) =>
+      v === null ? t("review_skipped") : v ? t("yes_short") : t("no_short");
+    const yours = el("div", `rev-a ${item.correct === true ? "ok" : "bad"}`);
+    yours.append(el("span", "rev-a-label", t("review_your")),
+                 el("span", "rev-a-value", say(item.given)));
+    verdict.append(yours);
+    if (item.correct !== true) {
+      const right = el("div", "rev-a ok");
+      right.append(el("span", "rev-a-label", t("review_right")),
+                   el("span", "rev-a-value", say(item.answer)));
+      verdict.append(right);
+    }
+    card.append(verdict);
+
+    // The explanation stays behind the same gate it always had — this screen shows the
+    // ministerial content, which is free, and sells the reasoning, which is not.
+    if (item.correct !== true) {
+      const why = el("button", "rev-why", t("why"));
+      why.type = "button";
+      why.onclick = () => void explainFromReview(item.question_id, why);
+      card.append(why);
+    }
+
+    wrap.append(card);
+  }
+  return wrap;
+}
+
+/** Fetch one explanation from the review screen, in place. */
+async function explainFromReview(questionId: number, button: HTMLButtonElement): Promise<void> {
+  button.disabled = true;
+  try {
+    const res = await api.explanation(questionId);
+    const box = el("div", "rev-why-text");
+    if (res.explanation_state === "shown" && res.explanation) {
+      box.textContent = res.explanation;
+      button.replaceWith(box);
+    } else if (res.explanation_state === "locked") {
+      button.replaceWith(premiumBlock());
+    } else {
+      box.textContent = t("explanation_unavailable");
+      button.replaceWith(box);
+    }
+  } catch (err) {
+    button.disabled = false;
+    reportError(err);
+  }
+}
+
 function resultsScreen(): HTMLElement {
   const r = state.results!;
   const wrap = el("section", "screen");
@@ -911,6 +1024,7 @@ function resultsScreen(): HTMLElement {
   );
   esito.append(tally);
   wrap.append(esito);
+  if (r.items?.length) wrap.append(reviewList());
 
   const again = el("button", "btn primary", t("again"));
   again.onclick = () => void startRun(r.mode);

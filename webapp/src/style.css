@@ -799,3 +799,71 @@ html, body { overflow-x: hidden; }
 .switch.small { width: 38px; height: 22px; }
 .switch.small::after { width: 18px; height: 18px; }
 .switch.small.on::after { transform: translateX(16px); }
+
+/* --- exam review ----------------------------------------------------------
+ *
+ * The screen a candidate reaches straight after failing. It is not a place to be clever:
+ * the question, what they said, what was right, and a way to ask why.
+ */
+.review { margin-top: var(--xl); }
+.review-title {
+  font-size: var(--t-question); font-weight: var(--w-question);
+  color: var(--text); margin: 0 0 var(--md);
+}
+
+.rev {
+  background: var(--card); border: 1px solid var(--edge);
+  border-left: 4px solid var(--edge);
+  border-radius: var(--r); padding: var(--lg);
+  margin-bottom: var(--md);
+}
+/* The stripe carries the verdict, so the card itself stays white and the question stays
+   the most legible thing on it. */
+.rev.bad { border-left-color: var(--exam); }
+.rev.ok  { border-left-color: var(--practice); }
+
+.rev-head { display: flex; align-items: center; gap: var(--sm); margin-bottom: var(--sm); }
+.rev-n {
+  font-size: 12px; font-weight: 700; color: var(--text-2);
+  background: var(--surface); border-radius: 999px; padding: 2px 9px;
+}
+.rev.bad .rev-mark { color: var(--exam); }
+.rev.ok  .rev-mark { color: var(--practice); }
+.rev-mark { display: inline-flex; }
+
+.rev-stem { font-size: var(--t-caption); color: var(--text-2); margin: 0 0 var(--xs); }
+.rev-q {
+  font-size: var(--t-body); line-height: var(--lh-body); color: var(--text);
+  margin: 0; overflow-wrap: anywhere;
+}
+.rev-tr {
+  font-size: var(--t-caption); color: var(--text-2);
+  margin: var(--xs) 0 0; overflow-wrap: anywhere;
+}
+.rev-img { margin-top: var(--md); text-align: center; }
+.rev-img img { max-width: 60%; height: auto; border-radius: var(--r-sm); }
+
+.rev-answers { display: flex; flex-wrap: wrap; gap: var(--sm); margin-top: var(--md); }
+.rev-a {
+  display: flex; align-items: baseline; gap: 6px;
+  padding: 4px 10px; border-radius: 999px; font-size: var(--t-caption);
+}
+.rev-a.ok  { background: var(--practice-chip); color: var(--practice-deep); }
+.rev-a.bad { background: var(--exam-chip);     color: var(--exam-deep); }
+.rev-a-label { opacity: .75; }
+.rev-a-value { font-weight: 700; }
+
+.rev-why {
+  margin-top: var(--md); width: 100%;
+  padding: var(--sm) var(--md);
+  border: 1px solid var(--edge); border-radius: var(--r-sm);
+  background: var(--bg); color: var(--accent);
+  font-family: var(--font); font-size: var(--t-caption); font-weight: 600;
+  cursor: pointer;
+}
+.rev-why:disabled { opacity: .5; }
+.rev-why-text {
+  margin-top: var(--md); padding: var(--md);
+  background: var(--surface); border-radius: var(--r-sm);
+  font-size: var(--t-caption); line-height: 1.5; color: var(--text);
+}
