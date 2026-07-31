@@ -629,11 +629,18 @@ function runScreen(): HTMLElement {
     tick();
   }
 
-  wrap.append(answerSheet(run));
+  // The answer sheet is an EXAM object: thirty numbered cells standing for the paper in
+  // front of you, showing which you have done. Practice has no paper — it is a stream
+  // that ends when you end it — so the row would grow without bound and imply a finish
+  // line that does not exist.
+  if (run.session.mode === "exam") wrap.append(answerSheet(run));
 
   const meta = el("div", "q-meta");
-  meta.append(el("div", "q-index",
-    t("question_of", { n: run.index + 1, total: run.session.question_count })));
+  // "Question 5 of 30" is a promise in practice, and a false one: the total is only the
+  // current batch and silently becomes 60, then 90. Practice counts up, with no total.
+  meta.append(el("div", "q-index", run.session.mode === "exam"
+    ? t("question_of", { n: run.index + 1, total: run.session.question_count })
+    : t("question_n", { n: run.index + 1 })));
   const tr = translationToggle();
   if (tr) meta.append(tr);
   wrap.append(meta);
@@ -865,7 +872,13 @@ function resultsScreen(): HTMLElement {
   tally.append(
     stat(r.answered, t("answered_n")),
     stat(r.wrong, t("errors")),
-    stat(r.question_count - r.answered, t("unanswered")),
+    // In an exam, what you left blank counts against you, so it is worth its own figure.
+    // In practice `question_count - answered` is nothing but the unserved tail of the
+    // last batch — not questions the learner skipped — so showing it as "unanswered"
+    // reports slack in the fetching as if it were a failure. Show what they got right.
+    r.mode === "exam"
+      ? stat(r.question_count - r.answered, t("unanswered"))
+      : stat(r.answered - r.wrong, t("correct")),
   );
   esito.append(tally);
   wrap.append(esito);

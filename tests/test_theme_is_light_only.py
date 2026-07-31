@@ -64,10 +64,9 @@ def test_the_document_declares_light():
 def test_the_built_bundle_carries_no_dark_rule():
     """Guards against a dependency or a future stylesheet reintroducing one after the
     source itself looks clean."""
-    built = sorted((WEB / "dist/assets").glob("*.css"))
-    if not built:
-        pytest.skip("no build output — run npm run build")
-    assert "prefers-color-scheme" not in built[-1].read_text(encoding="utf-8")
+    from tests.bundle import bundle
+
+    assert "prefers-color-scheme" not in bundle("*.css")
 
 
 def test_the_chrome_colour_matches_the_background_token():
