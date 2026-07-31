@@ -4,24 +4,17 @@
  *  back byte-for-byte: it is a query string whose HMAC covers exactly those bytes, so
  *  parsing and re-serialising it breaks the signature. Treat it as opaque. */
 
-interface ThemeParams {
-  bg_color?: string;
-  text_color?: string;
-  hint_color?: string;
-  link_color?: string;
-  button_color?: string;
-  button_text_color?: string;
-  secondary_bg_color?: string;
-}
-
 interface WebApp {
   initData: string;
   initDataUnsafe: { user?: { id: number; language_code?: string; first_name?: string; username?: string; photo_url?: string } };
   colorScheme: "light" | "dark";
-  themeParams: ThemeParams;
   ready(): void;
   expand(): void;
   close(): void;
+  /** Paint the client chrome around the Mini App. Bot API 6.1 / 6.9; older clients
+   *  leave these undefined, hence the guards at the call site. */
+  setHeaderColor?(color: string): void;
+  setBackgroundColor?(color: string): void;
   /** Telegram's own back arrow, in the client header. Present from Bot API 6.1; older
    *  clients leave it undefined, which is why every call site guards. */
   BackButton?: {
@@ -50,27 +43,36 @@ export const tg = window.Telegram?.WebApp;
  *  so plainly rather than showing an app that silently fails on every tap. */
 export const inTelegram = Boolean(tg && tg.initData);
 
+/** The Mini App does NOT follow Telegram's theme.
+ *
+ *  `themeParams` is deliberately ignored. This app's palette carries MEANING that a
+ *  repaint would destroy: the soft red mode card means "the test you can fail", the soft
+ *  green one means practice, and gold means Premium and nothing else. Recoloured by a
+ *  dark theme, those stop being signals and become decoration.
+ *
+ *  This used to read themeParams and write the result as inline styles on
+ *  documentElement — which beat the :root rules in tokens.css, so a user with Telegram in
+ *  dark mode got a dark app while the stylesheet claimed otherwise. Inline styles win;
+ *  that is the whole reason it looked like the tokens were being ignored.
+ *
+ *  What we DO tell Telegram is the reverse: paint YOUR chrome to match US. Without it a
+ *  dark-mode user gets a dark header sitting above a light app, which reads as a broken
+ *  page rather than a deliberate one.
+ */
+const CHROME_BG = "#f8fafc";   // must stay in step with --bg in tokens.css
+
 export function initTelegram(): void {
   if (!tg) return;
   tg.ready();
   tg.expand();
-  applyTheme(tg);
-}
-
-function applyTheme(app: WebApp): void {
-  const root = document.documentElement;
-  const p = app.themeParams;
-  const set = (name: string, value: string | undefined) => {
-    if (value) root.style.setProperty(name, value);
-  };
-  set("--bg", p.bg_color);
-  set("--text", p.text_color);
-  set("--hint", p.hint_color);
-  set("--link", p.link_color);
-  set("--button", p.button_color);
-  set("--button-text", p.button_text_color);
-  set("--surface", p.secondary_bg_color);
-  root.dataset.scheme = app.colorScheme;
+  // Guarded: these arrived in Bot API 6.1/6.9 and are undefined on older clients, where
+  // the app simply renders light inside whatever chrome the client already has.
+  try {
+    tg.setBackgroundColor?.(CHROME_BG);
+    tg.setHeaderColor?.(CHROME_BG);
+  } catch {
+    /* an old client that has the method but rejects the value is not worth failing over */
+  }
 }
 
 export function haptic(kind: "success" | "error"): void {

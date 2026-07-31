@@ -2,6 +2,11 @@
 <html lang="it">
   <head>
     <meta charset="utf-8" />
+    <!-- The app is light-only by design (see src/telegram.ts). Declaring it here too
+         stops the browser painting a dark scroll gutter or form controls around a light
+         page when the device is in dark mode. -->
+    <meta name="color-scheme" content="light" />
+    <meta name="theme-color" content="#f8fafc" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Quiz Patente</title>
     <!-- Telegram's bridge. It must come from telegram.org and be loaded before the app:

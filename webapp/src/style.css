@@ -13,6 +13,11 @@
 @import url('/fonts/fonts.css');
 @import url('./tokens.css');
 
+/* Light, unconditionally. The app ignores Telegram's themeParams on purpose — the
+   palette carries meaning (red = the test you can fail, gold = Premium) that a dark
+   repaint would erase. See the note in src/telegram.ts. */
+html { color-scheme: light; }
+
 * { box-sizing: border-box; }
 
 html, body { height: 100%; }
