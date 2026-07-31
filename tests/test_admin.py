@@ -24,13 +24,25 @@ NOW = datetime.now(timezone.utc)
 
 # --- the boundary -----------------------------------------------------------
 
-def test_admin_is_not_routable_from_the_internet():
-    """nginx proxies exactly two things. /admin/ has no location block, so it 404s at the
-    edge without ever reaching the API — the same omission that lets an API with no
-    authentication sit behind a public domain."""
+def test_admin_is_refused_explicitly_at_the_edge():
+    """Originally this asserted /admin was ABSENT from nginx.conf and called that sealed.
+    It was not: an unmatched path falls through to `try_files ... /index.html` and returns
+    the Mini App with a 200. Nothing proxied, so nothing leaked — but "is it sealed?"
+    could not be answered from the status code, and the assertion was checking the wrong
+    property entirely.
+
+    Verified live: https://patente.zeehub.xyz/admin/overview returned 200 text/html with
+    no admin data in it. Now an explicit refusal, matching /users/, /health and /docs.
+    """
     conf = (pathlib.Path(__file__).resolve().parent.parent
             / "webapp" / "nginx.conf").read_text(encoding="utf-8")
-    assert "/admin" not in conf, "the edge must not know this prefix exists"
+    assert re.search(r"location\s*\^~\s*/admin\s*\{\s*return 404;", conf)
+
+
+def test_nothing_new_proxies_to_the_api():
+    """Two, and only two: /webapp/* and POST /webhooks/tribute."""
+    conf = (pathlib.Path(__file__).resolve().parent.parent
+            / "webapp" / "nginx.conf").read_text(encoding="utf-8")
     assert conf.count("proxy_pass http://api:8000;") == 2
 
 
