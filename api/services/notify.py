@@ -1,0 +1,161 @@
+"""Telling a user what just happened to their money.
+
+The webhook is the only place the app learns that a payment occurred, and until now it
+was silent: a trial started, a card was linked, and the person who did it received
+nothing at all. For an ordinary purchase that is merely rude. For a trial that will
+charge a card in seven days it is worse than rude — under EU distance-selling rules the
+terms of a recurring charge have to be communicated, and "we told you on the checkout
+page" is a weak position when the app itself said nothing.
+
+WHY THE API SENDS THIS AND NOT THE BOT
+
+Plan §6.1 keeps the bot free of business logic and gives the API the database. A payment
+arrives at the API, so the API is the only process that knows about it. Handing it to the
+bot would need a queue, a poll or an internal endpoint — three moving parts to deliver one
+message. The Bot API is a plain HTTPS call and the token is already in this container's
+environment.
+
+BEST EFFORT, ALWAYS
+
+Nothing here may fail a webhook. Tribute retries a non-2xx, and a retry cannot fix
+Telegram being slow — it would just redeliver a payment that was already applied. Every
+failure is caught and logged, and the money side of the transaction is committed before
+this is ever called.
+"""
+
+from __future__ import annotations
+
+import logging
+from datetime import datetime
+
+import httpx
+
+from shared.config import settings
+from shared.constants import TIER_PRICE_CENTS
+
+log = logging.getLogger(__name__)
+
+TIMEOUT = 10.0
+
+
+def _money(cents: int) -> str:
+    """Formatted without locale rules, deliberately: the same number must appear in the
+    bot, on Tribute's checkout page and on the card statement. A comma here and a dot
+    there reads as two different prices."""
+    return f"€{cents // 100}.{cents % 100:02d}"
+
+
+def _date(when: datetime | None) -> str:
+    return when.strftime("%d.%m.%Y") if when else "—"
+
+
+# One message per event, per language. Written out rather than assembled from fragments:
+# these are the only messages in the product that talk about someone's money, and a
+# sentence stitched from four keys is how a translation ends up subtly promising the
+# wrong thing.
+MESSAGES: dict[str, dict[str, str]] = {
+    "trial": {
+        "ru": ("🎁 <b>Пробный период активирован</b>\n\n"
+               "У вас есть полный доступ до <b>{date}</b>.\n\n"
+               "После этой даты автоматически спишется {price} за подписку. "
+               "Отменить можно в любой момент до {date} — тогда с вас ничего не спишут.\n\n"
+               "Управлять подпиской: @tribute"),
+        "en": ("🎁 <b>Free trial started</b>\n\n"
+               "You have full access until <b>{date}</b>.\n\n"
+               "After that date {price} will be charged automatically. "
+               "You can cancel any time before {date} and you will not be charged.\n\n"
+               "Manage your subscription: @tribute"),
+        "it": ("🎁 <b>Prova gratuita attivata</b>\n\n"
+               "Hai accesso completo fino al <b>{date}</b>.\n\n"
+               "Dopo tale data verranno addebitati {price} automaticamente. "
+               "Puoi disdire in qualsiasi momento prima del {date} senza alcun addebito.\n\n"
+               "Gestisci l'abbonamento: @tribute"),
+        "uz": ("🎁 <b>Sinov muddati boshlandi</b>\n\n"
+               "<b>{date}</b> gacha to'liq kirish huquqiga egasiz.\n\n"
+               "Shu sanadan keyin {price} avtomatik yechib olinadi. "
+               "{date} gacha istalgan vaqtda bekor qilsangiz, hech narsa yechilmaydi.\n\n"
+               "Obunani boshqarish: @tribute"),
+    },
+    "paid": {
+        "ru": ("✅ <b>Оплата получена</b>\n\n"
+               "Premium активен до <b>{date}</b>.\n\n"
+               "Спасибо! Управлять подпиской: @tribute"),
+        "en": ("✅ <b>Payment received</b>\n\n"
+               "Premium is active until <b>{date}</b>.\n\n"
+               "Thank you. Manage your subscription: @tribute"),
+        "it": ("✅ <b>Pagamento ricevuto</b>\n\n"
+               "Premium è attivo fino al <b>{date}</b>.\n\n"
+               "Grazie. Gestisci l'abbonamento: @tribute"),
+        "uz": ("✅ <b>To'lov qabul qilindi</b>\n\n"
+               "Premium <b>{date}</b> gacha faol.\n\n"
+               "Rahmat! Obunani boshqarish: @tribute"),
+    },
+    "cancelled": {
+        "ru": ("Подписка отменена.\n\n"
+               "Доступ сохраняется до <b>{date}</b> — вы уже оплатили этот период. "
+               "После этой даты списаний не будет.\n\n"
+               "Передумали? /plan"),
+        "en": ("Subscription cancelled.\n\n"
+               "You keep access until <b>{date}</b> — that period is already paid for. "
+               "Nothing further will be charged.\n\n"
+               "Changed your mind? /plan"),
+        "it": ("Abbonamento disdetto.\n\n"
+               "Mantieni l'accesso fino al <b>{date}</b> — quel periodo è già pagato. "
+               "Non verrà addebitato altro.\n\n"
+               "Cambiato idea? /plan"),
+        "uz": ("Obuna bekor qilindi.\n\n"
+               "<b>{date}</b> gacha kirish saqlanadi — bu davr allaqachon to'langan. "
+               "Boshqa hech narsa yechilmaydi.\n\n"
+               "Fikringiz o'zgardimi? /plan"),
+    },
+}
+
+
+def compose(kind: str, lang: str, expires_at: datetime | None, tier: str) -> str:
+    """The message for this event in this language, falling back to English.
+
+    A language we have not written yet must produce a real sentence, not a KeyError and
+    not the string "None" — this is the message that explains a charge.
+    """
+    table = MESSAGES[kind]
+    template = table.get(lang) or table["en"]
+    return template.format(
+        date=_date(expires_at),
+        price=_money(TIER_PRICE_CENTS.get(tier, 0)),
+    )
+
+
+async def send(chat_id: int, text: str) -> bool:
+    """Send one message. Returns whether it went; never raises.
+
+    A user who has blocked the bot, or who bought before ever opening it, is a 403 from
+    Telegram — a normal outcome for a payment webhook, not an error worth alarming about.
+    """
+    token = settings.bot_token
+    if not token:
+        log.warning("no bot token configured — cannot tell %s about their payment", chat_id)
+        return False
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            r = await client.post(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                json={"chat_id": chat_id, "text": text, "parse_mode": "HTML",
+                      "disable_web_page_preview": True},
+            )
+        if r.status_code == 200:
+            return True
+        # Logged at INFO for the expected refusals and WARNING for anything else, so a
+        # blocked bot does not look like a broken integration.
+        level = log.info if r.status_code in (400, 403) else log.warning
+        level("could not message %s about their payment: %s %s",
+              chat_id, r.status_code, r.text[:200])
+        return False
+    except Exception as exc:  # noqa: BLE001 — a webhook must never fail on this
+        log.warning("could not message %s about their payment: %s", chat_id, exc)
+        return False
+
+
+async def payment(chat_id: int, lang: str, kind: str, expires_at: datetime | None,
+                  tier: str) -> bool:
+    """Tell someone what just happened to their subscription."""
+    return await send(chat_id, compose(kind, lang, expires_at, tier))

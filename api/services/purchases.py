@@ -61,7 +61,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.models import Purchase, User
-from api.services import events
+from api.services import events, notify
 from shared.config import settings
 from shared.constants import (
     DEFAULT_LANG,
@@ -343,6 +343,14 @@ async def apply_purchase(session: AsyncSession, event: TributeEvent) -> str:
     await session.commit()
     log.info("%s %s: %s for %s, pass now to %s",
              event.kind, event.purchase_id, event.tier, event.chat_id, expires)
+
+    # AFTER the commit, and best-effort. The money is already recorded; a message that
+    # fails to send must not turn a successful payment into a 4xx that Tribute retries.
+    await notify.payment(
+        event.chat_id, user.lang,
+        "trial" if event.is_trial else "paid",
+        expires, event.tier,
+    )
     return "trial" if event.is_trial else ("renewed" if event.kind == "renewal" else "applied")
 
 
@@ -426,6 +434,11 @@ async def apply_cancellation(session: AsyncSession, event: TributeEvent) -> str:
     await session.commit()
     log.info("subscription cancelled for %s (trial=%s); access stands until %s",
              event.chat_id, event.is_trial, user.pass_expires_at)
+
+    # Worth sending precisely because the answer is reassuring: they keep what they paid
+    # for. Silence here reads as "cancelled, access gone", which is the opposite of true.
+    await notify.payment(event.chat_id, user.lang, "cancelled",
+                         user.pass_expires_at, event.tier)
     return "cancelled"
 
 
