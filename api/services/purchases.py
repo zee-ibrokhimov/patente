@@ -73,6 +73,7 @@ from shared.constants import (
     TIER_PRICE_CENTS,
     TIERS,
     TRIBUTE_PERIOD_TIERS,
+    TRIBUTE_PERIODS_WITHOUT_TIER,
 )
 
 log = logging.getLogger(__name__)
@@ -249,6 +250,11 @@ def tier_for(product: str) -> str:
     # A subscription is identified by its billing period rather than by a product id.
     if product in TRIBUTE_PERIOD_TIERS:
         return TRIBUTE_PERIOD_TIERS[product]
+    if product in TRIBUTE_PERIODS_WITHOUT_TIER:
+        # Known, expected, and not a tier we sell. Quiet on purpose — see the constant.
+        log.info("Tribute period %r has no tier of its own; the expiry comes from "
+                 "their expires_at, so the label is cosmetic", product)
+        return SHORTEST_TIER
     # Our own tier name, which is what the admin grant and the tests use.
     if product in TIER_DAYS:
         return product

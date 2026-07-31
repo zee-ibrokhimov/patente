@@ -247,3 +247,46 @@ async def test_a_forged_signature_is_still_refused(client):
     r = await client.post("/webhooks/tribute", content=raw,
                           headers={purchases.SIGNATURE_HEADER: "00" * 32})
     assert r.status_code == 400
+
+
+# --- periods that are not tiers ---------------------------------------------
+
+@pytest.mark.parametrize("period", ["trial", "onetime", "weekly", "yearly"])
+def test_a_known_period_without_a_tier_does_not_warn(period, caplog):
+    """`period: "trial"` arrives on EVERY trial start. Falling through to the
+    "unrecognised product, defaulting to the shortest tier" warning meant that warning
+    fired on the happy path — and a warning that cries wolf is how the real one, a
+    genuinely misconfigured product id, gets scrolled past.
+
+    Observed live on the first real Tribute delivery this project ever received.
+    """
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="api.services.purchases"):
+        purchases.parse_event(body("new_subscription", period=period, sub_type=period))
+    assert "unrecognised" not in caplog.text.lower()
+
+
+def test_a_genuinely_unknown_product_still_warns(caplog):
+    """The guard above must not silence the case it was built for."""
+    import json as _json
+    import logging
+
+    raw = _json.dumps({"name": "new_digital_product",
+                       "payload": {"telegram_user_id": BUYER, "product_id": "nonsense",
+                                   "purchase_id": 555, "amount": 100,
+                                   "currency": "eur"}}).encode()
+    with caplog.at_level(logging.WARNING, logger="api.services.purchases"):
+        purchases.parse_event(raw)
+    assert "unrecognised" in caplog.text.lower()
+
+
+async def test_a_trial_still_takes_its_expiry_from_tribute(client, api_db):
+    """The tier is cosmetic for a subscription; the date is what matters."""
+    from datetime import datetime, timedelta, timezone
+
+    ends = datetime.now(timezone.utc) + timedelta(days=7)
+    await post(client, body("new_subscription", period="trial", sub_type="trial",
+                            amount=0, expires=ends))
+    async with api_db() as s:
+        assert (await s.get(User, BUYER)).pass_expires_at.date() == ends.date()

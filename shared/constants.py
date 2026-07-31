@@ -86,6 +86,16 @@ TRIBUTE_PERIOD_TIERS = {
     "quarterly": TIER_3M,
     "halfyearly": TIER_6M,
 }
+
+# Periods Tribute can legitimately send that do not correspond to anything we sell.
+# `trial` arrives on EVERY trial start, so without this the "unrecognised product"
+# warning fires on a completely normal event — and a warning that cries wolf on the happy
+# path is how the real one gets scrolled past later.
+#
+# Harmless to map them all to the shortest tier: for a subscription the expiry comes from
+# Tribute's own `expires_at`, so the tier is only a label on the purchase row. If a
+# yearly plan is ever sold, give it its own tier rather than leaving it here.
+TRIBUTE_PERIODS_WITHOUT_TIER = ("trial", "onetime", "weekly", "yearly")
 # The one to present as the default. Best per-month value, longest commitment.
 TIER_FEATURED = TIER_6M
 
