@@ -415,6 +415,29 @@ async def apply_refund(session: AsyncSession, event: TributeEvent) -> str:
         expires_at=user.pass_expires_at.isoformat() if user and user.pass_expires_at else None,
     )
     await session.commit()
+    # Premium has three sources and a refund only ever revoked ONE of them.
+    #
+    # Tribute sells a subscription attached to a channel and adds buyers to it, and
+    # membership grants Premium in its own right — deliberately, so a webhook we never
+    # received cannot lock out someone who paid. The reverse case was never handled: a
+    # refunded buyer whose pass was revoked stayed a channel member, so `via_channel`
+    # kept them Premium indefinitely. Their money back AND the product.
+    #
+    # Tribute should remove them from the channel itself; this forces the check now
+    # rather than waiting up to fifteen minutes for the cache to expire. If they are
+    # STILL a member afterwards, that is Tribute's removal not having happened and it is
+    # logged loudly, because no amount of code here can eject someone from a channel we
+    # do not own.
+    from api.services import channel as channel_service
+
+    status = await channel_service.refresh(session, user, force=True)
+    if channel_service.grants_premium(status):
+        log.error(
+            "refund %s: %s is STILL in the Premium channel (%s), so channel membership "
+            "keeps granting them Premium. Remove them in Tribute.",
+            event.purchase_id, event.chat_id, status,
+        )
+
     log.info("refund %s: %s revoked for %s", event.purchase_id, purchase.tier,
              purchase.chat_id)
     return "refunded"

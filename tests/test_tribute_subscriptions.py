@@ -353,3 +353,52 @@ async def test_refunding_twice_is_not_counted_twice(client, api_db):
     await post(client, raw)
     r = await post(client, raw)
     assert r.json()["status"] in ("duplicate", "already-refunded", "unknown")
+
+
+# --- a refund must revoke every source of Premium ---------------------------
+
+async def test_a_refund_rechecks_channel_membership(client, api_db, monkeypatch):
+    """Premium has three sources and a refund revoked only one.
+
+    Tribute adds buyers to a channel, and membership grants Premium on its own — put
+    there so a webhook we never received cannot lock out someone who paid. The reverse
+    was never handled: a refunded buyer stayed a member, so `via_channel` kept them
+    Premium for ever. Their money back AND the product.
+    """
+    from api.services import channel as channel_service
+
+    checked = []
+
+    async def gone(chat_id):
+        checked.append(chat_id)
+        return "left"
+
+    monkeypatch.setattr(channel_service, "fetch_status", gone)
+    monkeypatch.setattr(settings, "premium_channel_id", "-100999")
+
+    await post(client, body("new_subscription", sub_id=901))
+    await post(client, body("subscription_refunded", sub_id=901))
+
+    assert BUYER in checked, "the refund never re-checked channel membership"
+    async with api_db() as s:
+        from api.services.entitlement import evaluate
+        assert evaluate(await s.get(User, BUYER)).premium is False
+
+
+async def test_a_refunded_member_tribute_did_not_eject_is_logged(client, api_db, monkeypatch, caplog):
+    """No code here can remove someone from a channel we do not own, so the honest
+    outcome is a loud log line rather than a silent free ride."""
+    import logging
+
+    from api.services import channel as channel_service
+
+    async def still_there(chat_id):
+        return "member"
+
+    monkeypatch.setattr(channel_service, "fetch_status", still_there)
+    monkeypatch.setattr(settings, "premium_channel_id", "-100999")
+
+    await post(client, body("new_subscription", sub_id=902))
+    with caplog.at_level(logging.ERROR, logger="api.services.purchases"):
+        await post(client, body("subscription_refunded", sub_id=902))
+    assert "STILL in the Premium channel" in caplog.text

@@ -54,5 +54,6 @@
   "plan_1m": "1 month",
   "plan_3m": "3 months",
   "plan_6m": "6 months",
-  "plan_granted_note": "Full access until this date. Nothing will be charged."
+  "plan_granted_note": "Full access until this date. Nothing will be charged.",
+  "delete_paid_warning": "⚠️ You have an active subscription. Deleting your data destroys it too, and it cannot be restored — a refund has to be arranged through @tribute.\n\nIf you only wanted to clear your progress, use <b>Start over</b> in the app's settings."
 }

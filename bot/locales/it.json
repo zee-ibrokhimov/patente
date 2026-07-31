@@ -54,5 +54,6 @@
   "plan_1m": "1 mese",
   "plan_3m": "3 mesi",
   "plan_6m": "6 mesi",
-  "plan_granted_note": "Accesso completo fino a questa data. Nessun addebito."
+  "plan_granted_note": "Accesso completo fino a questa data. Nessun addebito.",
+  "delete_paid_warning": "⚠️ Hai un abbonamento attivo. Cancellando i dati perdi anche l'abbonamento, e non è recuperabile — il rimborso va chiesto a @tribute.\n\nSe volevi solo azzerare i progressi, usa <b>Ricomincia da capo</b> nelle impostazioni dell'app."
 }

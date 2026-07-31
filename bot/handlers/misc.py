@@ -94,9 +94,19 @@ async def support(message: Message, lang: str):
 
 
 @router.message(Command("delete"))
-async def delete_prompt(message: Message, lang: str):
-    """Erasure is irreversible, so it asks first — but only once."""
-    await message.answer(t(lang, "delete_confirm"), reply_markup=keyboards.confirm_delete(lang))
+async def delete_prompt(message: Message, user: dict, lang: str):
+    """Erasure is irreversible, so it asks first — but only once.
+
+    A PAYING subscriber gets a second paragraph. The standard warning talks about
+    "answer history and progress" and says nothing about the subscription going with it,
+    which is the one consequence worth money. It matters more now that Settings has
+    "Start over" for clearing progress: someone who wants that could easily reach for
+    this instead, and there is no undo.
+    """
+    text = t(lang, "delete_confirm")
+    if user.get("has_pass"):
+        text = f"{text}\n\n{t(lang, 'delete_paid_warning')}"
+    await message.answer(text, reply_markup=keyboards.confirm_delete(lang))
 
 
 async def _replace(query: CallbackQuery, text: str) -> None:

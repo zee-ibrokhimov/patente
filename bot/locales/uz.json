@@ -54,5 +54,6 @@
   "plan_1m": "1 oy",
   "plan_3m": "3 oy",
   "plan_6m": "6 oy",
-  "plan_granted_note": "Shu sanagacha to'liq kirish. Hech qanday to'lov olinmaydi."
+  "plan_granted_note": "Shu sanagacha to'liq kirish. Hech qanday to'lov olinmaydi.",
+  "delete_paid_warning": "⚠️ Sizda faol obuna bor. Ma'lumotlarni o'chirsangiz, obuna ham yo'qoladi va uni tiklab bo'lmaydi — pulni qaytarish @tribute orqali.\n\nAgar faqat natijalarni tozalamoqchi bo'lsangiz, ilova sozlamalaridagi <b>Boshidan boshlash</b> dan foydalaning."
 }
