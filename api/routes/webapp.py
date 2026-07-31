@@ -49,6 +49,11 @@ from api.schemas import (
     TopicOut,
     UserOut,
     UserSettingsIn,
+    VocabAnswerIn,
+    VocabAnswerOut,
+    VocabListOut,
+    VocabRoundOut,
+    VocabStatsOut,
 )
 from api.services import (
     content,
@@ -57,6 +62,7 @@ from api.services import (
     telegram_auth,
     translations,
     users,
+    vocab as vocab_service,
 )
 from api.services.entitlement import evaluate
 from api.services.telegram_auth import InitDataRejected
@@ -343,3 +349,65 @@ async def session_results(
         return SessionResultsOut(**await quiz_sessions.results(session, row))
     except quiz_sessions.SessionError as exc:
         raise HTTPException(exc.status, str(exc)) from exc
+
+
+# --- vocabulary trainer -----------------------------------------------------
+#
+# Premium, and gated inside api/services/vocab.py rather than here — a route is a
+# surface, not a policy. These handlers do two things only: translate a VocabError into
+# the status it carries, and hand the service the caller that initData proved.
+
+
+@router.get("/vocab/round", response_model=VocabRoundOut)
+async def vocab_round(
+    user: User = Depends(webapp_user), session: AsyncSession = Depends(get_session)
+):
+    """A round of terms to type, mixed in both directions.
+
+    The response carries prompts and no answers. That is deliberate and load-bearing:
+    a paper that shipped its own answer key would be readable in the network tab, and
+    a test you can read the answers off is not a test.
+    """
+    try:
+        return await vocab_service.round_for(session, user, evaluate(user))
+    except vocab_service.VocabError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+
+
+@router.post("/vocab/answer", response_model=VocabAnswerOut)
+async def vocab_answer(
+    body: VocabAnswerIn,
+    user: User = Depends(webapp_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Grade one typed answer. Near-misses come back as `almost` with the correct form."""
+    try:
+        return await vocab_service.answer(
+            session, user, body.term_id, body.direction, body.given, evaluate(user)
+        )
+    except vocab_service.VocabError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+
+
+@router.get("/vocab/terms", response_model=VocabListOut)
+async def vocab_terms(
+    q: str = Query(default="", max_length=100),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=200),
+    user: User = Depends(webapp_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """The searchable word list — the reference half of the feature."""
+    try:
+        return await vocab_service.browse(session, user, evaluate(user), q, offset, limit)
+    except vocab_service.VocabError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+
+
+@router.get("/vocab/stats", response_model=VocabStatsOut)
+async def vocab_stats(
+    user: User = Depends(webapp_user), session: AsyncSession = Depends(get_session)
+):
+    """Progress through the list. Outside the paywall on purpose: this is the number
+    that makes the feature worth buying, so hiding it behind itself is a poor trade."""
+    return await vocab_service.stats(session, user)

@@ -13,7 +13,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from shared.constants import QUIZ_MODES, TIERS, UI_LANGUAGES
+from shared.constants import QUIZ_MODES, TIERS, UI_LANGUAGES, VOCAB_DIRECTIONS
 
 
 class UserIn(BaseModel):
@@ -263,3 +263,60 @@ class ProfileOut(BaseModel):
     readiness_min_sample: int
     pass_accuracy: float
     exams: ExamSummaryOut
+
+
+# --- vocabulary trainer -----------------------------------------------------
+
+
+class VocabItemOut(BaseModel):
+    """One thing to answer. Carries the prompt and NOT the answer — see
+    api/services/vocab.py for why the expected answer never ships with the round."""
+
+    term_id: int
+    direction: str = Field(description=f"one of {VOCAB_DIRECTIONS}")
+    prompt: str
+    answer_lang: str
+
+
+class VocabRoundOut(BaseModel):
+    lang: str
+    size: int
+    items: list[VocabItemOut]
+
+
+class VocabAnswerIn(BaseModel):
+    term_id: int
+    direction: str
+    given: str = Field(default="", max_length=200)
+
+
+class VocabAnswerOut(BaseModel):
+    term_id: int
+    verdict: str = Field(description="correct | almost | wrong")
+    expected: str
+    correction: str | None
+    it: str
+    gloss: str
+    box: int
+
+
+class VocabTermOut(BaseModel):
+    id: int
+    rank: int
+    it: str
+    gloss: str
+    box: int = Field(description="0 when never answered")
+
+
+class VocabListOut(BaseModel):
+    lang: str
+    total: int
+    offset: int
+    terms: list[VocabTermOut]
+
+
+class VocabStatsOut(BaseModel):
+    total: int
+    started: int
+    learned: int
+    almost: int

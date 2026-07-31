@@ -58,6 +58,16 @@ class Entitlement:
         return not self.has_pass and self.free_explanations_left > 0
 
     @property
+    def can_use_vocabulary(self) -> bool:
+        """The word list and the vocabulary drill.
+
+        No taster here, unlike explanations. A single free explanation demonstrates
+        quality, which is the pitch; a single free vocabulary word demonstrates nothing,
+        and the 7-day trial already gives the whole feature away long enough to judge it.
+        """
+        return self.has_pass
+
+    @property
     def can_use_spaced_repetition(self) -> bool:
         return self.has_pass or not REQUIRE_PASS_FOR_SPACED_REPETITION
 

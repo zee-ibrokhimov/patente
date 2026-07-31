@@ -10,6 +10,10 @@ from api.models.content import (
     Topic,
     Translation,
 )
+from api.models.vocab import (
+    VocabProgress,
+    VocabTerm,
+)
 from api.models.activity import (
     Event,
     Progress,
@@ -25,4 +29,5 @@ __all__ = [
     "Topic", "Quesito", "Figure", "Question", "Translation", "Cluster", "Explanation",
     "User", "Progress", "Purchase", "Event", "Report",
     "QuizSession", "QuizSessionItem",
+    "VocabTerm", "VocabProgress",
 ]

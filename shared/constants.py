@@ -198,3 +198,21 @@ EVENT_TYPES = (
     EV_EXAM_STARTED, EV_EXAM_FINISHED,
     EV_TRIAL_STARTED,
 )
+
+# --- vocabulary trainer -----------------------------------------------------
+
+# Terms per round. Twenty typed answers is roughly three minutes, which fits the gap
+# the app is used in — a bus ride — and ends while the learner still wants another.
+VOCAB_ROUND_SIZE = 20
+
+# Which way round a term is asked. The round mixes both, because recognising `sosta`
+# and producing it from `parking` are different skills and only one of them is what the
+# written exam demands.
+VOCAB_IT_TO_LANG = "it_to_lang"
+VOCAB_LANG_TO_IT = "lang_to_it"
+VOCAB_DIRECTIONS = (VOCAB_IT_TO_LANG, VOCAB_LANG_TO_IT)
+
+# The language a learner is tested against. Italian is excluded for the same reason it is
+# excluded from TRANSLATION_LANGUAGES: an it/it pair is not a question. An Italian-UI
+# user is tested against English.
+VOCAB_PAIR_FALLBACK = LANG_EN
