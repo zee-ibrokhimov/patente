@@ -1,0 +1,100 @@
+#!/bin/bash
+# Keeps CT101 from filling up, and keeps the tunnel alive.
+#
+# Written the day both failed together. Coolify never prunes, so fifteen deploys left
+# ~25 GB of dead images on a 30 GB disk; every container died, the Cloudflare connector
+# died with them, and four hostnames were dark until a token only the owner could reach
+# was fetched by hand.
+#
+# Two jobs, in order of how badly their absence hurt:
+#
+#   1. Remove Coolify application images no container references. The decision is made by
+#      ops/janitor.py, which is unit-tested, because the obvious version of this
+#      (`docker image prune -a`) removes images belonging to STOPPED apps — and on the day
+#      in question three apps were stopped precisely because the disk was full.
+#
+#   2. Make sure the tunnel connector is running. It is the single point through which
+#      every hostname on this box reaches the internet, and nothing else watches it.
+#
+# Quiet when there is nothing to do. It alerts only when it could not fix the problem
+# itself, because an alert that fires on routine work is one nobody reads.
+set -uo pipefail
+
+REPO="/srv/patente"
+CONNECTOR="zeehub_cloudflared"
+TOKEN_FILE="/etc/zeehub-tunnel.token"
+PY="${REPO}/.venv/bin/python"
+
+[ -r /etc/patente-backup.env ] && { set -a; . /etc/patente-backup.env; set +a; }
+
+notify() {
+  [ -n "${TG_TOKEN:-}" ] && [ -n "${TG_CHAT:-}" ] || return 0
+  curl -s -m 15 "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+    --data-urlencode "chat_id=${TG_CHAT}" --data-urlencode "text=$1" >/dev/null 2>&1 || true
+}
+
+stamp() { date -Is; }
+USED=$(df --output=pcent / | tail -1 | tr -dc '0-9')
+
+# --- 1. images ---------------------------------------------------------------
+if "$PY" -c "import sys; sys.path.insert(0,'${REPO}'); from ops.janitor import should_act; sys.exit(0 if should_act(${USED}) else 1)"; then
+  # Every image referenced by ANY container, running or not. `docker ps -a` is the whole
+  # safety property — see ops/janitor.py.
+  IN_USE=$(docker ps -a --format '{{.Image}}' | while read -r ref; do
+    docker inspect -f '{{.Id}}' "$ref" 2>/dev/null
+  done | sort -u | paste -sd, -)
+
+  IMAGES=$(docker images --no-trunc --format '{{.ID}}|{{.Repository}}')
+
+  DOOMED=$("$PY" - "$IN_USE" <<PYEOF
+import sys
+sys.path.insert(0, "${REPO}")
+from ops.janitor import removable
+
+in_use = {x for x in (sys.argv[1] or "").split(",") if x}
+images = []
+for line in """${IMAGES}""".splitlines():
+    if "|" not in line:
+        continue
+    image_id, repository = line.split("|", 1)
+    images.append({"id": image_id.strip(), "repository": repository.strip()})
+print("\n".join(removable(images, in_use)))
+PYEOF
+)
+
+  COUNT=0
+  for ID in $DOOMED; do
+    docker rmi "$ID" >/dev/null 2>&1 && COUNT=$((COUNT + 1))
+  done
+  # Build cache is always safe: it is regenerated on the next build.
+  docker builder prune -af >/dev/null 2>&1
+  AFTER=$(df --output=pcent / | tail -1 | tr -dc '0-9')
+  echo "$(stamp) janitor: disk ${USED}% -> ${AFTER}%, removed ${COUNT} stale app images"
+  USED=$AFTER
+else
+  echo "$(stamp) janitor: disk ${USED}%, nothing to do"
+fi
+
+# --- 2. the tunnel -----------------------------------------------------------
+# Restarting it here is safe and is the difference between a blip and an outage: without
+# a connector EVERY hostname on this box returns 530, and the recovery needs a token.
+if ! docker ps --format '{{.Names}}' | grep -qx "$CONNECTOR"; then
+  if docker ps -a --format '{{.Names}}' | grep -qx "$CONNECTOR"; then
+    docker start "$CONNECTOR" >/dev/null 2>&1 \
+      && echo "$(stamp) janitor: restarted $CONNECTOR" \
+      || notify "patente: could not restart $CONNECTOR — every zeehub hostname is down."
+  elif [ -r "$TOKEN_FILE" ]; then
+    TOKEN=$(grep -v '^#' "$TOKEN_FILE" | tr -d '[:space:]')
+    docker run -d --name "$CONNECTOR" --restart unless-stopped \
+      cloudflare/cloudflared:latest tunnel --no-autoupdate run --token "$TOKEN" >/dev/null 2>&1 \
+      && echo "$(stamp) janitor: recreated $CONNECTOR from $TOKEN_FILE" \
+      || notify "patente: $CONNECTOR is gone and could not be recreated. Every zeehub hostname is down."
+  else
+    notify "patente: $CONNECTOR is gone and $TOKEN_FILE is missing. Every zeehub hostname is down and only the Cloudflare account owner can fix it."
+  fi
+fi
+
+# --- 3. shout only if pruning was not enough ---------------------------------
+if "$PY" -c "import sys; sys.path.insert(0,'${REPO}'); from ops.janitor import is_critical; sys.exit(0 if is_critical(${USED}) else 1)"; then
+  notify "patente: disk is ${USED}% full on CT101 after cleaning. Containers die at 100% and take the Cloudflare tunnel with them."
+fi
