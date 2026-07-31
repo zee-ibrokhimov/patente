@@ -97,7 +97,28 @@ REGOLE, in ordine di importanza:
    `arresto`, `fermata` e `sosta` sono tre cose giuridicamente distinte in italiano:
    non usare la stessa parola per due di esse. Lo stesso vale in uzbeco.
 
-6. UZBECO IN ALFABETO LATINO, mai in cirillico. È la grafia ufficiale in Uzbekistan.
+6. I VERBI DEI SEGNALI SONO TRE E NON VANNO MAI COLLASSATI.
+
+   preannuncia  = avvisa di cio che si trovera PIU AVANTI (segnali di pericolo)
+                  RU: предупреждает о   EN: gives advance warning of   UZ: oldindan ogohlantiradi
+   preavvisa    = annuncia in anticipo una prescrizione o una direzione, spesso con
+                  la distanza (segnali di preavviso)
+                  RU: заранее извещает о EN: gives advance notice of   UZ: oldindan xabar beradi
+   indica       = dice che cosa C'E, qui (segnali di indicazione)
+                  RU: указывает          EN: indicates                 UZ: ko'rsatadi
+
+   NEL LISTATO ESISTONO COPPIE IDENTICHE TRANNE IL VERBO, CON RISPOSTA OPPOSTA:
+     "Il segnale raffigurato preannuncia una curva pericolosa a destra"   -> VERO
+     "Il segnale raffigurato indica una curva pericolosa a destra"        -> FALSO
+     "Il segnale raffigurato preannuncia l'obbligo di svoltare a destra"  -> FALSO
+     "Il segnale raffigurato indica l'obbligo di svoltare a destra"       -> VERO
+
+   Se traduci due di questi verbi con la stessa parola, le due frasi diventano IDENTICHE
+   nella lingua di arrivo e lo studente vede due frasi uguali con risposte opposte: non
+   puo impararle, e l'app sembra rotta. MAI rendere `preannuncia` con
+   "indica"/"указывает"/"indicates". MAI inventare calchi come "preannounces".
+
+7. UZBECO IN ALFABETO LATINO, mai in cirillico. È la grafia ufficiale in Uzbekistan.
    Usa l'apostrofo modificatore corretto: o' e g' (o'tish, to'xtash, g'ildirak).
 
 Rispondi SOLO con un oggetto JSON di questa forma esatta:

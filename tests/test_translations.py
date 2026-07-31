@@ -298,3 +298,39 @@ async def test_a_translated_language_still_reaches_generation(api_db, monkeypatc
 
     assert reached == [2]
     assert access is Access.UNAVAILABLE
+
+
+# --- the three signing verbs ------------------------------------------------
+
+def test_the_prompt_keeps_the_three_signing_verbs_apart():
+    """`preannuncia`, `preavvisa` and `indica` are three different verbs, and the bank
+    contains six pairs that differ ONLY in which one is used and carry OPPOSITE answers:
+
+        Il segnale raffigurato preannuncia una curva pericolosa a destra  -> TRUE
+        Il segnale raffigurato indica una curva pericolosa a destra       -> FALSE
+
+    Russian and English both reach for one word for all three. When they do, those two
+    sentences become identical in translation and the learner sees the same sentence
+    twice with opposite correct answers — unlearnable, and it reads as a broken app.
+
+    Measured in the live cache before this rule existed: `preannuncia` came back as
+    "indicates" once, "preannounces" three times and "announces" once, and in Russian as
+    "предвещает" four times and "предупреждает о" once.
+    """
+    from api.services.translations import SYSTEM_PROMPT
+
+    assert "preannuncia" in SYSTEM_PROMPT
+    assert "preavvisa" in SYSTEM_PROMPT
+    assert "предупреждает" in SYSTEM_PROMPT
+    assert "gives advance warning of" in SYSTEM_PROMPT
+    # The specific collapse to forbid, named in the prompt so the model cannot reach for it.
+    assert "preannounces" in SYSTEM_PROMPT, "the calque must be named as forbidden"
+
+
+def test_the_prompt_shows_a_real_minimal_pair():
+    """An abstract instruction is easy to ignore. The pair is quoted verbatim from the
+    listato so the model sees the consequence rather than a rule about it."""
+    from api.services.translations import SYSTEM_PROMPT
+
+    assert "curva pericolosa a destra" in SYSTEM_PROMPT
+    assert "VERO" in SYSTEM_PROMPT and "FALSO" in SYSTEM_PROMPT
