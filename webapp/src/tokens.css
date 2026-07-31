@@ -84,15 +84,31 @@
      variable font so no request leaves Telegram's webview. */
   --font: 'Inter', 'SF Pro Text', 'Roboto', system-ui, sans-serif;
 
-  --t-title: 40px;      --lh-title: 44px;      --w-title: 800;
-  --t-question: 24px;   --lh-question: 34px;   --w-question: 700;
-  --t-body: 18px;       --lh-body: 28px;       --w-body: 400;
-  --t-caption: 15px;    --lh-caption: 22px;    --w-caption: 400;
+  /* FLUID. The spec's numbers are the values at the 390px reference width, and they are
+     kept as the MAXIMUM rather than as a constant.
+     Fixed pixels were a real defect, not a nicety: at 320px the countdown alone needed
+     ~200px of a ~134px slot, and the 30-cell answer sheet gave each cell 13.6px to hold
+     a 12px digit. Both overflowed.
+     Each middle term is calibrated so that at 390px it evaluates to exactly the spec
+     value — 10.26vw x 390 = 40px, 18.46vw x 390 = 72px, and so on. Nothing changes on
+     the reference device; everything else stops breaking.
+     Line heights are RATIOS, so they track the font size instead of being pinned to a
+     pixel value chosen for one width. */
+  --t-title: clamp(27px, 10.26vw, 40px);      --lh-title: 1.1;    --w-title: 800;
+  --t-question: clamp(18px, 6.15vw, 24px);    --lh-question: 1.42; --w-question: 700;
+  --t-body: clamp(15px, 4.62vw, 18px);        --lh-body: 1.56;    --w-body: 400;
+  --t-caption: clamp(13px, 3.85vw, 15px);     --lh-caption: 1.47;  --w-caption: 400;
 
   /* Display: the timer, the readiness percentage, the verdict. Deliberately enormous —
-     these are the three numbers the whole product exists to deliver. */
-  --t-display: 72px;    --lh-display: 72px;    --w-display: 800;
-  --t-verdict: 64px;    --w-verdict: 800;
+     these are the three numbers the whole product exists to deliver, and the three most
+     likely to overflow a narrow phone. */
+  --t-display: clamp(42px, 18.46vw, 72px);    --lh-display: 1;    --w-display: 800;
+  --t-verdict: clamp(38px, 16.41vw, 64px);    --w-verdict: 800;
+
+  /* Card padding and the screen gutter tighten on a small phone: 24px each side of a
+     320px screen spends 15% of the width on nothing. */
+  --card-pad-fluid: clamp(16px, 6.15vw, 24px);
+  --gutter: clamp(12px, 4.1vw, 16px);
 
   /* --- buttons -------------------------------------------------------- */
   --btn-h: 56px;

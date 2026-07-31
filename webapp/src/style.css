@@ -78,7 +78,10 @@ h2 { font-size: 17px; font-weight: 700; margin: 26px 0 10px; letter-spacing: -.0
 
 body { font-family: var(--font); font-size: var(--t-body); line-height: var(--lh-body); }
 
-.screen { padding: var(--lg) var(--lg) var(--xl); flex: 1; animation: rise .3s var(--ease) both; }
+/* Never let a long Italian legal phrase or a Cyrillic run push the page sideways. */
+html, body { overflow-x: hidden; }
+
+.screen { padding: var(--lg) var(--gutter) var(--xl); flex: 1; animation: rise .3s var(--ease) both; }
 
 @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { *,*::before,*::after { animation-duration:.01ms !important; transition-duration:.01ms !important; } }
@@ -91,14 +94,14 @@ body { font-family: var(--font); font-size: var(--t-body); line-height: var(--lh
   background: var(--card);
   border: 1px solid var(--edge);
   border-radius: var(--card-radius);
-  padding: var(--card-pad);
+  padding: var(--card-pad-fluid);
   box-shadow: var(--card-shadow);
 }
 
 .btn {
   appearance: none; width: 100%; cursor: pointer;
-  height: var(--btn-h); border-radius: var(--btn-r);
-  font-family: inherit; font-size: var(--btn-primary-size); font-weight: var(--btn-primary-weight);
+  height: clamp(50px, 14.4vw, var(--btn-h)); border-radius: var(--btn-r);
+  font-family: inherit; font-size: clamp(17px, 5.13vw, var(--btn-primary-size)); font-weight: var(--btn-primary-weight);
   border: 1px solid transparent; background: var(--surface); color: var(--text);
   display: inline-flex; align-items: center; justify-content: center; gap: var(--sm);
   transition: transform .12s var(--ease), filter .12s var(--ease);
@@ -108,7 +111,7 @@ body { font-family: var(--font); font-size: var(--t-body); line-height: var(--lh
 .btn.primary { background: var(--accent); color: #fff; }
 .btn.secondary {
   background: var(--card); border-color: var(--edge); color: var(--text);
-  font-size: var(--btn-secondary-size); font-weight: var(--btn-secondary-weight);
+  font-size: clamp(16px, 4.62vw, var(--btn-secondary-size)); font-weight: var(--btn-secondary-weight);
 }
 
 /* ======================================================================
@@ -125,7 +128,7 @@ body { font-family: var(--font); font-size: var(--t-body); line-height: var(--lh
   position: relative; overflow: hidden;
   display: grid; grid-template-columns: 1fr; align-items: start;
   width: 100%; text-align: left; appearance: none; cursor: pointer;
-  border-radius: var(--card-radius); padding: var(--card-pad);
+  border-radius: var(--card-radius); padding: var(--card-pad-fluid);
   min-height: 200px; color: inherit;
   transition: transform .16s var(--ease);
 }
@@ -133,8 +136,11 @@ body { font-family: var(--font); font-size: var(--t-body); line-height: var(--lh
 .mode.exam { background: var(--exam-tint); border: 1px solid #fecaca; }
 .mode.practice { background: var(--practice-tint); border: 1px solid #bbf7d0; }
 
-.mode-art { position: absolute; left: -10px; bottom: 0; width: 175px; height: 175px; pointer-events: none; }
-.mode-body { position: relative; margin-left: 42%; }
+.mode-art { position: relative; width: 100%; aspect-ratio: 1; pointer-events: none; align-self: end; }
+.mode-art svg { width: 100%; height: 100%; display: block; }
+/* min-width:0 lets a grid child actually shrink — without it a long word keeps the
+   column at its intrinsic width and the card overflows the screen. */
+.mode-body { min-width: 0; padding-bottom: 34px; }
 
 .mode-tag {
   display: inline-flex; align-items: center; gap: 6px;
@@ -144,23 +150,20 @@ body { font-family: var(--font); font-size: var(--t-body); line-height: var(--lh
 .mode.exam .mode-tag { background: var(--exam-chip); color: var(--exam); }
 .mode.practice .mode-tag { background: var(--practice-chip); color: var(--practice); }
 
-.mode-title { font-size: 34px; font-weight: 800; letter-spacing: -.02em; margin: var(--md) 0 var(--sm); }
+.mode-title { font-size: clamp(24px, 8.7vw, 34px); font-weight: 800; letter-spacing: -.02em; margin: var(--md) 0 var(--sm); }
 .mode.exam .mode-title { color: var(--exam-deep); }
 .mode.practice .mode-title { color: var(--practice-deep); }
-.mode-desc { color: var(--text); font-size: var(--t-body); line-height: 26px; }
+.mode-desc { color: var(--text); font-size: var(--t-body); line-height: 1.4; overflow-wrap: anywhere; }
 
 .mode-go {
-  position: absolute; right: 0; bottom: 0;
-  width: 48px; height: 48px; border-radius: 50%;
+  position: absolute; right: var(--card-pad-fluid); bottom: var(--card-pad-fluid);
+  width: clamp(40px, 12vw, 48px); aspect-ratio: 1; border-radius: 50%;
   display: grid; place-items: center;
 }
 .mode.exam .mode-go { background: var(--exam-chip); color: var(--exam); }
 .mode.practice .mode-go { background: var(--practice-chip); color: var(--practice); }
 
-@media (max-width: 380px) {
-  .mode-body { margin-left: 34%; }
-  .mode-title { font-size: 28px; }
-}
+
 
 /* ======================================================================
    PREMIUM — gold, and gold means nothing else
@@ -172,7 +175,7 @@ body { font-family: var(--font); font-size: var(--t-body); line-height: var(--lh
   border-radius: var(--card-radius);
   padding: var(--xl);
 }
-.premium-title { font-size: 19px; font-weight: 800; color: var(--text); margin: 0 0 var(--xs); letter-spacing: -.01em; }
+.premium-title { font-size: clamp(17px, 4.9vw, 19px); font-weight: 800; color: var(--text); margin: 0 0 var(--xs); letter-spacing: -.01em; }
 .premium-lead { color: var(--text-2); font-size: 16px; line-height: 24px; margin: 0; }
 
 .premium-head { display: flex; gap: var(--md); align-items: flex-start; }
@@ -206,11 +209,14 @@ body { font-family: var(--font); font-size: var(--t-body); line-height: var(--lh
    is the largest thing on the screen because it is the thing a candidate is most aware
    of. */
 .timer-card {
-  display: flex; align-items: center; gap: var(--lg);
+  display: flex; align-items: center; gap: clamp(6px, 3vw, 16px);
   background: var(--exam-tint); border-radius: var(--r-lg);
-  padding: var(--lg); margin-bottom: var(--lg);
+  padding: clamp(10px, 3.6vw, 16px); margin-bottom: var(--lg);
 }
-.timer-dial { flex: none; color: var(--exam); }
+/* The dial and the submit button shrink first; the countdown is the last thing to give
+   way, because it is the one thing on this screen a candidate is watching. */
+.timer-dial { flex: none; color: var(--exam); width: clamp(30px, 10vw, 46px); height: auto; }
+.timer-mid { min-width: 0; }
 .timer-mid { flex: 1; text-align: center; }
 .timer-value {
   font-size: var(--t-display); line-height: var(--lh-display); font-weight: var(--w-display);
@@ -223,22 +229,28 @@ body { font-family: var(--font); font-size: var(--t-body); line-height: var(--lh
 .timer-submit {
   flex: none; appearance: none; cursor: pointer; border: 0;
   background: var(--exam-chip); color: var(--exam);
-  border-radius: var(--r); padding: 10px 14px;
-  font-family: inherit; font-size: 13px; font-weight: 600;
+  border-radius: var(--r); padding: clamp(7px, 2.5vw, 10px) clamp(9px, 3.6vw, 14px);
+  font-family: inherit; font-size: clamp(11px, 3.3vw, 13px); font-weight: 600;
   display: grid; justify-items: center; gap: 3px;
 }
 
 /* The answer sheet. Numbered, so a candidate can tell WHICH question is which — but it
    never shows correctness, because in a real exam you do not find out until the end. */
+/* auto-fit, not repeat(15). Fifteen fixed columns left each cell 13.6px on a 320px
+   screen — too small for the number inside it. This reflows to however many fit: ten on
+   a small phone, fifteen on a large one, and it never clips. */
 .sheet {
-  display: grid; grid-template-columns: repeat(15, 1fr); gap: 6px;
-  background: var(--surface); border-radius: var(--r); padding: var(--md);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(clamp(20px, 5.6vw, 26px), 1fr));
+  gap: clamp(4px, 1.4vw, 6px);
+  background: var(--surface); border-radius: var(--r);
+  padding: clamp(8px, 3vw, 12px);
   margin-bottom: var(--lg);
 }
 .cell {
   aspect-ratio: 1; border-radius: 50%;
   display: grid; place-items: center;
-  font-size: 12px; font-weight: 600;
+  font-size: clamp(10px, 3.1vw, 12px); font-weight: 600;
   background: #fff; color: var(--text-2);
   border: 1.5px solid transparent;
 }
@@ -251,11 +263,13 @@ body { font-family: var(--font); font-size: var(--t-body); line-height: var(--lh
 .plate img { display: block; max-width: 100%; max-height: 32vh; object-fit: contain; }
 
 .statement {
+  overflow-wrap: anywhere;
   font-size: var(--t-question); line-height: var(--lh-question); font-weight: var(--w-question);
   text-align: center; margin: 0 0 var(--md); letter-spacing: -.01em; text-wrap: balance;
 }
 .translation {
-  font-size: var(--t-body); line-height: 26px; color: var(--text-2);
+  overflow-wrap: anywhere;
+  font-size: var(--t-body); line-height: 1.45; color: var(--text-2);
   text-align: center; margin: 0 0 var(--lg);
 }
 .translation p { margin: 0; }
@@ -263,7 +277,7 @@ body { font-family: var(--font); font-size: var(--t-body); line-height: var(--lh
 .answers { display: grid; gap: var(--md); margin-top: var(--xl); }
 .btn.vero, .btn.falso {
   background: var(--card); border: 1.5px solid var(--edge);
-  font-size: 22px; font-weight: 800; letter-spacing: .01em;
+  font-size: clamp(18px, 5.6vw, 22px); font-weight: 800; letter-spacing: .01em;
 }
 .btn.vero { color: var(--accent); border-color: #bfdbfe; background: #eff6ff; }
 .btn.falso { color: var(--text); }
@@ -292,7 +306,7 @@ body { font-family: var(--font); font-size: var(--t-body); line-height: var(--lh
 }
 .verdict.ok .verdict-mark  { background: var(--ok); }
 .verdict.bad .verdict-mark { background: var(--bad); }
-.verdict-title { font-size: 24px; font-weight: 800; letter-spacing: -.01em; }
+.verdict-title { font-size: clamp(19px, 6.2vw, 24px); font-weight: 800; letter-spacing: -.01em; }
 .verdict.ok .verdict-title  { color: var(--ok); }
 .verdict.bad .verdict-title { color: var(--bad); }
 .verdict-sub { color: var(--text-2); font-size: 16px; margin-top: 2px; }
@@ -316,7 +330,7 @@ body { font-family: var(--font); font-size: var(--t-body); line-height: var(--lh
 .esito.pass { background: #f0fdf4; }
 .esito.fail { background: var(--exam-tint); }
 .esito-mark {
-  width: 96px; height: 96px; border-radius: 50%; margin: 0 auto var(--lg);
+  width: clamp(72px, 24.6vw, 96px); aspect-ratio: 1; border-radius: 50%; margin: 0 auto var(--lg);
   display: grid; place-items: center;
 }
 .esito.pass .esito-mark { background: #dcfce7; color: var(--ok); }
@@ -330,7 +344,7 @@ body { font-family: var(--font); font-size: var(--t-body); line-height: var(--lh
 .esito-sub { margin: var(--md) 0 0; font-size: var(--t-body); font-weight: 600; }
 
 .score-card { text-align: center; margin-top: var(--lg); }
-.score-line { font-size: 22px; font-weight: 800; }
+.score-line { font-size: clamp(18px, 5.6vw, 22px); font-weight: 800; }
 .score-line.bad { color: var(--bad); }
 .score-note { color: var(--text-2); font-size: 16px; line-height: 24px; margin-top: var(--sm); }
 
@@ -338,7 +352,7 @@ body { font-family: var(--font); font-size: var(--t-body); line-height: var(--lh
 .tally > div { text-align: center; padding: 0 var(--sm); }
 .tally > div + div { border-left: 1px solid var(--edge); }
 .tally-label { color: var(--text-2); font-size: 16px; }
-.tally-n { font-size: 40px; font-weight: 800; line-height: 1.15; }
+.tally-n { font-size: clamp(30px, 10.3vw, 40px); font-weight: 800; line-height: 1.15; }
 .tally-n.bad { color: var(--bad); }
 .tally-icon { width: 34px; height: 34px; border-radius: 50%; margin: var(--sm) auto 0; display: grid; place-items: center; }
 
