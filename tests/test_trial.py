@@ -101,3 +101,42 @@ def test_longer_plans_are_cheaper_per_month():
 
 def test_every_tier_has_both_a_price_and_a_length():
     assert set(TIER_DAYS) == set(TIER_PRICE_CENTS)
+
+
+# --- the product -> tier mapping -------------------------------------------
+
+def test_every_tier_has_a_configurable_product_id(monkeypatch):
+    """Adding a tier without wiring its Tribute product id means a real purchase falls
+    through to "unrecognised" and grants the SHORTEST pass. The customer pays for six
+    months and gets one, and the only symptom is a log line nobody reads."""
+    from shared.config import settings
+
+    monkeypatch.setattr(settings, "tribute_product_1m", "prod-1m")
+    monkeypatch.setattr(settings, "tribute_product_3m", "prod-3m")
+    monkeypatch.setattr(settings, "tribute_product_6m", "prod-6m")
+
+    mapped = set(settings.tribute_products.values())
+    assert mapped == set(TIER_DAYS), f"tiers with no product id: {set(TIER_DAYS) - mapped}"
+
+
+def test_each_product_id_maps_to_its_own_tier(monkeypatch):
+    from shared.config import settings
+    from api.services.purchases import tier_for
+
+    monkeypatch.setattr(settings, "tribute_product_1m", "prod-1m")
+    monkeypatch.setattr(settings, "tribute_product_3m", "prod-3m")
+    monkeypatch.setattr(settings, "tribute_product_6m", "prod-6m")
+
+    assert tier_for("prod-1m") == "pass_1m"
+    assert tier_for("prod-3m") == "pass_3m"
+    assert tier_for("prod-6m") == "pass_6m"
+
+
+def test_an_unknown_product_grants_the_genuinely_shortest_tier():
+    """Erring short under-serves a customer, which is recoverable. But it only errs short
+    if the fallback is the smallest by DAYS — TIERS is a tuple whose order is incidental,
+    and indexing it would break the moment someone reorders the constants."""
+    from api.services.purchases import SHORTEST_TIER, tier_for
+
+    assert TIER_DAYS[SHORTEST_TIER] == min(TIER_DAYS.values())
+    assert tier_for("something-nobody-configured") == SHORTEST_TIER

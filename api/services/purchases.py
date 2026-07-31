@@ -151,21 +151,32 @@ def parse_event(body: bytes) -> TributeEvent:
     )
 
 
+# The shortest tier by DAYS, not by position. TIERS is a tuple whose order is incidental,
+# and "errs towards the customer being under-served" only holds if this is genuinely the
+# smallest grant.
+SHORTEST_TIER = min(TIER_DAYS, key=lambda t: TIER_DAYS[t])
+
+
 def tier_for(product: str) -> str:
     """Map Tribute's product id to one of our tiers.
 
-    Falls back to the 1-month tier rather than refusing: a payment we cannot classify is
-    still a payment, and granting the shorter pass errs towards the customer being
-    under-served rather than towards us keeping money for nothing. It is logged.
+    Driven by settings.tribute_products rather than an if-chain per tier: the if-chain
+    named 1m and 3m explicitly, so adding the 6-month tier meant a EUR 10.99 purchase
+    fell through to "unrecognised" and granted 30 days — the customer pays for six months
+    and gets one, with a log line as the only symptom.
+
+    Still falls back rather than refusing: a payment we cannot classify is a payment, and
+    granting the shortest pass errs towards under-serving the customer rather than
+    keeping their money for nothing. It is logged loudly.
     """
-    if product and product == settings.tribute_product_3m:
-        return TIERS[1] if len(TIERS) > 1 else TIERS[0]
-    if product and product == settings.tribute_product_1m:
-        return TIERS[0]
+    tier = settings.tribute_products.get(product)
+    if tier:
+        return tier
+    # Our own tier name, which is what the admin grant and the tests use.
     if product in TIER_DAYS:
         return product
     log.warning("unrecognised Tribute product %r — defaulting to the shortest tier", product)
-    return TIERS[0]
+    return SHORTEST_TIER
 
 
 def extend(current: datetime | None, days: int, now: datetime) -> datetime:

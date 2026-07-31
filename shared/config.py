@@ -60,8 +60,11 @@ class Settings(BaseSettings):
 
     tribute_api_key: str = ""
     tribute_webhook_secret: str = ""
+    # One product id per tier. `tribute_products` below derives the mapping from these,
+    # so adding a tier cannot silently miss one — see api/services/purchases.tier_for.
     tribute_product_1m: str = ""
     tribute_product_3m: str = ""
+    tribute_product_6m: str = ""
 
     # Superseded by the 7-day trial (shared.constants.TRIAL_DAYS). Three explanations
     # sampled ONE feature; a week samples the product. Kept as a setting rather than
@@ -69,6 +72,24 @@ class Settings(BaseSettings):
     free_explanations: int = 0
     admin_chat_ids: str = ""
     support_contact: str = ""
+
+    @property
+    def tribute_products(self) -> dict[str, str]:
+        """{product id: tier}, skipping tiers with no id configured yet.
+
+        Derived rather than hand-written: the previous version had an if-chain naming
+        1m and 3m, so adding the 6-month tier meant a EUR 10.99 purchase fell through to
+        "unrecognised" and granted 30 days. The customer pays for six months and gets
+        one, and the only sign is a log line nobody reads.
+        """
+        from shared.constants import TIER_1M, TIER_3M, TIER_6M
+
+        pairs = {
+            self.tribute_product_1m: TIER_1M,
+            self.tribute_product_3m: TIER_3M,
+            self.tribute_product_6m: TIER_6M,
+        }
+        return {pid: tier for pid, tier in pairs.items() if pid}
 
     @property
     def translate_model(self) -> str:

@@ -43,13 +43,16 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o}
       - OPENAI_TRANSLATE_MODEL=${OPENAI_TRANSLATE_MODEL:-}
-      - FREE_EXPLANATIONS=${FREE_EXPLANATIONS:-3}
+      # 0: superseded by the 7-day trial. A taster running alongside a trial means a
+      # lapsed user silently gets three more explanations for free.
+      - FREE_EXPLANATIONS=${FREE_EXPLANATIONS:-0}
       - ADMIN_CHAT_IDS=${ADMIN_CHAT_IDS}
       - SUPPORT_CONTACT=${SUPPORT_CONTACT}
       - TRIBUTE_API_KEY=${TRIBUTE_API_KEY:-}
       - TRIBUTE_WEBHOOK_SECRET=${TRIBUTE_WEBHOOK_SECRET:-}
       - TRIBUTE_PRODUCT_1M=${TRIBUTE_PRODUCT_1M:-}
       - TRIBUTE_PRODUCT_3M=${TRIBUTE_PRODUCT_3M:-}
+      - TRIBUTE_PRODUCT_6M=${TRIBUTE_PRODUCT_6M:-}
     # ONE worker, never more. SQLite plus the per-cluster in-process lock that
     # dedupes concurrent OpenAI calls both assume a single process; --workers
     # would mean duplicate paid API calls and write contention.
@@ -86,7 +89,9 @@ services:
       - BOT_USERNAME=${BOT_USERNAME}
       - ADMIN_CHAT_IDS=${ADMIN_CHAT_IDS}
       - SUPPORT_CONTACT=${SUPPORT_CONTACT}
-      - FREE_EXPLANATIONS=${FREE_EXPLANATIONS:-3}
+      # 0: superseded by the 7-day trial. A taster running alongside a trial means a
+      # lapsed user silently gets three more explanations for free.
+      - FREE_EXPLANATIONS=${FREE_EXPLANATIONS:-0}
     command: ["python", "-m", "bot.main"]
 
   # The Mini App. This is the ONLY service that should ever carry a domain.
