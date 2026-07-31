@@ -89,3 +89,10 @@ class ApiClient:
     async def stats(self, chat_id: int) -> dict:
         return await self._request("GET", f"/users/{chat_id}/stats")
 
+    async def admin_overview(self) -> dict:
+        """Owner-only aggregate. Reachable because the bot sits on the internal network;
+        the /admin prefix has no nginx location block and so is not public."""
+        return await self._request("GET", "/admin/overview")
+
+    async def admin_whois(self, chat_id: int) -> dict:
+        return await self._request("GET", f"/admin/users/{chat_id}")

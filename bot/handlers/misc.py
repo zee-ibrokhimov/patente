@@ -131,3 +131,107 @@ async def delete_confirmed(query: CallbackQuery, lang: str, api: ApiClient):
 async def delete_cancelled(query: CallbackQuery, lang: str):
     await query.answer()
     await _replace(query, t(lang, "delete_cancelled"))
+
+
+def _money(cents: int) -> str:
+    return f"€{cents // 100}.{cents % 100:02d}"
+
+
+def _when(value) -> str:
+    """Dates arrive from the API as ISO strings. Shown to one person on a phone, so the
+    date alone is enough — the time is noise in every case this is read for."""
+    if not value:
+        return "—"
+    return str(value)[:10]
+
+
+@router.message(Command("admin"))
+async def admin_overview(message: Message, lang: str, api: ApiClient):
+    """The state of the business, for the owner.
+
+    Silent for everyone else, matching /grant: a stranger who guesses the command should
+    learn nothing from it, and there is no legitimate user to explain a refusal to.
+    """
+    if message.from_user.id not in config.admin_ids:
+        return
+    try:
+        d = await api.admin_overview()
+    except ApiError as exc:
+        await message.answer(f"could not load: {exc.detail}")
+        return
+
+    lines = [
+        "<b>Overview</b>",
+        "",
+        f"👥 users <b>{d['users']}</b>  (+{d['users_new_week']} this week)",
+        f"🟢 active today <b>{d['active_day']}</b>",
+        "",
+        "<b>Premium</b>",
+        f"  pass in our database  <b>{d['with_pass']}</b>",
+        f"  in the channel        <b>{d['in_channel']}</b>",
+        "",
+        "<b>Money</b>",
+        f"  paid purchases  <b>{d['purchases']}</b>",
+        f"  revenue         <b>{_money(d['revenue_cents'])}</b>",
+        f"  refunded        <b>{d['refunded']}</b>",
+        "",
+        "<b>This week</b>",
+        f"  trials started   <b>{d['trials_week']}</b>",
+        f"  conversions      <b>{d['conversions_week']}</b>",
+        f"  paywall hits     <b>{d['paywall_hits_week']}</b>",
+        f"  exams sat        <b>{d['exams_week']}</b>",
+    ]
+    await message.answer("\n".join(lines))
+
+
+@router.message(Command("whois"))
+async def admin_whois(message: Message, lang: str, api: ApiClient):
+    """`/whois <chat_id>` — everything about one person.
+
+    Built for the one support message a payment integration guarantees: "I paid and I
+    have no access". On 2026-07-31 that had a real cause — webhooks were refused for
+    three hours — and answering it meant opening the database over SSH.
+    """
+    if message.from_user.id not in config.admin_ids:
+        return
+
+    parts = (message.text or "").split()
+    if len(parts) < 2 or not parts[1].lstrip("-").isdigit():
+        await message.answer("usage: /whois &lt;chat_id&gt;")
+        return
+    target = int(parts[1])
+
+    try:
+        d = await api.admin_whois(target)
+    except ApiError as exc:
+        if exc.status == 404:
+            # Worth saying plainly: the purchase webhook CREATES a user, so no row at all
+            # means no payment ever reached us — which is the answer, not a dead end.
+            await message.answer(
+                f"no user {target}.\n\nA purchase would have created one, so nothing "
+                f"from Tribute has ever arrived for this id."
+            )
+            return
+        await message.answer(f"could not load: {exc.detail}")
+        return
+
+    lines = [
+        f"<b>{d['chat_id']}</b>  ({d['lang']})",
+        f"joined {_when(d['created_at'])}",
+        "",
+        f"pass     <b>{'yes' if d['has_pass'] else 'no'}</b>  until {_when(d['pass_expires_at'])}",
+        f"channel  <b>{d['channel_status'] or 'never checked'}</b>  ({_when(d['channel_checked_at'])})",
+        f"free explanations used: {d['free_explanations_used']}",
+    ]
+    if d["purchases"]:
+        lines += ["", "<b>Purchases</b>"]
+        for p in d["purchases"][:5]:
+            tag = " REFUNDED" if p["refunded_at"] else ""
+            kind = "trial" if p["amount_cents"] == 0 else _money(p["amount_cents"])
+            lines.append(f"  {kind} {p['tier']} → {_when(p['extended_to'])}{tag}")
+    else:
+        lines += ["", "no purchases"]
+    if d["recent_events"]:
+        lines += ["", "<b>Recent</b>"]
+        lines += [f"  {e['type']} {_when(e['at'])}" for e in d["recent_events"]]
+    await message.answer("\n".join(lines))

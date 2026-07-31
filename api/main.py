@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps import get_session
 from api.models import Question
-from api.routes import figures, quiz, users, webapp, webhooks
+from api.routes import admin, figures, quiz, users, webapp, webhooks
 from shared.config import settings
 
 app = FastAPI(
@@ -22,6 +22,7 @@ app = FastAPI(
     summary="Question selection, Leitner scheduling, entitlement and events.",
 )
 
+app.include_router(admin.router)
 app.include_router(users.router)
 app.include_router(quiz.router)
 app.include_router(figures.router)
