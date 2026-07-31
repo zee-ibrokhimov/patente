@@ -25,7 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.models import User, VocabProgress, VocabTerm
 from api.services import leitner
 from api.services.entitlement import Entitlement
-from api.services.vocab_grading import Verdict, grade
+from api.services.vocab_grading import Grade, Verdict, grade
 from shared.constants import (
     TRANSLATION_LANGUAGES,
     VOCAB_IT_TO_LANG,
@@ -157,10 +157,19 @@ async def answer(
     lang = pair_language(user)
     if direction == VOCAB_IT_TO_LANG:
         expected, answer_lang = term.gloss(lang), lang
+        result = grade(given or "", expected, lang=answer_lang)
     else:
+        # ASKING FOR THE ITALIAN, where more than one answer is genuinely right.
+        #
+        # Italian words share glosses constantly: `conducente` and `autista` are both
+        # "водитель"; `preavvisa` and `avverte` are both "warns". Grading only against the
+        # word we happen to have picked marks a correct translation WRONG — measured on
+        # the shipped list, 105 Italian words share a Russian gloss, 117 an English one,
+        # 177 an Uzbek one. Being told you are wrong when you are right is the fastest way
+        # to stop trusting a trainer, and it would have been 10-16% of every reverse card.
         expected, answer_lang = term.it, "it"
-
-    result = grade(given or "", expected, lang=answer_lang)
+        accepted = await _same_meaning(session, term, lang)
+        result = _best_of(given or "", accepted, expected)
 
     row = await session.get(VocabProgress, (user.chat_id, term_id))
     if row is None:
@@ -191,6 +200,38 @@ async def answer(
         "gloss": term.gloss(lang),
         "box": row.box,
     }
+
+
+async def _same_meaning(session: AsyncSession, term: VocabTerm, lang: str) -> list[str]:
+    """Every Italian word carrying this term's gloss — all of them correct answers."""
+    column = {"en": VocabTerm.en, "ru": VocabTerm.ru, "uz": VocabTerm.uz}.get(lang)
+    if column is None:
+        return [term.it]
+    rows = await session.scalars(
+        select(VocabTerm.it).where(func.lower(func.trim(column)) == term.gloss(lang).strip().lower())
+    )
+    # The asked-about word first, so it is the one shown as the correction.
+    others = [r for r in rows if r != term.it]
+    return [term.it, *others]
+
+
+def _best_of(given: str, accepted: list[str], shown: str):
+    """Grade against every acceptable Italian and keep the kindest verdict.
+
+    A near-miss on a synonym still beats a flat WRONG, but the correction always names the
+    word the card asked about — correcting someone to a synonym they were not shown would
+    be answering a question nobody asked.
+    """
+    best = None
+    for candidate in accepted:
+        result = grade(given, candidate, lang="it")
+        if result.verdict is Verdict.CORRECT:
+            return Grade(Verdict.CORRECT, correction=None, matched=candidate)
+        if best is None or (result.verdict is Verdict.ALMOST and best.verdict is Verdict.WRONG):
+            best = result
+    if best is None:
+        return Grade(Verdict.WRONG, correction=shown, matched=None)
+    return Grade(best.verdict, correction=shown, matched=best.matched)
 
 
 async def browse(

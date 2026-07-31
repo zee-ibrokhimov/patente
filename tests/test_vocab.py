@@ -21,6 +21,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from sqlalchemy import select
 
 from api.models import User, VocabProgress, VocabTerm
 from api.services import vocab as vocab_service
@@ -336,3 +337,84 @@ async def test_stats_count_a_word_as_learned_only_once_it_has_stuck(
     body = (await client.get("/webapp/vocab/stats", headers=auth())).json()
     assert body["started"] == 2
     assert body["learned"] == 1
+
+
+# --- more than one Italian word can be right --------------------------------
+#
+# Italian shares glosses constantly. `conducente` and `autista` are both "водитель";
+# `preavvisa` and `avverte` are both "warns". A reverse card showed one gloss and accepted
+# only the word we happened to have picked, so a learner typing a genuinely correct
+# translation was told they were wrong.
+#
+# Measured on the shipped list: 105 Italian words share a Russian gloss, 117 an English
+# one, 177 an Uzbek one. That is 10-16% of every reverse card calling a right answer wrong,
+# and being told you are wrong when you are right is the fastest way to stop trusting a
+# trainer.
+
+
+@pytest.fixture
+async def synonyms(api_db):
+    """Two Italian words, one Russian meaning."""
+    async with api_db() as s:
+        s.add_all([
+            VocabTerm(rank=90, it="conducente", en="driver", ru="водитель", uz="haydovchi"),
+            VocabTerm(rank=91, it="autista", en="driver", ru="водитель", uz="haydovchi"),
+        ])
+        await s.commit()
+    return api_db
+
+
+async def test_a_synonym_is_accepted_on_the_reverse_card(client, premium, api_db, synonyms):
+    """THE fix. The card asks about `conducente`; `autista` is also "водитель"."""
+    await set_lang(api_db, "ru")
+    async with api_db() as s:
+        asked = (await s.scalars(select(VocabTerm).where(VocabTerm.it == "conducente"))).one()
+
+    body = (await answer(client, asked.id, VOCAB_LANG_TO_IT, "autista")).json()
+    assert body["verdict"] == "correct", "a correct translation was marked wrong"
+
+
+async def test_the_correction_still_names_the_word_that_was_asked(
+        client, premium, api_db, synonyms):
+    """Correcting someone to a synonym they were never shown answers a question nobody
+    asked. A wrong answer is corrected to the card's own word."""
+    await set_lang(api_db, "ru")
+    async with api_db() as s:
+        asked = (await s.scalars(select(VocabTerm).where(VocabTerm.it == "conducente"))).one()
+
+    body = (await answer(client, asked.id, VOCAB_LANG_TO_IT, "qwerty")).json()
+    assert body["verdict"] == "wrong"
+    assert body["expected"] == "conducente"
+
+
+async def test_a_near_miss_on_a_synonym_is_still_a_near_miss(client, premium, api_db, synonyms):
+    """`autist` for `autista` is the right word in the wrong form, even though the card
+    asked about `conducente`. Grading it WRONG would punish someone who knew more than
+    the card expected."""
+    await set_lang(api_db, "ru")
+    async with api_db() as s:
+        asked = (await s.scalars(select(VocabTerm).where(VocabTerm.it == "conducente"))).one()
+
+    body = (await answer(client, asked.id, VOCAB_LANG_TO_IT, "autist")).json()
+    assert body["verdict"] == "almost"
+
+
+async def test_a_genuinely_different_word_is_still_wrong(client, premium, api_db, synonyms):
+    """Accepting synonyms must not become accepting anything."""
+    await set_lang(api_db, "ru")
+    async with api_db() as s:
+        asked = (await s.scalars(select(VocabTerm).where(VocabTerm.it == "conducente"))).one()
+
+    body = (await answer(client, asked.id, VOCAB_LANG_TO_IT, "fermata")).json()
+    assert body["verdict"] == "wrong"
+
+
+async def test_the_forward_direction_is_unaffected(client, premium, api_db, synonyms):
+    """it -> lang has no ambiguity to resolve: the Italian is given and one gloss is
+    expected. This must not have loosened."""
+    await set_lang(api_db, "ru")
+    async with api_db() as s:
+        asked = (await s.scalars(select(VocabTerm).where(VocabTerm.it == "conducente"))).one()
+
+    assert (await answer(client, asked.id, VOCAB_IT_TO_LANG, "водитель")).json()["verdict"] == "correct"
+    assert (await answer(client, asked.id, VOCAB_IT_TO_LANG, "стоянка")).json()["verdict"] == "wrong"
