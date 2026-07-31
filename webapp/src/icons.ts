@@ -94,6 +94,25 @@ export const icons = {
 
   target: (size = 26) =>
     svg(`<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="1"/>`, size),
+
+  eye: (size = 20) =>
+    svg(`<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="3"/>`, size),
+
+  clipboardCheck: (size = 20) =>
+    svg(`<rect x="6" y="4" width="12" height="17" rx="2.5"/><path d="M9.5 4a2.5 2.5 0 0 1 5 0"/><path d="m9.5 13 2 2 3.5-4"/>`, size),
+
+  globe: (size = 22) =>
+    svg(`<circle cx="12" cy="12" r="9"/><path d="M3.2 9.5h17.6M3.2 14.5h17.6"/><path d="M12 3c2.4 2.6 3.6 5.6 3.6 9S14.4 18.4 12 21c-2.4-2.6-3.6-5.6-3.6-9S9.6 5.6 12 3Z"/>`, size),
+
+  send: (size = 26) =>
+    svg(`<path d="M21 4 3 11l6.5 2.5L12 20l3-6.5L21 4Z"/><path d="m9.5 13.5 3-3"/>`, size),
+
+  car: (size = 20) =>
+    svg(`<path d="M4.5 15.5h15M6 15.5V18a1 1 0 0 1-1 1H4.5a1 1 0 0 1-1-1v-2.5M18 15.5V18a1 1 0 0 0 1 1h.5a1 1 0 0 0 1-1v-2.5"/><path d="M3.5 15.5v-3l1.8-4.2A2 2 0 0 1 7.1 7h9.8a2 2 0 0 1 1.8 1.3l1.8 4.2v3Z"/>`, size),
+
+  lane: (size = 20) =>
+    svg(`<path d="M7 20 9.5 4M17 20 14.5 4M12 5v3M12 11v3M12 17v3"/>`, size),
+
 };
 
 /** Decorative artwork for the two mode cards.

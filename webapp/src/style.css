@@ -123,11 +123,11 @@ html, body { overflow-x: hidden; }
    HOME
    ====================================================================== */
 
-.brand { text-align: center; padding: var(--xl) 0 0; }
+.brand { text-align: center; padding: var(--lg) 0 0; }
 .brand h1 { font-size: var(--t-title); line-height: var(--lh-title); font-weight: var(--w-title); letter-spacing: -.03em; margin: 0; }
-.brand p { color: var(--text-2); margin: var(--sm) 0 var(--xl); }
+.brand p { color: var(--text-2); margin: 6px 0 var(--lg); font-size: var(--t-caption); }
 
-.modes { display: grid; gap: var(--lg); }
+.modes { display: grid; gap: var(--md); }
 
 .mode {
   position: relative; overflow: hidden;
@@ -141,28 +141,30 @@ html, body { overflow-x: hidden; }
 .mode.exam { background: var(--exam-tint); border: 1px solid #fecaca; }
 .mode.practice { background: var(--practice-tint); border: 1px solid #bbf7d0; }
 
-.mode-art { position: relative; width: 100%; aspect-ratio: 1; pointer-events: none; align-self: end; }
+.mode-art { position: relative; width: 100%; aspect-ratio: 1; pointer-events: none; }
 .mode-art svg { width: 100%; height: 100%; display: block; }
 /* min-width:0 lets a grid child actually shrink — without it a long word keeps the
    column at its intrinsic width and the card overflows the screen. */
-.mode-body { min-width: 0; padding-bottom: 34px; }
+/* No reserved strip at the bottom: the arrow now sits inline with the title
+   instead of floating in the corner, which was costing 34px of height per card. */
+.mode-body { min-width: 0; }
 
 .mode-tag {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 6px 12px; border-radius: 999px;
-  font-size: 13px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 10px; border-radius: 999px;
+  font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
 }
 .mode.exam .mode-tag { background: var(--exam-chip); color: var(--exam); }
 .mode.practice .mode-tag { background: var(--practice-chip); color: var(--practice); }
 
-.mode-title { font-size: clamp(24px, 8.7vw, 34px); font-weight: 800; letter-spacing: -.02em; margin: var(--md) 0 var(--sm); }
+.mode-title { font-size: clamp(21px, 6.9vw, 27px); font-weight: 800; letter-spacing: -.02em; margin: var(--sm) 0 4px; display: flex; align-items: center; gap: var(--sm); }
 .mode.exam .mode-title { color: var(--exam-deep); }
 .mode.practice .mode-title { color: var(--practice-deep); }
-.mode-desc { color: var(--text); font-size: var(--t-body); line-height: 1.4; overflow-wrap: anywhere; }
+.mode-desc { color: var(--text-2); font-size: var(--t-caption); line-height: 1.4; overflow-wrap: anywhere; }
 
 .mode-go {
-  position: absolute; right: var(--card-pad-fluid); bottom: var(--card-pad-fluid);
-  width: clamp(40px, 12vw, 48px); aspect-ratio: 1; border-radius: 50%;
+  margin-left: auto; flex: none;
+  width: 30px; aspect-ratio: 1; border-radius: 50%;
   display: grid; place-items: center;
 }
 .mode.exam .mode-go { background: var(--exam-chip); color: var(--exam); }
@@ -413,3 +415,179 @@ html, body { overflow-x: hidden; }
   border-radius: var(--r); padding: 12px 20px; font-size: 16px; font-weight: 600;
 }
 .chip.on { background: #eff6ff; color: var(--accent); border-color: var(--accent); }
+
+/* ======================================================================
+   PROFILE
+   ====================================================================== */
+
+.who { display: flex; align-items: center; gap: var(--md); padding: var(--sm) 0 var(--lg); }
+.avatar {
+  width: clamp(48px, 14vw, 58px); aspect-ratio: 1; border-radius: 50%;
+  flex: none; overflow: hidden; display: grid; place-items: center;
+  background: var(--accent); color: #fff;
+  font-size: 22px; font-weight: 700;
+}
+.avatar img { width: 100%; height: 100%; object-fit: cover; }
+.who-name { font-size: clamp(22px, 6.7vw, 26px); font-weight: 800; letter-spacing: -.02em; }
+.who-streak { font-size: var(--t-caption); font-weight: 700; color: var(--bad); margin-top: 2px; }
+.who-gear { margin-left: auto; color: var(--text-2); background: none; border: 0; cursor: pointer; padding: 6px; }
+
+/* The readiness gauge. A semicircle so the 90% pass threshold can sit ON the same scale
+   as the score — a bare percentage floats, a percentage against a marked bar does not. */
+.gauge-wrap { text-align: center; }
+.gauge-label { margin-bottom: var(--sm); }
+.gauge-svg { width: 100%; max-width: 320px; display: block; margin: 0 auto; }
+.gauge-value {
+  font-size: var(--t-display); line-height: 1; font-weight: var(--w-display);
+  letter-spacing: -.03em;
+}
+.gauge-value small { font-size: .5em; font-weight: 700; }
+.gauge-sub { color: var(--text-2); font-size: var(--t-caption); }
+.gauge-empty { color: var(--text-2); font-size: var(--t-caption); padding: var(--lg) 0; }
+
+.gauge-note {
+  display: flex; gap: var(--md); align-items: center;
+  background: #f0fdf4; border-radius: var(--r); padding: var(--md) var(--lg);
+  margin-top: var(--lg); text-align: left;
+}
+.gauge-note svg { flex: none; color: var(--ok); }
+.gauge-note b { display: block; font-size: 16px; }
+.gauge-note span { color: var(--text-2); font-size: var(--t-caption); }
+
+.stat-row { display: grid; grid-template-columns: repeat(3, 1fr); }
+.stat-row > div { text-align: center; padding: 0 var(--sm); }
+.stat-row > div + div { border-left: 1px solid var(--edge); }
+.stat-ico { display: grid; place-items: center; margin-bottom: 6px; }
+.stat-label { color: var(--text-2); font-size: var(--t-caption); }
+.stat-n { font-size: clamp(24px, 7.7vw, 30px); font-weight: 800; margin-top: 2px; }
+
+.section-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: var(--sm); }
+.section-head h2 { margin: 0; }
+.section-more { color: var(--accent); font-size: var(--t-caption); font-weight: 600; background: none; border: 0; cursor: pointer; }
+
+.run-row { display: flex; align-items: center; gap: var(--md); padding: var(--md) 0; }
+.run-row + .run-row { border-top: 1px solid var(--edge); }
+.run-mark { width: 26px; aspect-ratio: 1; border-radius: 50%; display: grid; place-items: center; flex: none; color: #fff; }
+.run-mark.pass { background: var(--ok); }
+.run-mark.fail { background: var(--bad); }
+.run-badge {
+  font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  padding: 4px 9px; border-radius: 999px; flex: none;
+}
+.run-badge.pass { background: var(--practice-chip); color: var(--practice-deep); }
+.run-badge.fail { background: var(--exam-chip); color: var(--exam-deep); }
+.run-name { min-width: 0; }
+.run-name b { display: block; font-size: 16px; font-weight: 600; }
+.run-name span { color: var(--text-2); font-size: 13px; }
+.run-score { margin-left: auto; font-weight: 700; font-variant-numeric: tabular-nums; flex: none; }
+.run-score.fail { color: var(--bad); }
+.run-score.pass { color: var(--ok); }
+.run-score small { color: var(--text-2); font-weight: 500; }
+
+/* ======================================================================
+   STATS
+   ====================================================================== */
+
+.tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--sm); }
+.tile {
+  background: var(--card); border: 1px solid var(--edge);
+  border-radius: var(--r); padding: var(--md); text-align: left;
+}
+.tile-ico { width: 34px; aspect-ratio: 1; border-radius: 50%; display: grid; place-items: center; margin-bottom: var(--sm); }
+.tile-label { color: var(--text-2); font-size: 13px; line-height: 1.25; }
+.tile-n { font-size: clamp(22px, 6.7vw, 28px); font-weight: 800; margin-top: 4px; }
+.tile-n small { font-size: .55em; color: var(--text-2); font-weight: 600; }
+
+/* Leitner boxes. Numbered AND labelled: "3" means nothing on its own, and the whole
+   point of the section is that the user understands what the schedule is doing. */
+.boxes { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.box {
+  border-radius: var(--r-sm); padding: var(--sm) 4px; text-align: center;
+  border: 1px solid var(--edge);
+}
+.box-n {
+  width: 24px; aspect-ratio: 1; border-radius: 50%; margin: 0 auto 5px;
+  display: grid; place-items: center; font-size: 13px; font-weight: 700;
+}
+.box-label { font-size: 10px; line-height: 1.2; color: var(--text-2); min-height: 2.4em; }
+.box-c { font-size: clamp(17px, 5.1vw, 21px); font-weight: 800; margin-top: 4px; }
+.box-scale { display: flex; align-items: center; gap: 4px; margin-top: var(--md); }
+.box-scale i { flex: 1; height: 5px; border-radius: 3px; }
+.box-scale-ends { display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; margin-top: 4px; }
+
+.topic-row { display: flex; gap: var(--md); align-items: flex-start; padding: var(--md) 0; }
+.topic-row + .topic-row { border-top: 1px solid var(--edge); }
+.topic-ico { width: 38px; aspect-ratio: 1; border-radius: 10px; display: grid; place-items: center; flex: none; }
+.topic-main { min-width: 0; flex: 1; }
+.topic-name { font-size: 16px; font-weight: 700; overflow-wrap: anywhere; }
+.topic-desc { color: var(--text-2); font-size: 13px; line-height: 1.35; margin-top: 2px; }
+.topic-right { flex: none; text-align: right; min-width: 84px; }
+.topic-pct { font-size: 17px; font-weight: 800; }
+.topic-bar { height: 6px; border-radius: 3px; background: var(--edge); margin-top: 6px; overflow: hidden; }
+.topic-bar i { display: block; height: 100%; border-radius: 3px; }
+
+/* ======================================================================
+   SETTINGS
+   ====================================================================== */
+
+.lang-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--sm); }
+.lang {
+  position: relative; appearance: none; cursor: pointer; font-family: inherit;
+  border: 1.5px solid var(--edge); background: var(--card); color: var(--text);
+  border-radius: var(--r); padding: var(--md) 4px; text-align: center;
+}
+.lang.on { border-color: var(--accent); background: #eff6ff; }
+.lang-code { font-size: clamp(16px, 4.9vw, 19px); font-weight: 800; }
+.lang.on .lang-code { color: var(--accent); }
+.lang-name { font-size: 12px; color: var(--text-2); margin-top: 2px; }
+.lang.on .lang-name { color: var(--accent); }
+.lang-tick { position: absolute; top: -7px; right: -7px; width: 20px; aspect-ratio: 1; border-radius: 50%; background: var(--accent); color: #fff; display: grid; place-items: center; }
+.lang-beta {
+  position: absolute; top: -8px; right: -6px;
+  background: var(--accent); color: #fff; font-size: 9px; font-weight: 700;
+  padding: 2px 6px; border-radius: 999px; letter-spacing: .04em;
+}
+
+.row { display: flex; align-items: center; gap: var(--md); }
+.row-main { min-width: 0; flex: 1; }
+.row-title { font-size: 18px; font-weight: 700; }
+.row-sub { color: var(--text-2); font-size: var(--t-caption); margin-top: 2px; }
+
+.switch {
+  appearance: none; cursor: pointer; flex: none; border: 0;
+  width: 52px; height: 31px; border-radius: 999px; background: var(--edge);
+  position: relative; transition: background .18s var(--ease);
+}
+.switch.on { background: var(--accent); }
+.switch::after {
+  content: ''; position: absolute; top: 3px; left: 3px;
+  width: 25px; height: 25px; border-radius: 50%; background: #fff;
+  transition: transform .18s var(--ease);
+  box-shadow: 0 1px 3px rgba(0,0,0,.25);
+}
+.switch.on::after { transform: translateX(21px); }
+
+.note {
+  display: flex; gap: var(--sm); align-items: flex-start;
+  background: #eff6ff; border-radius: var(--r); padding: var(--md);
+  margin-top: var(--md); color: var(--text-2); font-size: var(--t-caption); line-height: 1.4;
+}
+.note svg { flex: none; color: var(--accent); }
+
+.sub-active { background: #f0fdf4; border: 1px solid #bbf7d0; }
+.sub-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--practice-chip); color: var(--practice-deep);
+  padding: 5px 11px; border-radius: 999px; font-size: 12px; font-weight: 700;
+  letter-spacing: .04em; text-transform: uppercase;
+}
+.sub-until { display: flex; gap: var(--sm); align-items: center; color: var(--text-2); font-size: var(--t-caption); margin-top: var(--md); padding-top: var(--md); border-top: 1px solid #bbf7d0; }
+.sub-until b { color: var(--practice-deep); }
+
+.link-row {
+  display: flex; align-items: center; gap: var(--md); width: 100%;
+  appearance: none; cursor: pointer; text-align: left; font-family: inherit;
+  background: var(--card); border: 1px solid var(--edge);
+  border-radius: var(--r); padding: var(--lg); color: inherit;
+}
+.link-row .chev { margin-left: auto; color: var(--text-3); flex: none; }

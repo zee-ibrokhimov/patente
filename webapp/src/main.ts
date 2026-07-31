@@ -1,4 +1,5 @@
 import { api, ApiError, sessions } from "./api";
+import { readinessGauge } from "./gauge";
 import { art, icons } from "./icons";
 import { lang, setLang, t } from "./i18n";
 import { haptic, inTelegram, initTelegram, setBackButton, tg } from "./telegram";
@@ -754,10 +755,11 @@ function profileScreen(): HTMLElement {
     return wrap;
   }
 
-  // Identity comes from initDataUnsafe, which is fine for DISPLAY only — it is the
-  // unverified copy. Anything that matters is keyed off the signed blob server-side.
+  // Identity is from initDataUnsafe — the UNVERIFIED copy — and is used for DISPLAY only.
+  // Anything that matters is keyed off the signed blob, server-side.
   const tgUser = tg?.initDataUnsafe?.user;
-  const name = tgUser?.first_name ?? "";
+  const name = (tgUser?.first_name ?? "").trim();
+
   const who = el("div", "who");
   const avatar = el("div", "avatar");
   if (tgUser?.photo_url) {
@@ -766,87 +768,112 @@ function profileScreen(): HTMLElement {
     img.alt = "";
     avatar.append(img);
   } else {
-    avatar.textContent = (name.trim()[0] ?? "?").toUpperCase();
+    avatar.textContent = (name[0] ?? "?").toUpperCase();
   }
-  const who_text = el("div");
-  who_text.append(el("div", "who-name", name || t("profile")));
+  const whoText = el("div");
+  whoText.append(el("div", "who-name", name || t("profile")));
   if (p.streak_days > 0) {
-    const streak = el("div", "who-streak");
-    streak.append(el("b", "", `🔥 ${p.streak_days}`),
-                  document.createTextNode(` ${t("streak_days")}`));
-    who_text.append(streak);
+    whoText.append(el("div", "who-streak", `🔥 ${p.streak_days} ${t("streak_days")}`));
   }
-  who.append(avatar, who_text);
+  const gear = el("button", "who-gear");
+  gear.append(icons.gear(24));
+  gear.onclick = () => { state.screen = "settings"; render(); };
+  who.append(avatar, whoText, gear);
   wrap.append(who);
 
   // --- readiness ---
-  const pct = p.readiness == null ? null : Math.round(p.readiness * 100);
-  const ready = pct != null && p.readiness! >= p.pass_accuracy;
-  const gauge = el("div", `gauge ${pct == null ? "" : ready ? "ready" : "notyet"}`);
-  const head = el("div", "gauge-head");
-  head.append(el("div", "label", t("ready_title")));
-  head.append(el("div", "gauge-value", pct == null ? "—" : `${pct}%`));
-  gauge.append(head);
+  const card = el("div", "card gauge-wrap");
+  card.append(el("div", "label gauge-label", t("ready_title")));
+  card.append(readinessGauge({ value: p.readiness, threshold: p.pass_accuracy }));
 
-  if (pct == null) {
-    // The server refuses to estimate below a minimum sample, and this renders that
-    // refusal rather than drawing a 0% bar that would read as "you know nothing".
-    gauge.append(el("p", "gauge-empty",
-      t("need_more", { n: p.readiness_min_sample })));
+  if (p.readiness === null) {
+    // The server refuses to estimate below a minimum sample. Rendering that refusal
+    // matters: a 0% bar would read as "you know nothing" rather than "not enough data".
+    card.append(el("div", "gauge-value", "—"));
+    card.append(el("div", "gauge-empty", t("need_more", { n: p.readiness_min_sample })));
   } else {
-    const track = el("div", "gauge-track");
-    const fill = el("div", "gauge-fill");
-    fill.style.width = `${pct}%`;
-    const mark = el("div", "gauge-mark");
-    mark.style.left = `${Math.round(p.pass_accuracy * 100)}%`;
-    track.append(fill, mark);
-    gauge.append(track);
+    const pct = Math.round(p.readiness * 100);
+    const value = el("div", "gauge-value");
+    value.append(document.createTextNode(String(pct)), el("small", "", "%"));
+    card.append(value);
+    card.append(el("div", "gauge-sub", t("based_on", { n: p.readiness_sample })));
 
-    const foot = el("div", "gauge-foot");
-    foot.append(el("span", "label", t("based_on", { n: p.readiness_sample })));
-    foot.append(el("span", "label",
-      t("pass_bar", { n: Math.round(p.pass_accuracy * 100) })));
-    gauge.append(foot);
+    const note = el("div", "gauge-note");
+    note.append(icons.target(26));
+    const noteText = el("div");
+    noteText.append(el("b", "", t("pass_bar", { n: Math.round(p.pass_accuracy * 100) })));
+    noteText.append(el("span", "", p.readiness >= p.pass_accuracy ? t("ready_yes") : t("ready_keep")));
+    note.append(noteText);
+    card.append(note);
   }
-  wrap.append(gauge);
+  wrap.append(card);
 
-  // --- exams ---
-  const grid = el("div", "grid");
-  const tile = (label: string, value: string) => {
-    const d = el("div", "tile");
-    d.append(el("div", "tile-value", value), el("div", "tile-label", label));
+  // --- exam tallies ---
+  const stats = el("div", "card");
+  stats.style.marginTop = "var(--md)";
+  const row = el("div", "stat-row");
+  const stat = (icon: SVGSVGElement, label: string, value: string) => {
+    const d = el("div");
+    const ico = el("div", "stat-ico");
+    ico.append(icon);
+    d.append(ico, el("div", "stat-label", label), el("div", "stat-n", value));
     return d;
   };
-  grid.append(
-    tile(t("exams_taken"), String(p.exams.taken)),
-    tile(t("exams_passed"), String(p.exams.passed)),
-    tile(t("avg_errors"), p.exams.avg_errors == null ? "—" : String(p.exams.avg_errors)),
+  row.append(
+    stat(icons.clipboardCheck(22), t("exams_taken"), String(p.exams.taken)),
+    stat(icons.check(22), t("exams_passed"), String(p.exams.passed)),
+    stat(icons.cross(20), t("avg_errors"), p.exams.avg_errors == null ? "—" : String(p.exams.avg_errors)),
   );
-  wrap.append(el("h2", "", t("history")), grid);
+  stats.append(row);
+  wrap.append(stats);
+
+  // --- recent exams ---
+  const history = el("div", "card");
+  history.style.marginTop = "var(--md)";
+  const head = el("div", "section-head");
+  head.append(el("h2", "", t("history")));
+  history.append(head);
 
   if (!p.exams.recent.length) {
-    wrap.append(el("p", "hint", t("no_exams")));
+    history.append(el("p", "caption", t("no_exams")));
   } else {
-    const list = el("div", "history");
     for (const run of p.exams.recent) {
-      const row = el("div", "run-row");
-      row.append(el("span", `run-badge ${run.passed ? "pass" : "fail"}`,
-        run.passed ? t("passed") : t("failed")));
-      const when = run.finished_at
-        ? new Date(run.finished_at).toLocaleDateString(lang())
-        : "";
-      row.append(el("span", "run-meta", when));
-      row.append(el("span", "run-score", `${run.wrong}/${run.question_count}`));
-      list.append(row);
+      const passed = run.passed === true;
+      const r = el("div", "run-row");
+      const mark = el("div", `run-mark ${passed ? "pass" : "fail"}`);
+      mark.append(passed ? icons.tick(16) : icons.cross(14));
+      r.append(mark);
+      r.append(el("span", `run-badge ${passed ? "pass" : "fail"}`, passed ? t("passed") : t("failed")));
+      const meta = el("div", "run-name");
+      meta.append(el("span", "", run.finished_at
+        ? new Date(run.finished_at).toLocaleDateString(lang(), { day: "numeric", month: "long", year: "numeric" })
+        : ""));
+      r.append(meta);
+      const score = el("div", `run-score ${passed ? "pass" : "fail"}`);
+      score.append(document.createTextNode(String(run.wrong)),
+                   el("small", "", `/${run.question_count}`));
+      r.append(score);
+      history.append(r);
     }
-    wrap.append(list);
   }
+  wrap.append(history);
 
-  // The weakest topics live on Stats; pointing at them from here is the whole job of
-  // this screen - it is where someone decides what to do next.
-  const go = el("button", "btn ghost", t("by_topic"));
-  go.onclick = () => { state.screen = "stats"; render(); };
-  wrap.append(go);
+  // --- weak topics, or the promotion that points at them ---
+  if (state.me && !state.me.has_pass) {
+    wrap.append(premiumBlock());
+  } else {
+    const link = el("button", "link-row");
+    link.style.marginTop = "var(--md)";
+    link.append(icons.target(24));
+    const body = el("div", "row-main");
+    body.append(el("div", "row-title", t("by_topic")), el("div", "row-sub", t("by_topic_sub")));
+    link.append(body);
+    const chev = el("span", "chev");
+    chev.append(icons.chevron(20));
+    link.append(chev);
+    link.onclick = () => { state.screen = "stats"; render(); };
+    wrap.append(link);
+  }
   return wrap;
 }
 
@@ -860,6 +887,18 @@ async function loadProfile(): Promise<void> {
 }
 
 
+/** Colour by severity, on a scale the whole screen shares: red is bad, green is good,
+ *  and the thresholds are the same for a topic bar and a Leitner box. */
+function severity(rate: number): string {
+  if (rate >= 0.45) return "var(--bad)";
+  if (rate >= 0.30) return "#f97316";
+  if (rate >= 0.15) return "#eab308";
+  return "var(--ok)";
+}
+
+const BOX_TINT = ["#fef2f2", "#fff7ed", "#fefce8", "#f0fdf4", "#ecfdf5"];
+const BOX_INK = ["var(--bad)", "#ea580c", "#ca8a04", "var(--ok)", "var(--ok)"];
+
 function statsScreen(): HTMLElement {
   const wrap = el("section", "screen");
   if (!state.stats) {
@@ -869,39 +908,121 @@ function statsScreen(): HTMLElement {
   }
   const s = state.stats;
 
-  const grid = el("div", "grid");
-  const tile = (label: string, value: string) => {
+  wrap.append(el("h1", "h1", t("stats_title")));
+  wrap.append(el("p", "sub", t("stats_sub")));
+
+  // --- headline tiles ---
+  const tiles = el("div", "tiles");
+  const tile = (icon: SVGSVGElement, tint: string, label: string, value: string, sub?: string) => {
     const d = el("div", "tile");
-    d.append(el("div", "tile-value", value), el("div", "tile-label", label));
+    const ico = el("div", "tile-ico");
+    ico.style.background = tint;
+    ico.append(icon);
+    d.append(ico, el("div", "tile-label", label));
+    const n = el("div", "tile-n");
+    n.append(document.createTextNode(value));
+    if (sub) n.append(el("small", "", sub));
+    d.append(n);
     return d;
   };
-  grid.append(
-    tile(t("questions_seen"), `${s.questions_seen}/${s.questions_total}`),
-    tile(t("answers_given"), String(s.answers_given)),
-    tile(t("error_rate"), `${Math.round(s.error_rate * 100)}%`),
+  tiles.append(
+    tile(icons.eye(20), "#eff6ff", t("questions_seen"), String(s.questions_seen), `/${s.questions_total}`),
+    tile(icons.check(20), "#f0fdf4", t("answers_given"), String(s.answers_given)),
+    tile(icons.target(20), "#fef2f2", t("error_rate"), `${Math.round(s.error_rate * 100)}`, "%"),
   );
-  wrap.append(grid);
+  wrap.append(tiles);
 
-  wrap.append(el("h2", "", t("boxes")));
+  // --- spaced repetition ---
+  const boxCard = el("div", "card");
+  boxCard.style.marginTop = "var(--md)";
+  boxCard.append(el("h2", "", t("boxes")));
+  boxCard.append(el("p", "caption", t("boxes_hint")));
+
   const boxes = el("div", "boxes");
-  for (const [box, count] of Object.entries(s.boxes)) {
-    const b = el("div", "box");
-    b.append(el("div", "box-n", box), el("div", "box-c", String(count)));
-    boxes.append(b);
+  for (let i = 1; i <= 5; i++) {
+    const box = el("div", "box");
+    box.style.background = BOX_TINT[i - 1]!;
+    const n = el("div", "box-n", String(i));
+    n.style.cssText = `background:#fff;color:${BOX_INK[i - 1]}`;
+    box.append(n);
+    box.append(el("div", "box-label", t(`box${i}` as never)));
+    const count = el("div", "box-c", String(s.boxes[String(i)] ?? 0));
+    count.style.color = BOX_INK[i - 1]!;
+    box.append(count);
+    boxes.append(box);
   }
-  wrap.append(boxes);
+  boxCard.append(boxes);
 
-  if (s.by_topic.length) {
-    wrap.append(el("h2", "", t("by_topic")));
-    const list = el("div", "topics");
-    for (const row of [...s.by_topic].sort((a, b) => b.error_rate - a.error_rate)) {
-      const r = el("div", "topic");
-      r.append(el("div", "topic-name", row.topic),
-               el("div", "topic-rate", `${Math.round(row.error_rate * 100)}%`));
-      list.append(r);
-    }
-    wrap.append(list);
+  // A left-to-right gradient under the boxes, so "1 -> 5" reads as a direction of travel
+  // rather than as five unrelated buckets.
+  const scale = el("div", "box-scale");
+  for (const colour of ["var(--bad)", "#f97316", "#eab308", "#4ade80", "var(--ok)"]) {
+    const seg = el("i");
+    seg.style.background = colour;
+    scale.append(seg);
   }
+  boxCard.append(scale);
+  const ends = el("div", "box-scale-ends");
+  const weak = el("span", "", t("weak")); weak.style.color = "var(--bad)";
+  const strong = el("span", "", t("strong")); strong.style.color = "var(--ok)";
+  ends.append(weak, strong);
+  boxCard.append(ends);
+  wrap.append(boxCard);
+
+  // --- by topic ---
+  const topicCard = el("div", "card");
+  topicCard.style.marginTop = "var(--md)";
+  topicCard.append(el("h2", "", t("by_topic")));
+  topicCard.append(el("p", "caption", t("topics_sub")));
+
+  const weakest = [...s.by_topic].sort((a, b) => b.error_rate - a.error_rate).slice(0, 6);
+  if (!weakest.length) {
+    topicCard.append(el("p", "caption", t("no_topics")));
+  } else {
+    for (const topic of weakest) {
+      const pct = Math.round(topic.error_rate * 100);
+      const colour = severity(topic.error_rate);
+      const row = el("div", "topic-row");
+
+      const ico = el("div", "topic-ico");
+      ico.style.background = `color-mix(in srgb, ${colour} 12%, #fff)`;
+      ico.style.color = colour;
+      ico.append(icons.lane(20));
+      row.append(ico);
+
+      const main = el("div", "topic-main");
+      // Ministerial topic names run to 250 characters; the first clause is the
+      // recognisable part, exactly as the bot does it.
+      const short = topic.topic.split(";")[0]!.split(" - ")[0]!.trim();
+      main.append(el("div", "topic-name", short));
+      main.append(el("div", "topic-desc",
+        `${topic.wrong}/${topic.answers_given} · ${topic.questions_seen}`));
+      row.append(main);
+
+      const right = el("div", "topic-right");
+      const p = el("div", "topic-pct", `${pct}%`);
+      p.style.color = colour;
+      right.append(p);
+      const bar = el("div", "topic-bar");
+      const fill = el("i");
+      fill.style.width = `${Math.min(100, pct)}%`;
+      fill.style.background = colour;
+      bar.append(fill);
+      right.append(bar);
+      row.append(right);
+      topicCard.append(row);
+    }
+  }
+  wrap.append(topicCard);
+
+  if (state.me && !state.me.has_pass) wrap.append(premiumBlock());
+
+  const tip = el("div", "tip");
+  tip.append(icons.bulb(24));
+  const body = el("div");
+  body.append(el("h3", "", t("tip_title")), el("p", "", t("tip_stats")));
+  tip.append(body);
+  wrap.append(tip);
   return wrap;
 }
 
@@ -914,41 +1035,132 @@ async function loadStats(): Promise<void> {
   }
 }
 
+const LANG_NAMES: Record<string, string> = {
+  it: "Italiano", ru: "Русский", en: "English", uz: "O\u2018zbekcha",
+};
+// Uzbek ships as UI and question translations but NOT explanations, and its copy has not
+// been read by a native speaker. The badge is the honest label for that, and it comes off
+// when someone has reviewed it — not when the code stops changing.
+const BETA_LANGS = new Set(["uz"]);
+
 function settingsScreen(): HTMLElement {
   const wrap = el("section", "screen");
   const me = state.me;
   if (!me) { wrap.append(el("div", "spinner")); return wrap; }
 
-  wrap.append(el("h2", "", t("language")));
-  const langs = el("div", "chips");
+  wrap.append(el("h1", "h1", t("settings")));
+  wrap.append(el("p", "sub", t("settings_sub")));
+
+  // --- language ---
+  const langCard = el("div", "card");
+  const langHead = el("div", "row");
+  const langText = el("div", "row-main");
+  langText.append(el("div", "row-title", t("language")), el("div", "row-sub", t("lang_sub")));
+  langHead.append(langText);
+  const globe = el("span");
+  globe.style.color = "var(--text-3)";
+  globe.append(icons.globe(22));
+  langHead.append(globe);
+  langCard.append(langHead);
+
+  const grid = el("div", "lang-grid");
+  grid.style.marginTop = "var(--lg)";
   for (const code of ["it", "ru", "en", "uz"] as const) {
-    const b = el("button", `chip ${me.lang === code ? "on" : ""}`, code.toUpperCase());
-    b.onclick = async () => {
+    const button = el("button", `lang ${me.lang === code ? "on" : ""}`);
+    button.type = "button";
+    button.append(el("div", "lang-code", code.toUpperCase()));
+    button.append(el("div", "lang-name", LANG_NAMES[code] ?? code));
+    if (me.lang === code) {
+      const tick = el("span", "lang-tick");
+      tick.append(icons.tick(12));
+      button.append(tick);
+    } else if (BETA_LANGS.has(code)) {
+      button.append(el("span", "lang-beta", "beta"));
+    }
+    button.onclick = async () => {
       try {
         state.me = await api.settings({ lang: code });
         setLang(state.me.lang);
         document.documentElement.lang = lang();
         state.stats = null;
+        state.profile = null;
         render();
       } catch (err) { reportError(err); }
     };
-    langs.append(b);
+    grid.append(button);
   }
-  wrap.append(langs);
+  langCard.append(grid);
+  wrap.append(langCard);
 
-  wrap.append(el("h2", "", t("translations")));
-  const toggle = el("button", `chip ${me.translations_on ? "on" : ""}`,
-    me.translations_on ? t("on") : t("off"));
+  // --- translations ---
+  const trCard = el("div", "card");
+  trCard.style.marginTop = "var(--md)";
+  const trRow = el("div", "row");
+  const trText = el("div", "row-main");
+  trText.append(el("div", "row-title", t("translations")), el("div", "row-sub", t("tr_sub")));
+  trRow.append(trText);
+
+  const toggle = el("button", `switch ${me.translations_on ? "on" : ""}`);
+  toggle.type = "button";
+  toggle.setAttribute("role", "switch");
+  toggle.setAttribute("aria-checked", String(me.translations_on));
   toggle.onclick = async () => {
     try {
       state.me = await api.settings({ translations_on: !me.translations_on });
       render();
     } catch (err) { reportError(err); }
   };
-  wrap.append(toggle);
+  trRow.append(toggle);
+  trCard.append(trRow);
 
-  wrap.append(el("p", "hint", me.has_pass ? t("pass_active") : t("no_pass")));
-  if (!me.has_pass) wrap.append(el("p", "hint", t("unlock_in_chat")));
+  const note = el("div", "note");
+  note.append(icons.info(20));
+  note.append(el("span", "", t("tr_note")));
+  trCard.append(note);
+  wrap.append(trCard);
+
+  // --- subscription ---
+  if (me.has_pass) {
+    const sub = el("div", "card sub-active");
+    sub.style.marginTop = "var(--md)";
+    const badge = el("span", "sub-badge");
+    badge.append(icons.crown(14), document.createTextNode(t("sub_active")));
+    sub.append(badge);
+    sub.append(el("div", "row-title", t("sub_active")));
+    sub.append(el("div", "row-sub", t("sub_active_sub")));
+    if (me.pass_expires_at) {
+      const until = el("div", "sub-until");
+      until.append(icons.clipboard(18));
+      const when = new Date(me.pass_expires_at).toLocaleDateString(lang(), {
+        day: "numeric", month: "long", year: "numeric",
+      });
+      until.append(document.createTextNode(`${t("sub_until")} `), el("b", "", when));
+      sub.append(until);
+    }
+    wrap.append(sub);
+  } else {
+    const promo = premiumBlock();
+    promo.style.marginTop = "var(--md)";
+    wrap.append(promo);
+  }
+
+  // Payment and support both happen in the chat — plan §6.2: a Mini App selling digital
+  // goods sits closer to the Stars-only rule and to Apple's review guidelines.
+  const tg = el("button", "link-row");
+  tg.style.marginTop = "var(--md)";
+  const send = el("span");
+  send.style.color = "var(--accent)";
+  send.append(icons.send(26));
+  tg.append(send);
+  const tgBody = el("div", "row-main");
+  tgBody.append(el("div", "row-title", t("open_tg")), el("div", "row-sub", t("open_tg_sub")));
+  tg.append(tgBody);
+  const chev = el("span", "chev");
+  chev.append(icons.chevron(20));
+  tg.append(chev);
+  tg.onclick = openSubscribe;
+  wrap.append(tg);
+
   return wrap;
 }
 
