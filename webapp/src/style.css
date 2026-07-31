@@ -140,7 +140,17 @@ html, body { overflow-x: hidden; }
 .mode {
   position: relative; overflow: hidden;
   display: grid;
-  grid-template-columns: clamp(64px, 20vw, 92px) 1fr;
+  /* THREE columns for three children: artwork | text | arrow.
+   *
+   * This declared two while `modeCard` appends three, so the arrow auto-placed onto a
+   * second row and sat under the ARTWORK, bottom-left — pointing away from the card
+   * instead of into it. Reported from a screenshot with the arrow circled and an arrow
+   * drawn to where it should be.
+   *
+   * A grid does not complain about a child it has no column for; it silently wraps. So
+   * whenever a child is added here, this line has to be counted again — which is what
+   * tests/test_home_cards_lay_out.py asserts, since CSS has no compiler to do it. */
+  grid-template-columns: clamp(64px, 20vw, 92px) 1fr auto;
   gap: var(--lg);
   align-items: center;
   width: 100%; text-align: left; appearance: none; cursor: pointer;
@@ -157,8 +167,6 @@ html, body { overflow-x: hidden; }
 .mode-art svg { width: 100%; height: 100%; display: block; }
 /* min-width:0 lets a grid child actually shrink — without it a long word keeps the
    column at its intrinsic width and the card overflows the screen. */
-/* No reserved strip at the bottom: the arrow now sits inline with the title
-   instead of floating in the corner, which was costing 34px of height per card. */
 .mode-body { min-width: 0; }
 
 .mode-tag {
@@ -174,8 +182,12 @@ html, body { overflow-x: hidden; }
 .mode.practice .mode-title { color: var(--practice-deep); }
 .mode-desc { color: var(--text-2); font-size: var(--t-caption); line-height: 1.4; overflow-wrap: anywhere; }
 
+/* The affordance: a round chevron at the trailing edge, vertically centred against the
+ * text it belongs to. `margin-left: auto` and `flex: none` used to live here — leftovers
+ * from when this card was a flex row, and both are inert inside a grid cell, which is part
+ * of why the misplacement was easy to miss. The parent's `align-items: center` does the
+ * vertical centring. */
 .mode-go {
-  margin-left: auto; flex: none;
   width: 30px; aspect-ratio: 1; border-radius: 50%;
   display: grid; place-items: center;
 }
