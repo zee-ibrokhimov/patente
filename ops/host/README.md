@@ -8,6 +8,7 @@ protects is not a recovery procedure.
 ## Install
 
     sudo install -m 755 ops/host/patente-backup /usr/local/sbin/patente-backup
+    sudo install -m 755 ops/host/patente-backup-watchdog /usr/local/sbin/patente-backup-watchdog
     sudo install -m 644 ops/host/cron.d-patente /etc/cron.d/patente
     sudo systemctl restart cron
 
@@ -17,6 +18,25 @@ Then create `/etc/patente-backup.env` (mode 600, NOT in this repo — it holds a
     TG_CHAT=<your numeric telegram id>
 
 Without it the backup still runs; it just cannot alert.
+
+For off-box replication, add to the same file:
+
+    R2_KEY=<access key id>
+    R2_SECRET=<secret access key>
+    R2_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
+    R2_BUCKET=zeehub-backups
+    BACKUP_KEYFILE=/etc/patente-backup.key
+
+and create the passphrase file:
+
+    head -c 48 /dev/urandom | base64 | sudo tee /etc/patente-backup.key
+    sudo chmod 600 /etc/patente-backup.key
+
+**Then put that passphrase in a password manager.** A key that exists only on the box it
+protects makes the off-box copy unreadable in the one scenario it exists for.
+
+With no R2 credentials the backup still runs and still succeeds — it just stays local, and
+the watchdog says so.
 
 ## What the guard is for
 
@@ -35,10 +55,23 @@ already had once.
 
 `.manifest.json` in the backup directory carries the last accepted counts.
 
+## What the watchdog is for
+
+`patente-backup` alerts when it fails. It cannot alert when it never runs at all — cron
+dead, docker dead, box off, disk full, script deleted. That is not hypothetical: it is
+the state this deployment was in for its first hours.
+
+So `patente-backup-watchdog` is a SEPARATE file on a SEPARATE cron entry, and it asserts
+outcomes rather than trusting exit codes: a local snapshot newer than 150 minutes, an
+off-box copy of the same age once R2 is configured, no quarantined `.SUSPECT` files, and
+enough disk for the next run. It stays silent when healthy — an alert that fires on a
+known, accepted gap trains you to ignore alerts.
+
 ## Known gaps
 
-- **Still on-box.** `/var/backups` and `/var/lib/docker/volumes` are the same device
-  (`stat -c %d` → 64518 for both), so there is one copy of the data on one disk. Off-box
-  replication to R2 is the next step and needs a bucket plus a scoped token.
-- **No dead-man's switch.** The script alerts when it fails. It cannot alert when it
-  never runs — cron dead, docker dead, box off.
+- **No external dead-man's switch.** Both scripts run on the box they watch, so a
+  complete host failure is silent until someone notices. A free healthchecks.io ping, or
+  a Cloudflare Worker HEADing the newest R2 object, would close it.
+- **Secrets are not backed up.** The bot token, OpenAI key and Tribute config live only
+  in Coolify's environment. Deliberate — a secrets blob in object storage is its own
+  risk — but it means a host rebuild needs a password manager. See RESTORE.md.

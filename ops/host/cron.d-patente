@@ -1,26 +1,30 @@
-# Daily verified snapshot of the LIVE database.
+# Backups for the patente database.
 #
-# The live database is inside the Coolify volume
-# rboj5u2xk5dj4o4yto89ablh_patente-data, not on the host filesystem. This job used
-# to point at /srv/patente/patente.db — the old systemd deployment — which meant the
-# real data (progress, entitlement, and the explanations and translations that cost
-# money to generate) was being left unprotected while a backup ran successfully
-# every night against the wrong database. That is the worst shape a backup can take.
+# The live database is inside the Coolify volume rboj5u2xk5dj4o4yto89ablh_patente-data,
+# not on the host filesystem. This job used to point at /srv/patente/patente.db — the
+# retired systemd deployment — which meant the real data went unprotected while a backup
+# ran green every night against the wrong database. That is the worst shape a backup can
+# take, and it is why the script now asserts WHICH database it got rather than only that
+# the file is valid SQLite.
 #
-# /usr/local/sbin/patente-backup snapshots inside the container using SQLite's
-# online backup API, rehearses a restore against it, and only then copies it out.
-# It exits non-zero on any failure, so cron will report it.
+# HOURLY, not daily. The RPO is the whole point: at daily, a disk failure at 02:00 costs a
+# day of progress, entitlement and paid-for generated content. The run takes seconds and
+# each snapshot is ~2.7 MB, so the tighter window costs nothing.
 #
-# Runs as root because it needs the Docker socket.
+# Retention is tiered (ops/prune.py): hourly for two days, daily for a month, weekly for a
+# quarter, monthly for a year — about 93 files and 250 MB, covering 333 days. Flat
+# retention at this cadence would cover two and a half days.
 #
-# NOTE: /var/backups is ON THIS BOX. This is still not the off-box copy that
-# STATUS.md §6.4 asks for.
+# The WATCHDOG is a separate entry running a separate file on purpose: a script that
+# alerts on its own failure cannot alert when it never runs at all. Offset to :40 so it
+# checks after the hourly run has had time to finish.
+#
+# Alerts go to Telegram, configured in /etc/patente-backup.env (mode 600, not in git).
+# MAILTO is left set but is not the mechanism — postfix here is loopback-only with no
+# relayhost and /var/mail has never been written, so cron mail goes nowhere.
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 MAILTO=root
 
-# Every 6 hours. Daily meant losing up to a day of progress, entitlement and paid-for
-# generated content; 6-hourly with 56 retained keeps 14 days of history at the same
-# disk cost as the old 14 daily snapshots (each is ~2.7 MB and mostly the static bank).
-# This is an interim tightening - the full scheme (off-box, tiered retention) is next.
-0 */6 * * * root /usr/local/sbin/patente-backup >> /var/log/patente-backup.log 2>&1
+0  * * * * root /usr/local/sbin/patente-backup >> /var/log/patente-backup.log 2>&1
+40 * * * * root /usr/local/sbin/patente-backup-watchdog >> /var/log/patente-backup.log 2>&1

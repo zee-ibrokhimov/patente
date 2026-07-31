@@ -1,0 +1,83 @@
+#!/bin/bash
+# Watches the backup, and is deliberately a SEPARATE file on a SEPARATE cron entry.
+#
+# A script that alerts on its own failure cannot alert when it never runs at all — cron
+# dead, docker dead, the box off, the disk full, the script deleted. That is not a
+# hypothetical: it is exactly the state this deployment was in for its first hours, when
+# a nightly backup was pointed at the wrong database and nothing anywhere said so.
+#
+# So this asserts OUTCOMES rather than trusting exit codes:
+#   · a local snapshot newer than twice the backup interval
+#   · an off-box copy newer than the same, once R2 is configured
+#   · no quarantined .SUSPECT files sitting around unnoticed
+#   · enough disk left to take the next one
+#
+# It stays quiet when everything is fine. An alert that fires on a known, accepted gap
+# trains you to ignore alerts, which is worse than having none.
+set -uo pipefail
+
+DEST="/var/backups/patente"
+MAX_AGE_MIN=150          # 2.5x the hourly cadence, so one slow run is not an incident
+MIN_FREE_MB=500
+
+[ -r /etc/patente-backup.env ] && { set -a; . /etc/patente-backup.env; set +a; }
+
+PROBLEMS=()
+
+notify() {
+  [ -n "${TG_TOKEN:-}" ] && [ -n "${TG_CHAT:-}" ] || return 0
+  curl -s -m 15 "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+    --data-urlencode "chat_id=${TG_CHAT}" --data-urlencode "text=$1" >/dev/null 2>&1 || true
+}
+
+# --- is there a recent local snapshot? ---------------------------------------
+NEWEST=$(ls -1t "${DEST}"/patente-*.db 2>/dev/null | head -1)
+if [ -z "$NEWEST" ]; then
+  PROBLEMS+=("No local snapshot exists at all.")
+else
+  AGE_MIN=$(( ( $(date +%s) - $(stat -c %Y "$NEWEST") ) / 60 ))
+  if [ "$AGE_MIN" -gt "$MAX_AGE_MIN" ]; then
+    PROBLEMS+=("Newest local snapshot is ${AGE_MIN} min old (limit ${MAX_AGE_MIN}). The backup job is not running.")
+  fi
+fi
+
+# --- did anything get quarantined? -------------------------------------------
+SUSPECT=$(ls -1 "${DEST}"/*.SUSPECT 2>/dev/null | wc -l)
+if [ "$SUSPECT" -gt 0 ]; then
+  PROBLEMS+=("${SUSPECT} quarantined snapshot(s) in ${DEST}. Something failed the wrong-database guard and pruning is suspended.")
+fi
+
+# --- is the off-box copy current? --------------------------------------------
+if [ -n "${R2_KEY:-}" ] && [ -n "${R2_BUCKET:-}" ]; then
+  if [ -r "${DEST}/.last-offsite" ]; then
+    LAST=$(date -d "$(cat "${DEST}/.last-offsite")" +%s 2>/dev/null || echo 0)
+    OFF_AGE=$(( ( $(date +%s) - LAST ) / 60 ))
+    if [ "$OFF_AGE" -gt "$MAX_AGE_MIN" ]; then
+      PROBLEMS+=("Off-box copy is ${OFF_AGE} min old. Backups are local-only, on the same device as the database.")
+    fi
+  else
+    PROBLEMS+=("R2 is configured but nothing has ever been uploaded.")
+  fi
+else
+  # Not an alert. A known gap, reported only when something else is already wrong.
+  KNOWN_GAP="off-box replication is not configured (no R2 credentials)"
+fi
+
+# --- room for the next one ----------------------------------------------------
+FREE_MB=$(df -Pm "$DEST" | awk 'NR==2 {print $4}')
+if [ "${FREE_MB:-0}" -lt "$MIN_FREE_MB" ]; then
+  PROBLEMS+=("Only ${FREE_MB} MB free on the backup volume (limit ${MIN_FREE_MB} MB).")
+fi
+
+if [ ${#PROBLEMS[@]} -eq 0 ]; then
+  echo "$(date -Is) OK: newest $(basename "${NEWEST:-none}"), ${AGE_MIN:-?} min old${KNOWN_GAP:+, note: $KNOWN_GAP}"
+  exit 0
+fi
+
+MESSAGE="🟠 patente-backup WATCHDOG
+$(printf '%s\n' "${PROBLEMS[@]}")${KNOWN_GAP:+
+(also: ${KNOWN_GAP})}
+host: $(hostname)  time: $(date -Is)"
+echo "$(date -Is) PROBLEMS: ${PROBLEMS[*]}" >&2
+notify "$MESSAGE"
+exit 1

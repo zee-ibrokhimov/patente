@@ -1,44 +1,41 @@
 #!/bin/bash
-# Verified snapshot of the LIVE database, with a guard against backing up the wrong one.
+# Verified snapshot of the LIVE database, kept locally and replicated off-box.
 #
-# The database is inside a Docker volume, so this cannot just read a file. It also must
-# not copy patente.db directly: in WAL mode the database is three files and a plain copy
+# The database lives in a Docker volume, so this cannot just read a file. It also must not
+# copy patente.db directly: in WAL mode the database is three files and a plain copy
 # measurably lost 167 rows in this project's own testing, including every translation
 # (STATUS.md §17). ops/backup.py uses SQLite's online backup API.
 #
-# Sequence, and the order matters:
+# Order matters:
 #   1. snapshot inside the container, where the code and its deps live
-#   2. REHEARSE the restore against it there — a backup nobody has restored is a belief
-#      about the future, and a snapshot taken before a migration passes integrity_check
-#      happily and then dies on the first query touching a column added later
+#   2. REHEARSE the restore against it there — a snapshot taken before a migration passes
+#      integrity_check happily and then dies on the first query touching a new column
 #   3. copy it out to the host
 #   4. ASSERT it is this product's production database, not merely a valid one
-#   5. only then prune
+#   5. replicate off-box, encrypted
+#   6. only then prune
 #
-# Step 4 is the lesson from an incident already recorded in
+# Step 4 exists because of an incident recorded in
 # /var/backups/patente/legacy-systemd/README: a backup ran green every night against the
-# retired deployment's database while the real data went unprotected. Verifying a
-# snapshot is "a valid SQLite file with content in it" does not catch that — a freshly
-# seeded database passes every such check. The distinguishing signal is the append-only
-# events table, which STATUS.md §3 establishes is never deleted from (GDPR erasure
-# anonymises events rather than removing them). The watermark is max(events.id) rather
-# than count(*): an id is monotonic even if a future feature ever does delete rows, while
-# a count that can legitimately fall would page hourly and quarantine every snapshot. If
-# it goes backwards, either
-# this is a different database or we have lost data — and in both cases the correct
-# action is to STOP PRUNING, because 56 successful backups of the wrong database would
-# otherwise delete every good snapshot within 14 days.
+# retired deployment's database while the real data went unprotected. "A valid SQLite file
+# with content in it" does not catch that — a freshly seeded database passes every such
+# check. The distinguishing signal is max(events.id): STATUS.md §3 establishes that GDPR
+# erasure anonymises events rather than deleting them, so it only ever grows. An id rather
+# than a count, because a count could legitimately fall and would then page hourly.
 #
-# Alerts go to Telegram. cron's MAILTO=root is a dead letter drop on this box: postfix
-# is inet_interfaces=loopback-only with no relayhost and /var/mail has never been
-# written, so every failure would have been silent.
+# Step 5 is the one that matters most. /var/backups and /var/lib/docker/volumes are the
+# SAME device (stat -c %d gives 64518 for both), so without it there is exactly one copy
+# of the data on one disk and "we have backups" is true right up until the disk dies.
+#
+# Alerts go to Telegram. cron's MAILTO=root is a dead letter drop here: postfix is
+# inet_interfaces=loopback-only with no relayhost and /var/mail has never been written.
 set -uo pipefail
 
 APP_UUID="rboj5u2xk5dj4o4yto89ablh"
 DEST="/var/backups/patente"
 MANIFEST="${DEST}/.manifest.json"
-KEEP=56
 WORK="/tmp/patente-backup"
+REPO="/srv/patente"
 EXPECT_QUESTIONS=7106
 EXPECT_CLUSTERS=3382
 
@@ -47,8 +44,7 @@ EXPECT_CLUSTERS=3382
 notify() {
   [ -n "${TG_TOKEN:-}" ] && [ -n "${TG_CHAT:-}" ] || return 0
   curl -s -m 15 "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
-    --data-urlencode "chat_id=${TG_CHAT}" \
-    --data-urlencode "text=$1" >/dev/null 2>&1 || true
+    --data-urlencode "chat_id=${TG_CHAT}" --data-urlencode "text=$1" >/dev/null 2>&1 || true
 }
 
 fail() {
@@ -61,11 +57,9 @@ host: $(hostname)  time: $(date -Is)"
 
 CID=$(docker ps -q --filter "name=api-${APP_UUID}" --filter "status=running" | head -1)
 [ -n "$CID" ] || fail "no running api container for ${APP_UUID}"
-
 mkdir -p "$DEST"
 
-# --keep 1 because pruning inside a container that is recreated on every deploy is
-# meaningless; retention is kept on the host, below.
+# --- 1 & 2: snapshot and rehearse, inside the container ----------------------
 docker exec "$CID" sh -c "rm -rf ${WORK} && mkdir -p ${WORK} && python ops/backup.py --dest ${WORK} --keep 1" \
   || fail "ops/backup.py failed inside the container"
 
@@ -75,13 +69,13 @@ SNAP=$(docker exec "$CID" sh -c "ls -1 ${WORK}/patente-*.db 2>/dev/null | head -
 docker exec "$CID" python ops/restore.py --from "$SNAP" --rehearse \
   || fail "restore rehearsal failed — the snapshot is not usable"
 
+# --- 3: copy out --------------------------------------------------------------
 BASENAME=$(basename "$SNAP")
 LOCAL="${DEST}/${BASENAME}"
-docker exec "$CID" rm -rf "${WORK}" >/dev/null 2>&1 &
 docker cp "${CID}:${SNAP}" "$LOCAL" || fail "could not copy the snapshot out of the container"
-wait 2>/dev/null || true
+docker exec "$CID" rm -rf "${WORK}" >/dev/null 2>&1 || true
 
-# ---- step 4: is this the right database? --------------------------------------
+# --- 4: is this the right database? ------------------------------------------
 read -r N_QUESTIONS N_CLUSTERS N_EVENTMAX N_USERS N_EXPL N_TRANS <<<"$(sqlite3 "$LOCAL" "
   select (select count(*) from questions),
          (select count(*) from clusters),
@@ -95,30 +89,62 @@ read -r N_QUESTIONS N_CLUSTERS N_EVENTMAX N_USERS N_EXPL N_TRANS <<<"$(sqlite3 "
 [ "$N_CLUSTERS" = "$EXPECT_CLUSTERS" ] || fail "snapshot has ${N_CLUSTERS} clusters, expected ${EXPECT_CLUSTERS} — clustering did not run, or wrong database?"
 
 PREV_EVENTS=0
-if [ -r "$MANIFEST" ]; then
-  PREV_EVENTS=$(python3 -c "import json;print(json.load(open('$MANIFEST')).get('events',0))" 2>/dev/null || echo 0)
-fi
+[ -r "$MANIFEST" ] && PREV_EVENTS=$(python3 -c "import json;print(json.load(open('$MANIFEST')).get('events',0))" 2>/dev/null || echo 0)
 
 if [ "$N_EVENTMAX" -lt "$PREV_EVENTS" ]; then
   mv "$LOCAL" "${LOCAL}.SUSPECT"
   fail "the event watermark went BACKWARDS: ${PREV_EVENTS} -> ${N_EVENTMAX}.
 Events are append-only (GDPR erasure anonymises, never deletes), so this is either a
 different database or real data loss.
-NOT PRUNING — every existing good snapshot has been kept.
-Snapshot quarantined at ${LOCAL}.SUSPECT"
+NOT PRUNING and NOT UPLOADING — every existing good snapshot has been kept.
+Quarantined at ${LOCAL}.SUSPECT"
 fi
 
 python3 - "$MANIFEST" "$N_EVENTMAX" "$N_USERS" "$N_EXPL" "$N_TRANS" <<'PY'
 import json, sys
 path, events, users, expl, trans = sys.argv[1], *map(int, sys.argv[2:6])
-json.dump({"events": events, "users": users, "explanations": expl,
-           "translations": trans}, open(path, "w"))
+json.dump({"events": events, "users": users, "explanations": expl, "translations": trans},
+          open(path, "w"))
 PY
 
-# ---- step 5: prune, only now that the snapshot is trusted ---------------------
-# shellcheck disable=SC2012
-ls -1t "${DEST}"/patente-*.db 2>/dev/null | tail -n +$((KEEP + 1)) | while read -r old; do
-  rm -f "$old"
-done
+# --- 5: off-box, encrypted ----------------------------------------------------
+# Encrypted BEFORE it leaves the box. The snapshot holds every user's Telegram id and
+# their whole answer history; object storage is somebody else's disk, and a bucket
+# misconfigured months from now should leak ciphertext rather than personal data.
+#
+# Degrades quietly: with no credentials the local backup still runs and still succeeds,
+# so this script can ship before the R2 bucket exists. The WATCHDOG is what complains
+# that off-box is not configured — this path staying silent is deliberate, because a
+# hourly alert about a known gap trains you to ignore alerts.
+OFFSITE="not configured"
+if [ -n "${R2_KEY:-}" ] && [ -n "${R2_SECRET:-}" ] && [ -n "${R2_ENDPOINT:-}" ] \
+   && [ -n "${R2_BUCKET:-}" ] && [ -r "${BACKUP_KEYFILE:-/nonexistent}" ]; then
+  ENC="${WORK}.enc"
+  rm -rf "$ENC" && mkdir -p "$ENC"
+  gzip -9 -c "$LOCAL" > "${ENC}/${BASENAME}.gz" || fail "gzip failed"
+  gpg --batch --yes --quiet --symmetric --cipher-algo AES256 \
+      --passphrase-file "$BACKUP_KEYFILE" \
+      -o "${ENC}/${BASENAME}.gz.gpg" "${ENC}/${BASENAME}.gz" || fail "gpg failed"
 
-echo "$(date -Is) OK: ${BASENAME} ($(stat -c%s "$LOCAL") bytes) users=${N_USERS} event_max=${N_EVENTMAX} expl=${N_EXPL} trans=${N_TRANS}, $(ls -1 "${DEST}"/patente-*.db | wc -l) retained"
+  # curl signs the request itself — no boto3, no rclone, no extra dependency.
+  if curl -sS --fail-with-body -m 120 \
+       --aws-sigv4 "aws:amz:auto:s3" --user "${R2_KEY}:${R2_SECRET}" \
+       -T "${ENC}/${BASENAME}.gz.gpg" \
+       "${R2_ENDPOINT}/${R2_BUCKET}/patente/db/${BASENAME}.gz.gpg" >/dev/null; then
+    OFFSITE="uploaded $(stat -c%s "${ENC}/${BASENAME}.gz.gpg") bytes"
+    date -Is > "${DEST}/.last-offsite"
+  else
+    rm -rf "$ENC"
+    fail "R2 upload failed — this snapshot exists only on the same device as the database"
+  fi
+  rm -rf "$ENC"
+fi
+
+# --- 6: prune, only now that the snapshot is trusted and replicated -----------
+# Tiered, and keyed on the FILENAME rather than mtime — see ops/prune.py.
+if [ -x "${REPO}/.venv/bin/python" ]; then
+  "${REPO}/.venv/bin/python" "${REPO}/ops/prune.py" --dir "$DEST" --apply >/dev/null \
+    || echo "$(date -Is) WARN: prune failed (snapshots kept)" >&2
+fi
+
+echo "$(date -Is) OK: ${BASENAME} users=${N_USERS} event_max=${N_EVENTMAX} expl=${N_EXPL} trans=${N_TRANS} | offsite: ${OFFSITE} | $(ls -1 "${DEST}"/patente-*.db 2>/dev/null | wc -l) local"
