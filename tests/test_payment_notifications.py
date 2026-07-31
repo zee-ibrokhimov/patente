@@ -163,3 +163,45 @@ async def test_a_blocked_user_is_not_an_error(monkeypatch, caplog):
     with caplog.at_level(logging.WARNING, logger="api.services.notify"):
         assert await notify.send(1, "hello") is False
     assert caplog.text == "", "a blocked user should not log at WARNING"
+
+
+# --- when the cancellation arrives changes what it should say ---------------
+#
+# Tribute registers "cancels on 07.08" the moment the user asks, and emits
+# cancelled_subscription on that DATE rather than at that moment. So the common case is
+# that access has already ended by the time the message goes out.
+
+
+def test_a_cancellation_that_still_has_time_left_reassures():
+    now = datetime(2026, 8, 1, tzinfo=timezone.utc)
+    text = notify.compose("cancelled", "en", now + timedelta(days=6), TIER_1M, now=now)
+    assert "07.08.2026" in text
+    assert "keep access" in text.lower()
+
+
+def test_a_cancellation_arriving_at_the_end_does_not_promise_access():
+    """"You keep access until 07.08" delivered ON 07.08 tells the reader nothing, and
+    reads as though something is still owed to them."""
+    now = datetime(2026, 8, 7, 12, 0, tzinfo=timezone.utc)
+    text = notify.compose("cancelled", "en", now - timedelta(minutes=1), TIER_1M, now=now)
+    assert "keep access" not in text.lower()
+    assert "ended" in text.lower()
+
+
+@pytest.mark.parametrize("lang", LANGS)
+def test_the_ended_message_says_what_is_still_free(lang):
+    """The moment Premium lapses is the moment someone decides whether the app is worth
+    reopening. "It's over" alone loses them; the free tier is genuinely substantial."""
+    now = datetime(2026, 8, 7, 12, 0, tzinfo=timezone.utc)
+    text = notify.compose("cancelled", lang, now - timedelta(minutes=1), TIER_1M, now=now)
+    assert "7106" in text
+    assert "/plan" in text
+
+
+@pytest.mark.parametrize("lang", UI_LANGUAGES)
+def test_the_ended_message_exists_in_every_language(lang):
+    assert lang in notify.MESSAGES["ended"]
+
+
+def test_a_cancellation_with_no_date_still_renders():
+    assert "{" not in notify.compose("cancelled", "en", None, TIER_1M)

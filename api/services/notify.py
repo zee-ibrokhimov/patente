@@ -26,7 +26,7 @@ this is ever called.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 import httpx
 
@@ -90,6 +90,28 @@ MESSAGES: dict[str, dict[str, str]] = {
                "Premium <b>{date}</b> gacha faol.\n\n"
                "Rahmat! Obunani boshqarish: @tribute"),
     },
+    # Sent when the subscription actually terminates rather than when the user asks —
+    # observed with Tribute, which registers "cancels on 07.08" immediately and only
+    # emits the event on that date. So by the time this arrives the access is usually
+    # already gone, and "you keep access until 07.08" on 07.08 tells the reader nothing.
+    "ended": {
+        "ru": ("Подписка завершена.\n\n"
+               "Premium-доступ закончился. Все 7106 вопросов, экзамен и тренировка "
+               "остаются бесплатными.\n\n"
+               "Вернуться в Premium: /plan"),
+        "en": ("Subscription ended.\n\n"
+               "Premium access has finished. All 7106 questions, exam mode and practice "
+               "remain free.\n\n"
+               "Come back to Premium: /plan"),
+        "it": ("Abbonamento terminato.\n\n"
+               "L'accesso Premium è finito. Tutte le 7106 domande, l'esame e "
+               "l'esercitazione restano gratuiti.\n\n"
+               "Torna a Premium: /plan"),
+        "uz": ("Obuna tugadi.\n\n"
+               "Premium kirish yakunlandi. Barcha 7106 ta savol, imtihon va mashq "
+               "bepul qoladi.\n\n"
+               "Premiumga qaytish: /plan"),
+    },
     "cancelled": {
         "ru": ("Подписка отменена.\n\n"
                "Доступ сохраняется до <b>{date}</b> — вы уже оплатили этот период. "
@@ -111,12 +133,22 @@ MESSAGES: dict[str, dict[str, str]] = {
 }
 
 
-def compose(kind: str, lang: str, expires_at: datetime | None, tier: str) -> str:
+def compose(kind: str, lang: str, expires_at: datetime | None, tier: str,
+            now: datetime | None = None) -> str:
     """The message for this event in this language, falling back to English.
 
     A language we have not written yet must produce a real sentence, not a KeyError and
     not the string "None" — this is the message that explains a charge.
+
+    A cancellation whose final date has already passed becomes "ended" instead. Tribute
+    emits the event when the subscription terminates, not when the user asks for it, so
+    the common case is that access is already over — and telling someone they keep access
+    until a date that is today is worse than saying nothing.
     """
+    if kind == "cancelled" and expires_at is not None:
+        moment = now or datetime.now(timezone.utc)
+        if expires_at <= moment:
+            kind = "ended"
     table = MESSAGES[kind]
     template = table.get(lang) or table["en"]
     return template.format(
