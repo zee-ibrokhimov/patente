@@ -11,7 +11,7 @@ an explanation can be offered.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,6 +20,15 @@ from api.services import events, explanations
 from api.services.entitlement import Entitlement, evaluate
 from api.services.leitner import schedule
 from shared.constants import EV_ANSWER_GIVEN, FIRST_BOX
+
+# How far out a row goes when the answer that created it scheduled nothing — an exam.
+#
+# `progress.due_at` is NOT NULL, so there is no "seen but unscheduled" to write. A date
+# this far out is never reached by the due tier of `selection.practice_paper` and sorts to
+# the back of its not-yet-due tier, which is the correct place for material the learner has
+# been TESTED on and has not STUDIED. It is not permanent: the first practice answer runs
+# `schedule(box, correct, now)` and the question rejoins the queue on its real merits.
+UNSCHEDULED = timedelta(days=3650)
 
 
 async def record_answer(
@@ -61,8 +70,33 @@ async def record_answer(
 
     progress = await session.get(Progress, (user.chat_id, question.id))
     if progress is None:
+        # AN EXAM MUST NOT MAKE A QUESTION DUE — not even a question it is meeting for the
+        # first time.
+        #
+        # `update_schedule` was honoured on the update branch below and ignored here, and
+        # most of a 30-question random draw from 7106 is questions the learner has never
+        # seen. So every exam created thirty rows at box 1 with `due_at` = the exam's
+        # clock, and `selection.practice_paper` takes `due_at <= now ORDER BY due_at`
+        # FIRST — putting the exam at the head of the practice queue and keeping it there,
+        # ahead of the learner's real backlog, until practised.
+        #
+        # Verbatim the failure MODE_UPDATES_SCHEDULE exists to prevent, and the comment
+        # fourteen lines below says so: "would re-stamp thirty due_at values to the exam's
+        # clock — which then dominates the practice queue". Reproduced: answer all 30
+        # correctly, and the next practice batch is 27 of the exam's own questions, in exam
+        # order — including every one they got RIGHT, ranked as "just got it wrong",
+        # because right and wrong exam answers produce identical box-1 due-now rows.
+        #
+        # The row still has to exist: `seen` and `wrong` feed /stats and the reset
+        # confirmation, and the docstring above is right that stats would lie without it.
+        # `due_at` is NOT NULL, so "this answer scheduled nothing" is expressed as a date
+        # only real study can bring forward — the first practice answer runs
+        # `schedule(box, correct, now)` and the question rejoins the queue normally.
         progress = Progress(
-            chat_id=user.chat_id, question_id=question.id, box=FIRST_BOX, due_at=now
+            chat_id=user.chat_id,
+            question_id=question.id,
+            box=FIRST_BOX,
+            due_at=now if update_schedule else now + UNSCHEDULED,
         )
         session.add(progress)
         # Column defaults are applied at INSERT, not at construction — without
