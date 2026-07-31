@@ -62,10 +62,16 @@ def seed() -> tuple[int, int]:
                                       uz=t["uz"].strip()))
                 added += 1
             else:
-                before = (row.rank, row.en, row.ru, row.uz)
-                row.rank, row.en, row.ru, row.uz = (
-                    t["rank"], t["en"].strip(), t["ru"].strip(), t["uz"].strip())
-                if before != (row.rank, row.en, row.ru, row.uz):
+                # `it` is updated too, not just the glosses. The match is
+                # case-insensitive so that a re-exported sheet does not orphan progress,
+                # but the file is the canonical spelling — without this, a term the sheet
+                # once wrote as "Sosta" keeps that capital forever while the entry that
+                # replaced it is lowercase, and the word list shows one odd row.
+                before = (row.it, row.rank, row.en, row.ru, row.uz)
+                row.it, row.rank, row.en, row.ru, row.uz = (
+                    t["it"].strip(), t["rank"], t["en"].strip(), t["ru"].strip(),
+                    t["uz"].strip())
+                if before != (row.it, row.rank, row.en, row.ru, row.uz):
                     updated += 1
         session.commit()
     return added, updated

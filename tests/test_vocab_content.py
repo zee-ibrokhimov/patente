@@ -147,3 +147,12 @@ def test_no_gloss_leaves_a_parenthetical_the_learner_would_have_to_type():
     bracketed = [t["it"] for t in TERMS
                  if any("(" in str(t[k]) for k in ("en", "ru", "uz"))]
     assert bracketed == [], f"parenthetical glosses remain: {bracketed[:5]}"
+
+
+def test_the_core_terms_are_spelled_consistently():
+    """All fifteen come from one hand-verified table, so they should look like one block
+    in the word list. `sosta` also exists in the owner's sheet as `Sosta`; the seed
+    matches case-insensitively (so progress survives a re-export) but must converge on
+    the file's spelling, or that one row keeps its capital forever."""
+    core = [t["it"] for t in TERMS if t["rank"] <= len(CORE)]
+    assert core == [c.lower() for c in core], f"inconsistent casing: {core}"
