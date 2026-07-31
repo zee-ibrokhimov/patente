@@ -95,6 +95,12 @@ services:
     depends_on:
       api:
         condition: service_healthy
+    volumes:
+      # A volume of its OWN, not patente-data. The bot deliberately holds no database
+      # handle, and mounting the data volume to receive an uploaded icon would hand it
+      # filesystem access to patente.db — giving up a separation that is worth more than
+      # the convenience.
+      - patente-uploads:/data/uploads
     environment:
       # The bot holds no database handle and runs no migrations — the API owns both.
       - PATENTE_SKIP_MIGRATE=1
@@ -167,6 +173,11 @@ networks:
     driver: bridge
 
 volumes:
+  # Assets the owner sends to the bot. Small, and losing it costs nothing that cannot be
+  # re-sent — which is why it is deliberately NOT part of the database backup.
+  patente-uploads:
+    driver: local
+
   patente-data:
     # Every user's progress and entitlement, plus the explanations and translations
     # that cost real money to generate. Losing this volume loses all of it.

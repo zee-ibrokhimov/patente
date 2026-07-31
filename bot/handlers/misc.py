@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pathlib
+
 import logging
 
 from aiogram import F, Router
@@ -235,3 +237,56 @@ async def admin_whois(message: Message, lang: str, api: ApiClient):
         lines += ["", "<b>Recent</b>"]
         lines += [f"  {e['type']} {_when(e['at'])}" for e in d["recent_events"]]
     await message.answer("\n".join(lines))
+
+
+@router.message(F.photo)
+async def receive_asset(message: Message, lang: str):
+    """Admin-only: send the bot a picture and it lands on the server.
+
+    Built because the owner had icons on a Windows desktop and there was no way to get
+    them onto the box — file:// paths are not reachable, and pasting a PNG into a chat
+    gives something that can be looked at but not saved.
+
+    Telegram compresses `photo`, which is wrong for an icon: it re-encodes to JPEG and
+    destroys the alpha channel. So this says so and asks for the file to be sent as a
+    DOCUMENT instead, which is delivered byte-for-byte.
+    """
+    if message.from_user.id not in config.admin_ids:
+        return
+    await message.answer(
+        "Send it as a <b>file</b>, not a photo.\n\n"
+        "Telegram re-encodes photos to JPEG and throws away transparency, which ruins an "
+        "icon. On desktop: attach → <i>File</i> rather than <i>Photo</i>."
+    )
+
+
+@router.message(F.document)
+async def receive_asset_document(message: Message, lang: str):
+    """Admin-only: save an uploaded file into the shared volume.
+
+    Restricted to images and to a size a Mini App icon could plausibly be. Not because a
+    stranger could reach this — non-admins fall out on the first line — but because the
+    owner sending the wrong thing by accident should fail loudly rather than fill a disk
+    that took every service on this box down once already.
+    """
+    if message.from_user.id not in config.admin_ids:
+        return
+
+    doc = message.document
+    name = (doc.file_name or "upload.bin").replace("/", "_").replace("..", "_")
+    if not name.lower().endswith((".png", ".svg", ".jpg", ".jpeg", ".webp")):
+        await message.answer(f"{name}: not an image, ignoring.")
+        return
+    if (doc.file_size or 0) > 5 * 1024 * 1024:
+        await message.answer(f"{name}: over 5 MB, ignoring.")
+        return
+
+    target = pathlib.Path("/data/uploads")
+    target.mkdir(parents=True, exist_ok=True)
+    path = target / name
+    try:
+        await message.bot.download(doc, destination=path)
+    except Exception as exc:  # noqa: BLE001 — an upload failing must not kill the bot
+        await message.answer(f"could not save {name}: {exc}")
+        return
+    await message.answer(f"saved <code>{path}</code> ({path.stat().st_size // 1024} KB)")

@@ -129,19 +129,31 @@ html, body { overflow-x: hidden; }
 
 .modes { display: grid; gap: var(--md); }
 
+/* Artwork LEFT, text right — which is what the comment below always claimed and what the
+   CSS never did. It was `grid-template-columns: 1fr`, so the art stacked on top at full
+   width, and `.mode-art` was a full-width SQUARE: about 340px of illustration on a 390px
+   phone. Each card came out over 500px tall, so Exam filled the screen and Practice was
+   below the fold — a learner had to scroll to discover the app has two modes at all.
+
+   The artwork is decoration. The tag, title and description carry the meaning, so the
+   art gets a fixed column and the words get the rest. */
 .mode {
   position: relative; overflow: hidden;
-  display: grid; grid-template-columns: 1fr; align-items: start;
+  display: grid;
+  grid-template-columns: clamp(64px, 20vw, 92px) 1fr;
+  gap: var(--lg);
+  align-items: center;
   width: 100%; text-align: left; appearance: none; cursor: pointer;
-  border-radius: var(--card-radius); padding: var(--card-pad-fluid);
-  min-height: 200px; color: inherit;
+  border-radius: var(--card-radius);
+  padding: var(--lg) var(--card-pad-fluid);
+  color: inherit;
   transition: transform .16s var(--ease);
 }
 .mode:active { transform: scale(.985); }
 .mode.exam { background: var(--exam-tint); border: 1px solid #fecaca; }
 .mode.practice { background: var(--practice-tint); border: 1px solid #bbf7d0; }
 
-.mode-art { position: relative; width: 100%; aspect-ratio: 1; pointer-events: none; }
+.mode-art { position: relative; width: 100%; aspect-ratio: 1; pointer-events: none; align-self: center; }
 .mode-art svg { width: 100%; height: 100%; display: block; }
 /* min-width:0 lets a grid child actually shrink — without it a long word keeps the
    column at its intrinsic width and the card overflows the screen. */
