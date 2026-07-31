@@ -782,6 +782,39 @@ function answerSheet(run: Run): HTMLElement {
   return sheet;
 }
 
+/** A quiet line when the explanation is not in the reader's own language. */
+function explanationLangNote(explanationLang: string | null): HTMLElement {
+  const wrap = el("span");
+  const mine = state.me?.lang;
+  if (!explanationLang || !mine || explanationLang === mine) return wrap;
+  wrap.className = "expl-lang";
+  wrap.textContent = t("expl_in_other_lang");
+  return wrap;
+}
+
+/** "This explanation is wrong."
+ *
+ *  The endpoint was built and tested and reachable only from the loopback route the bot
+ *  used, so once drilling moved into the Mini App nobody could report anything and the
+ *  owner could not hear about a single bad explanation. Report volume per thousand served
+ *  is the quality metric for a feature whose whole pitch is quality.
+ */
+function reportLink(questionId: number): HTMLElement {
+  const link = el("button", "expl-report", t("report_wrong"));
+  link.type = "button";
+  link.onclick = async () => {
+    link.disabled = true;
+    try {
+      await api.report(questionId);
+      link.textContent = t("report_thanks");
+    } catch (err) {
+      link.disabled = false;
+      reportError(err);
+    }
+  };
+  return link;
+}
+
 function verdictBox(a: AnswerResult): HTMLElement {
   const box = el("div");
 
@@ -805,6 +838,12 @@ function verdictBox(a: AnswerResult): HTMLElement {
     panel.append(icons.info(24));
     const body = el("div");
     body.append(el("h3", "", t("explanation")), el("p", "", a.explanation));
+    // Say so when the text is not in the language they chose. Uzbek falls back to
+    // Russian on purpose — a bad explanation is the only thing on screen and is the
+    // thing being sold, so Uzbek ships as translations first — but silently serving a
+    // language someone did not pick reads as broken rather than as a known limit.
+    body.append(explanationLangNote(a.explanation_lang));
+    body.append(reportLink(a.question_id));
     panel.append(body);
     box.append(panel);
   } else if (a.explanation_state === "available") {
@@ -1867,6 +1906,30 @@ function render(): void {
 
 }
 
+/** Offer back a sitting the learner left open.
+ *
+ *  The server enforces the deadline when the sitting is read, so an exam whose twenty
+ *  minutes elapsed while the phone was locked comes back GRADED rather than resumable —
+ *  which is correct, and better than pretending there is still time on it.
+ */
+async function recoverOpenSitting(): Promise<void> {
+  const id = state.me?.open_session_id;
+  if (!id || state.run) return;
+  try {
+    const session = await sessions.read(id);
+    if (session.state === "open") {
+      state.resumable = session;
+    } else {
+      // It ran out while they were away. Show them the result rather than dropping it.
+      state.results = await sessions.results(id);
+      state.screen = "results";
+    }
+    render();
+  } catch {
+    // A sitting that cannot be read is not worth an error banner on the home screen.
+  }
+}
+
 async function boot(): Promise<void> {
   initTelegram();
   if (!inTelegram) {
@@ -1878,6 +1941,11 @@ async function boot(): Promise<void> {
     setLang(state.me.lang);
     document.documentElement.lang = lang();
     render();
+    // Ask the server what we walked away from. The client cannot remember across a
+    // reload, and a Mini App is closed by anything — a phone call, the screen locking,
+    // switching apps. Done AFTER the first render so the home screen appears instantly
+    // and the resume card arrives a moment later, rather than the app hanging on it.
+    void recoverOpenSitting();
   } catch (err) {
     root.replaceChildren();
     const wrap = el("section", "screen");

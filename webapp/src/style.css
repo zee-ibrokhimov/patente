@@ -904,3 +904,17 @@ html, body { overflow-x: hidden; }
 .reset-no  { border: 1px solid var(--edge); background: var(--card); color: var(--text); }
 .reset-yes { border: 0; background: var(--exam); color: #fff; }
 .reset-yes:disabled, .reset-no:disabled { opacity: .55; }
+
+/* Explanation footnotes: the language it is in, and a way to say it is wrong. Both are
+   quiet — neither should compete with the explanation itself, which is the paid thing. */
+.expl-lang {
+  display: block; margin-top: var(--sm);
+  font-size: 12px; color: var(--text-2); font-style: italic;
+}
+.expl-report {
+  display: block; margin-top: var(--sm); padding: 0;
+  border: 0; background: none; color: var(--text-2);
+  font-family: var(--font); font-size: 12px; text-decoration: underline;
+  cursor: pointer;
+}
+.expl-report:disabled { text-decoration: none; opacity: .8; cursor: default; }

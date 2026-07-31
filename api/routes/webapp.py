@@ -53,6 +53,7 @@ from api.schemas import (
     VocabAnswerOut,
     VocabListOut,
     VocabRoundOut,
+    ReportIn,
     ResetPreviewOut,
     VocabStatsOut,
 )
@@ -508,3 +509,21 @@ async def reset_progress(
     A pass is NOT touched. Wiping progress must never cost someone money they have paid.
     """
     return await reset_service.reset_progress(session, user.chat_id)
+
+
+@router.post("/reports", status_code=201)
+async def submit_report(
+    body: ReportIn,
+    user: User = Depends(webapp_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """"This explanation is wrong."
+
+    The whole path was built, tested and reachable only from the loopback route the bot
+    used — so since drilling moved into the Mini App, a paying user who read a wrong
+    AI-written explanation had no way to say so, and the owner had no way to hear it.
+
+    Report volume per thousand explanations served is the quality metric for a feature
+    whose entire pitch is quality (plan §9), and it was structurally impossible to collect.
+    """
+    return await quiz_route.submit_report(body=body, user=user, session=session)

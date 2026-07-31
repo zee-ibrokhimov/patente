@@ -39,6 +39,15 @@ class UserOut(BaseModel):
     # A trial is a pass with an expiry and no purchase behind it, so the client needs
     # both flags to tell a paying subscriber from someone still trialling.
     purchased: bool
+    # A sitting this user walked away from and can still return to.
+    #
+    # The client only knew about an open sitting if it had watched the user leave one in
+    # the SAME page load. Close the Mini App mid-exam — switch apps, take a call, let the
+    # phone lock — and it was gone: still open on the server with its twenty minutes
+    # running down, and no way back to it. Losing a timed exam by answering a phone call
+    # is the kind of thing that makes someone delete an app.
+    open_session_id: int | None = None
+
     # The question every paid surface actually asks. `has_pass` alone is NOT it: the
     # server enforces `entitlement.premium`, which is a pass OR channel membership OR
     # staff — so a learner who is Premium through the channel was shown a paywall on
@@ -95,6 +104,10 @@ class AnswerOut(BaseModel):
     correct_answer: bool
     box: int
     due_at: datetime
+    # Which language the explanation is in. Practice delivers it WITH the verdict,
+    # so this schema needs it as much as ExplanationOut does — an Uzbek learner is
+    # served Russian and nothing said so.
+    explanation_lang: str | None = None
     explanation_state: str
     explanation: str | None = None
     free_explanations_left: int
@@ -131,6 +144,12 @@ class ExplanationOut(BaseModel):
     """
 
     question_id: int
+    # Which language the text is actually in. An Uzbek learner is served RUSSIAN — there
+    # is a deliberate fallback, because a bad explanation is the only thing on screen and
+    # is the thing being sold, so Uzbek ships as translations first. But nothing told
+    # them: they paid for explanations and silently got a language they did not choose.
+    # Saying so is the difference between a known limitation and a broken product.
+    explanation_lang: str | None = None
     explanation_state: str
     explanation: str | None = None
     free_explanations_left: int

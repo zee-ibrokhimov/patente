@@ -720,4 +720,8 @@ async def deliver(
         status=row.status,
     )
     await session.commit()
-    return {"explanation_state": Access.SHOWN.value, "explanation": row.text}, Access.SHOWN
+    return (
+        {"explanation_state": Access.SHOWN.value, "explanation": row.text,
+         "explanation_lang": lang},
+        Access.SHOWN,
+    )

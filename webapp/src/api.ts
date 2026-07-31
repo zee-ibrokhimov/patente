@@ -87,6 +87,15 @@ export const api = {
 
   stats: () => request<Stats>("/stats"),
 
+  /** "This explanation is wrong." The path existed server-side and was reachable only
+   *  from the loopback route the bot used, so since drilling moved here nobody could
+   *  report anything. */
+  report: (questionId: number) =>
+    request<unknown>("/reports", {
+      method: "POST",
+      body: JSON.stringify({ question_id: questionId }),
+    }),
+
   /** What a reset would destroy — so the confirmation can name real numbers instead of
    *  saying "your progress", which people click past. */
   resetPreview: () => request<ResetPreview>("/reset/preview"),

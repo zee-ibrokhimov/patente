@@ -26,6 +26,8 @@ export interface Question {
 }
 
 export interface AnswerResult {
+  /** The language the explanation is actually in — Uzbek falls back to Russian. */
+  explanation_lang: string | null;
   question_id: number;
   given: boolean;
   correct: boolean;
@@ -44,6 +46,8 @@ export interface QuestionTranslation {
 }
 
 export interface ExplanationResult {
+  /** The language the text is ACTUALLY in. Uzbek falls back to Russian. */
+  explanation_lang: string | null;
   question_id: number;
   explanation_state: Access;
   explanation: string | null;
@@ -62,6 +66,11 @@ export interface Me {
   /** True once the user has actually bought something. Distinguishes a paying subscriber
    *  from someone on the free trial, who also has a pass. */
   purchased: boolean;
+  /** A sitting left open on the server. Without this the client only knew about one it
+   *  had watched the user leave in the same page load — so closing the app mid-exam lost
+   *  it, while the clock kept running. */
+  open_session_id: number | null;
+
   /** The single question every paid surface should ask. `has_pass` is only ONE of the
    *  three ways to have it — reading that instead showed paywalls to channel members
    *  the server was already serving in full. */

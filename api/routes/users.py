@@ -31,6 +31,18 @@ async def _out(user: User, session: AsyncSession) -> UserOut:
     client shows a very different screen for each.
     """
     ent = evaluate(user)
+
+    # Newest first: starting a second sitting abandons the first, so the most recent open
+    # row is the only one that can still be returned to.
+    from api.models import QuizSession
+    from shared.constants import SESSION_OPEN
+
+    open_session_id = await session.scalar(
+        select(QuizSession.id)
+        .where(QuizSession.chat_id == user.chat_id, QuizSession.state == SESSION_OPEN)
+        .order_by(QuizSession.id.desc())
+        .limit(1)
+    )
     # `amount_cents > 0` and not merely "a row exists": a Tribute trial writes a Purchase
     # row too, because that row's UNIQUE id is what makes webhook redelivery idempotent.
     # It is stored at zero. Counting rows instead of money would make anyone on a trial
@@ -62,6 +74,7 @@ async def _out(user: User, session: AsyncSession) -> UserOut:
         pass_expires_at=user.pass_expires_at,
         has_pass=ent.has_pass,
         purchased=purchased,
+        open_session_id=open_session_id,
         premium=ent.premium,
         # Most specific reason first: staff outranks a pass, and a pass is the one worth
         # naming to someone who paid for it.
