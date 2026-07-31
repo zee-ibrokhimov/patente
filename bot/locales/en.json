@@ -38,5 +38,20 @@
   "plan_free_left": "Free explanations left: <b>{n}</b>",
   "plan_perks": "Included: the question translated into your language, and an explanation grounded in the Codice della Strada.",
   "btn_subscribe": "Subscribe",
-  "error_transient": "The service isn't responding. Try again in a moment."
+  "error_transient": "The service isn't responding. Try again in a moment.",
+  "plan_trial": "🎁 <b>Free trial</b> — {n} days left",
+  "plan_trial_note": "You have everything during the trial. It then returns to the free plan, with nothing charged.",
+  "plan_free_title": "⚪ Free plan",
+  "plan_free_body": "You have all 7106 questions, exam mode and practice. Translations and explanations are Premium.",
+  "plan_premium_h": "<b>Premium includes</b>",
+  "plan_b_ai": "🤖 AI explains every answer",
+  "plan_b_lang": "🌍 Translation into several languages",
+  "plan_b_vocab": "📚 Driving vocabulary (coming soon)",
+  "plan_b_future": "🚀 Every future Premium feature",
+  "plan_prices_h": "<b>Prices</b>",
+  "plan_price_line": "{label} — <b>{price}</b>  ({per_month}/mo)",
+  "plan_price_best": "{label} — <b>{price}</b>  ({per_month}/mo) ⭐ best value",
+  "plan_1m": "1 month",
+  "plan_3m": "3 months",
+  "plan_6m": "6 months"
 }

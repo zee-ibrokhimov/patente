@@ -38,5 +38,20 @@
   "plan_free_left": "Spiegazioni gratuite rimaste: <b>{n}</b>",
   "plan_perks": "Incluso: la domanda tradotta nella tua lingua e la spiegazione basata sul Codice della Strada.",
   "btn_subscribe": "Attiva abbonamento",
-  "error_transient": "Il servizio non risponde. Riprova tra un momento."
+  "error_transient": "Il servizio non risponde. Riprova tra un momento.",
+  "plan_trial": "🎁 <b>Prova gratuita</b> — ancora {n} giorni",
+  "plan_trial_note": "Durante la prova hai accesso a tutto. Alla fine si torna al piano gratuito, senza addebiti.",
+  "plan_free_title": "⚪ Piano gratuito",
+  "plan_free_body": "Hai tutte le 7106 domande, l'esame e l'allenamento. Traduzioni e spiegazioni sono Premium.",
+  "plan_premium_h": "<b>Premium include</b>",
+  "plan_b_ai": "🤖 L'AI spiega ogni risposta",
+  "plan_b_lang": "🌍 Traduzione in più lingue",
+  "plan_b_vocab": "📚 Vocabolario della guida (in arrivo)",
+  "plan_b_future": "🚀 Tutte le funzioni Premium future",
+  "plan_prices_h": "<b>Prezzi</b>",
+  "plan_price_line": "{label} — <b>{price}</b>  ({per_month}/mese)",
+  "plan_price_best": "{label} — <b>{price}</b>  ({per_month}/mese) ⭐ più conveniente",
+  "plan_1m": "1 mese",
+  "plan_3m": "3 mesi",
+  "plan_6m": "6 mesi"
 }

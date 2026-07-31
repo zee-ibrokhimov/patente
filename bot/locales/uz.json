@@ -38,5 +38,20 @@
   "plan_none": "⚪ Faol obuna yo'q",
   "plan_free_left": "Qolgan bepul izohlar: <b>{n}</b>",
   "plan_perks": "Tarkibida: savolning o'z tilingizdagi tarjimasi va Italiya yo'l harakati kodeksiga asoslangan izoh.",
-  "btn_subscribe": "Obunani faollashtirish"
+  "btn_subscribe": "Obunani faollashtirish",
+  "plan_trial": "🎁 <b>Bepul sinov</b> — {n} kun qoldi",
+  "plan_trial_note": "Sinov davomida hammasi ochiq. So'ngra bepul rejaga qaytadi, hech qanday to'lovsiz.",
+  "plan_free_title": "⚪ Bepul reja",
+  "plan_free_body": "Sizda barcha 7106 savol, imtihon va mashq bor. Tarjima va izohlar — Premium tarkibida.",
+  "plan_premium_h": "<b>Premium tarkibida</b>",
+  "plan_b_ai": "🤖 AI har bir javobni tushuntiradi",
+  "plan_b_lang": "🌍 Bir necha tilga tarjima",
+  "plan_b_vocab": "📚 Haydovchi lug'ati (tez orada)",
+  "plan_b_future": "🚀 Kelajakdagi barcha Premium imkoniyatlar",
+  "plan_prices_h": "<b>Narxlar</b>",
+  "plan_price_line": "{label} — <b>{price}</b>  ({per_month}/oy)",
+  "plan_price_best": "{label} — <b>{price}</b>  ({per_month}/oy) ⭐ eng foydali",
+  "plan_1m": "1 oy",
+  "plan_3m": "3 oy",
+  "plan_6m": "6 oy"
 }

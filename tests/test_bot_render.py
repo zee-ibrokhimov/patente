@@ -10,6 +10,7 @@ to the Mini App; what remains is progress, settings and subscription.
 import pytest
 
 from bot import render
+from bot.i18n import t
 
 def test_stats_with_no_answers_points_at_the_app_not_a_command():
     """It used to say /quiz. That command no longer exists, so a new user following
@@ -59,12 +60,16 @@ def test_settings_renders_in_every_language(lang):
 
 # --- plan ------------------------------------------------------------------
 
+# `purchased` matters: a pass with no purchase behind it is the free trial, and /plan
+# says something different for each. These fixtures predate the trial and were silently
+# exercising the trial branch once it landed.
 ACTIVE = {
     "chat_id": 1, "lang": "it", "translations_on": True,
     "pass_expires_at": "2026-08-29T10:30:00Z", "has_pass": True,
-    "free_explanations_left": 0,
+    "purchased": True, "free_explanations_left": 0,
 }
-LAPSED = {**ACTIVE, "pass_expires_at": None, "has_pass": False, "free_explanations_left": 2}
+LAPSED = {**ACTIVE, "pass_expires_at": None, "has_pass": False,
+          "purchased": False, "free_explanations_left": 2}
 
 
 def test_plan_shows_the_expiry_date_without_the_time():
@@ -74,29 +79,72 @@ def test_plan_shows_the_expiry_date_without_the_time():
     assert "10:30" not in body
 
 
-def test_plan_without_a_pass_shows_the_free_allowance():
-    body = render.plan(LAPSED, "it", can_subscribe=True)
-    assert "2" in body
-    assert "2026-08-29" not in body
-
-
-def test_plan_says_payments_are_not_live_when_tribute_is_unconfigured():
-    """Better than a Buy button that opens nothing — unfinished, not broken."""
-    from bot.i18n import t
-
-    body = render.plan(LAPSED, "it", can_subscribe=False)
-    assert t("it", "payments_not_live") in body
-
-
-def test_plan_omits_that_notice_once_payments_are_live():
-    from bot.i18n import t
-
-    body = render.plan(LAPSED, "it", can_subscribe=True)
-    assert t("it", "payments_not_live") not in body
-
-
 @pytest.mark.parametrize("lang", ["it", "ru", "en"])
 def test_plan_renders_in_every_language(lang):
     assert render.plan(ACTIVE, lang, can_subscribe=False)
     assert render.plan(LAPSED, lang, can_subscribe=True)
 
+
+
+# --- /plan ------------------------------------------------------------------
+
+TRIAL = {"has_pass": True, "purchased": False,
+         "pass_expires_at": "2099-01-01T00:00:00+00:00"}
+PAID = {"has_pass": True, "purchased": True,
+        "pass_expires_at": "2026-08-29T10:30:00+00:00"}
+FREE = {"has_pass": False, "purchased": False, "pass_expires_at": None}
+
+
+def test_plan_does_not_sell_to_someone_on_the_trial():
+    """They already have everything. Pitching costs goodwill and buys nothing."""
+    body = render.plan(TRIAL, "en", can_subscribe=True)
+    assert "2.99" not in body and "10.99" not in body
+
+
+def test_plan_does_not_sell_to_a_paying_subscriber():
+    body = render.plan(PAID, "en", can_subscribe=True)
+    assert "2.99" not in body and "10.99" not in body
+    assert "2026-08-29" in body
+
+
+def test_plan_shows_all_three_prices_to_a_free_user():
+    body = render.plan(FREE, "en", can_subscribe=True)
+    for price in ("2.99", "7.99", "10.99"):
+        assert f"€{price}" in body, f"missing {price}"
+
+
+def test_plan_marks_the_featured_tier_and_orders_by_length():
+    from shared.constants import TIER_DAYS, TIER_FEATURED
+
+    body = render.plan(FREE, "en", can_subscribe=True)
+    lines = [ln for ln in body.splitlines() if "€" in ln and "/mo" in ln]
+    assert len(lines) == len(TIER_DAYS)
+    assert "⭐" in lines[-1], "the longest plan should be last and featured"
+    assert TIER_FEATURED == "pass_6m"
+
+
+def test_plan_per_month_figures_are_right():
+    body = render.plan(FREE, "en", can_subscribe=True)
+    assert "€2.66" in body   # 799 / 3
+    assert "€1.83" in body   # 1099 / 6
+
+
+def test_plan_says_payments_are_not_live_when_tribute_is_unconfigured():
+    body = render.plan(FREE, "en", can_subscribe=False)
+    assert t("en", "payments_not_live") in body
+
+
+def test_a_trial_with_hours_left_still_reads_as_a_day():
+    """Rounding down would say '0 days left' to someone who still has access, which
+    reads as already over."""
+    from datetime import datetime, timedelta, timezone
+
+    soon = (datetime.now(timezone.utc) + timedelta(hours=11)).isoformat()
+    body = render.plan({**TRIAL, "pass_expires_at": soon}, "en", can_subscribe=True)
+    assert "1 days left" in body or "1 day" in body
+
+
+@pytest.mark.parametrize("lang", ["it", "ru", "en", "uz"])
+def test_plan_renders_in_every_language(lang):
+    for state in (FREE, TRIAL, PAID):
+        assert render.plan(state, lang, can_subscribe=True)

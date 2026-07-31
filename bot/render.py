@@ -11,9 +11,15 @@ settings.
 from __future__ import annotations
 
 import html
+import math
 
 from bot.i18n import t
-from shared.constants import TRANSLATION_LANGUAGES
+from shared.constants import (
+    TIER_DAYS,
+    TIER_FEATURED,
+    TIER_PRICE_CENTS,
+    TRANSLATION_LANGUAGES,
+)
 
 # Telegram's photo-caption limit. Statements run ~120 characters and explanations
 # two sentences, so this only ever bites on a pathological row — but silently
@@ -71,25 +77,74 @@ def settings(user: dict, lang: str) -> str:
     return "\n\n".join(lines)
 
 
+def _money(cents: int) -> str:
+    """EUR with two decimals. No locale formatting: the price is the same number in every
+    language, and a comma-vs-dot difference between the bot and the checkout page reads
+    as two different prices."""
+    return f"\u20ac{cents / 100:.2f}"
+
+
 def plan(user: dict, lang: str, *, can_subscribe: bool) -> str:
     """Subscription state, in the surface that owns payment.
 
-    Plan §6.2 keeps buying in chat rather than in the Mini App, since Mini Apps
-    selling digital goods sit closer to the Stars-only rule and to Apple's review
-    guidelines. So this is the screen a paywall in the app points back to.
+    Plan §6.2 keeps buying in chat rather than in the Mini App, since Mini Apps selling
+    digital goods sit closer to Telegram's Stars-only rule and to Apple's review
+    guidelines. So every paywall in the app ends here, and this message has to answer the
+    question the user arrived with: what do I get, and what does it cost.
+
+    Three states, and they need different messages:
+      · on the free trial — say what they have and when it ends, and do NOT sell
+      · paid — say until when, and stop selling
+      · free — the pitch and the prices
     """
+    expires = user.get("pass_expires_at")
+    has_pass = bool(user.get("has_pass"))
+    purchased = bool(user.get("purchased"))
     lines = [t(lang, "plan_title"), ""]
 
-    expires = user.get("pass_expires_at")
-    if user.get("has_pass") and expires:
-        # ISO-8601 from the API; show the date only — the hour is noise to a reader
-        # and a timezone argument waiting to happen.
-        lines.append(t(lang, "plan_active", date=str(expires)[:10]))
-    else:
-        lines.append(t(lang, "plan_none"))
-        lines.append(t(lang, "plan_free_left", n=user.get("free_explanations_left", 0)))
+    if has_pass and not purchased and expires:
+        # A pass with no purchase behind it is the trial.
+        days = _days_left(expires)
+        lines.append(t(lang, "plan_trial", n=days))
+        lines += ["", t(lang, "plan_trial_note")]
+        return _clip("\n".join(lines), MESSAGE_LIMIT)
 
-    lines += ["", t(lang, "plan_perks")]
+    if has_pass and expires:
+        lines.append(t(lang, "plan_active", date=str(expires)[:10]))
+        lines += ["", t(lang, "plan_perks")]
+        return _clip("\n".join(lines), MESSAGE_LIMIT)
+
+    lines += [t(lang, "plan_free_title"), t(lang, "plan_free_body"), ""]
+    lines += [t(lang, "plan_premium_h")]
+    for key in ("plan_b_ai", "plan_b_lang", "plan_b_vocab", "plan_b_future"):
+        lines.append(t(lang, key))
+
+    lines += ["", t(lang, "plan_prices_h")]
+    # Cheapest-per-month last and starred, which is the order plan §4.2 asks for: the
+    # spread is visible but not obvious, so presentation does the work.
+    for tier in sorted(TIER_DAYS, key=lambda x: TIER_DAYS[x]):
+        cents = TIER_PRICE_CENTS[tier]
+        months = TIER_DAYS[tier] / 30
+        key = "plan_price_best" if tier == TIER_FEATURED else "plan_price_line"
+        lines.append(t(
+            lang, key,
+            label=t(lang, f"plan_{tier.replace('pass_', '')}"),
+            price=_money(cents),
+            per_month=_money(round(cents / months)),
+        ))
+
     if not can_subscribe:
         lines += ["", t(lang, "payments_not_live")]
     return _clip("\n".join(lines), MESSAGE_LIMIT)
+
+
+def _days_left(expires: str) -> int:
+    """Whole days, rounded UP and floored at 1: a trial with eleven hours left is 'one
+    day', not 'zero days', which would read as already over."""
+    from datetime import datetime, timezone
+
+    end = datetime.fromisoformat(str(expires).replace("Z", "+00:00"))
+    if end.tzinfo is None:
+        end = end.replace(tzinfo=timezone.utc)
+    seconds = (end - datetime.now(timezone.utc)).total_seconds()
+    return max(1, math.ceil(seconds / 86400)) if seconds > 0 else 0
