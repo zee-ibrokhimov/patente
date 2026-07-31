@@ -1,4 +1,4 @@
-import { api, ApiError, sessions, vocab } from "./api";
+import { api, ApiError, leaderboard, sessions, vocab } from "./api";
 import { readinessGauge } from "./gauge";
 import { art, icons } from "./icons";
 import { TRANSLATION_LANGUAGES, lang, setLang, t } from "./i18n";
@@ -17,13 +17,15 @@ import type {
   Stats,
   VocabAnswer,
   VocabList,
+  Leaderboard,
   RepeatSource,
   VocabRound,
   VocabStats,
 } from "./types";
 import "./style.css";
 
-type Screen = "home" | "run" | "results" | "profile" | "stats" | "settings" | "vocab";
+type Screen = "home" | "run" | "results" | "profile" | "stats" | "settings" | "vocab"
+  | "ratings";
 
 /** The author of the vocabulary list, and the condition on which it may be used.
  *
@@ -37,6 +39,12 @@ type Screen = "home" | "run" | "results" | "profile" | "stats" | "settings" | "v
  *  sentence is translated.
  */
 const VOCAB_AUTHOR = { name: "Zukhriddin Kamolov", handle: "TTYMI_OKMK2" } as const;
+
+/** Below this many ranked learners, a "league" is a handful of people in a fixed order
+ *  where somebody is permanently last — demoralising rather than motivating. Mirrors
+ *  LEADERBOARD_MIN_PLAYERS in shared/constants.py. The board is still shown; it is
+ *  labelled as quiet rather than presented as a competition. */
+const RATINGS_MIN_PLAYERS = 5;
 
 /** A sitting in flight.
  *
@@ -91,8 +99,11 @@ const state: {
   /** Review list filter. Mistakes-first by default: someone who got 27 right does not
    *  want to scroll past them to reach the three that matter. */
   reviewWrongOnly: boolean;
+  /** This week's league, fetched on entering the tab. Null means "not loaded yet", which
+   *  is a different screen from an empty board. */
+  ratings: Leaderboard | null;
 } = { me: null, screen: "home", run: null, results: null, stats: null, profile: null,
-      resumable: null, reviewWrongOnly: true,
+      resumable: null, reviewWrongOnly: true, ratings: null,
       vocab: { view: "test", round: null, index: 0, current: null, right: 0, typed: "",
                busy: false, list: null, query: "", stats: null, locked: false } };
 
@@ -227,6 +238,7 @@ async function startRun(mode: Mode, source: RepeatSource = "smart"): Promise<voi
 function dropLocalisedCaches(): void {
   state.stats = null;
   state.profile = null;
+  state.ratings = null;
   state.vocab = {
     ...state.vocab,
     list: null,
@@ -1634,6 +1646,31 @@ function settingsScreen(): HTMLElement {
   trCard.append(note);
   wrap.append(trCard);
 
+  // --- the weekly league ---
+  //
+  // The switch that makes showing real first names to other learners defensible at all. It
+  // has to be findable, and it has to work retroactively — which it does, because the
+  // ranking query filters on the column every time it runs rather than at the week's end.
+  const lbCard = el("div", "card");
+  lbCard.style.marginTop = "var(--md)";
+  const lbRow = el("div", "row");
+  const lbText = el("div", "row-main");
+  lbText.append(el("div", "row-title", t("ratings_visible")),
+                el("div", "row-sub", t("ratings_visible_sub")));
+  lbRow.append(lbText);
+
+  // Phrased as "show me", never "hide me". A switch that is ON when the thing is OFF is
+  // how people end up with their privacy setting backwards.
+  const visible = !me.leaderboard_opt_out;
+  const lbToggle = el("button", `switch ${visible ? "on" : ""}`);
+  lbToggle.type = "button";
+  lbToggle.setAttribute("role", "switch");
+  lbToggle.setAttribute("aria-checked", String(visible));
+  lbToggle.onclick = () => void setLeaderboardOptOut(visible);
+  lbRow.append(lbToggle);
+  lbCard.append(lbRow);
+  wrap.append(lbCard);
+
   // --- subscription ---
   if (me.premium) {
     const sub = el("div", "card sub-active");
@@ -1989,17 +2026,125 @@ function vocabList(): HTMLElement {
   return box;
 }
 
+// ---------------------------------------------------------------------------
+// the weekly league
+// ---------------------------------------------------------------------------
+
+async function loadRatings(): Promise<void> {
+  try {
+    state.ratings = await leaderboard.board();
+    render();
+  } catch (err) {
+    reportError(err);
+  }
+}
+
+/** This week's table: a podium for the top three, a list for the rest.
+ *
+ *  Monday to Sunday UTC, ranked on CORRECT answers — see api/services/leaderboard.py for
+ *  why weekly rather than all-time, and why correct rather than attempted. */
+function ratingsScreen(): HTMLElement {
+  const wrap = el("section", "screen");
+  const head = el("div", "v-head");
+  head.append(el("h2", "v-title", t("ratings")), el("p", "v-sub", t("ratings_week")));
+  wrap.append(head);
+
+  const board = state.ratings;
+  if (!board) {
+    wrap.append(el("p", "caption", t("loading")));
+    return wrap;
+  }
+
+  // Someone who asked not to appear is told so, rather than shown an empty board and left
+  // to wonder whether the feature is broken.
+  if (board.me.opted_out) {
+    const card = el("div", "card");
+    card.append(el("p", "", t("ratings_hidden")));
+    const show = el("button", "btn secondary", t("ratings_show_me"));
+    show.type = "button";
+    show.onclick = () => void setLeaderboardOptOut(false);
+    card.append(show);
+    wrap.append(card);
+    return wrap;
+  }
+
+  if (!board.entries.length) {
+    wrap.append(el("p", "caption", t("ratings_empty")));
+    return wrap;
+  }
+
+  // Below a handful of players a "league" is three people in a fixed order where somebody
+  // is permanently last. Saying it is quiet is honest, and stops the screen reading as a
+  // competition the learner has already lost.
+  if (board.ranked < RATINGS_MIN_PLAYERS) {
+    wrap.append(el("p", "caption", t("ratings_quiet")));
+  }
+
+  const podium = el("div", "podium");
+  for (const entry of board.entries.slice(0, 3)) {
+    const seat = el("div", `podium-seat p${entry.rank}${entry.is_me ? " me" : ""}`);
+    seat.append(el("div", "podium-rank", String(entry.rank)));
+    seat.append(el("div", "podium-name", entry.name || t("ratings_anon")));
+    seat.append(el("div", "podium-score", String(entry.score)));
+    podium.append(seat);
+  }
+  wrap.append(podium);
+
+  const list = el("div", "rank-list");
+  for (const entry of board.entries.slice(3)) {
+    const row = el("div", `rank-row${entry.is_me ? " me" : ""}`);
+    row.append(el("span", "rank-n", String(entry.rank)));
+    row.append(el("span", "rank-name", entry.name || t("ratings_anon")));
+    row.append(el("span", "rank-score", String(entry.score)));
+    list.append(row);
+  }
+  if (list.childElementCount) wrap.append(list);
+
+  // Their own line, always — "you are 22nd with 12" is information. A board somebody cannot
+  // find themselves on is just a list of other people.
+  if (board.me.rank && !board.entries.some((e) => e.is_me)) {
+    const mine = el("div", "rank-row me standalone");
+    mine.append(el("span", "rank-n", String(board.me.rank)));
+    mine.append(el("span", "rank-name", t("ratings_you")));
+    mine.append(el("span", "rank-score", String(board.me.score)));
+    wrap.append(mine);
+  } else if (!board.me.rank) {
+    wrap.append(el("p", "caption", t("ratings_not_ranked")));
+  }
+
+  return wrap;
+}
+
+async function setLeaderboardOptOut(optOut: boolean): Promise<void> {
+  try {
+    state.me = await api.settings({ leaderboard_opt_out: optOut });
+    state.ratings = null;
+    render();
+    if (state.screen === "ratings") void loadRatings();
+  } catch (err) {
+    reportError(err);
+  }
+}
+
 function tabs(): HTMLElement {
   const bar = el("nav", "tabs");
   const add = (id: Screen, label: string, icon: SVGSVGElement) => {
     const b = el("button", `tab ${state.screen === id ? "on" : ""}`);
     b.type = "button";
     b.append(icon, el("span", "", label));
-    b.onclick = () => { state.screen = id; render(); };
+    b.onclick = () => {
+      state.screen = id;
+      render();
+      // The league is fetched on entry rather than at boot: it is the one screen whose
+      // data is about OTHER people, so it is stale the moment it is cached and there is no
+      // reason to pay for it on a visit that never opens this tab.
+      if (id === "ratings") void loadRatings();
+    };
     bar.append(b);
   };
   add("home", t("home"), icons.home(23));
   add("profile", t("profile"), icons.person(23));
+  add("ratings", t("ratings"), icons.crown(23));
   add("stats", t("stats"), icons.chart(23));
   add("settings", t("settings"), icons.gear(23));
   return bar;
@@ -2034,6 +2179,7 @@ function render(): void {
     case "stats": screen = statsScreen(); break;
     case "settings": screen = settingsScreen(); break;
     case "vocab": screen = vocabScreen(); break;
+    case "ratings": screen = ratingsScreen(); break;
     default: screen = homeScreen();
   }
   if (back && !nativeBack) screen.prepend(fallbackBack(back));

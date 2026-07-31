@@ -99,6 +99,7 @@ async def update_settings(
     lang: str | None = None,
     translations_on: bool | None = None,
     onboarded: bool | None = None,
+    leaderboard_opt_out: bool | None = None,
 ) -> User:
     if lang is not None:
         if lang not in UI_LANGUAGES:
@@ -108,6 +109,11 @@ async def update_settings(
         user.translations_on = translations_on
     if onboarded and user.onboarded_at is None:
         user.onboarded_at = datetime.now(timezone.utc)
+    if leaderboard_opt_out is not None:
+        # Retroactive by construction: the ranking query filters on this column every time
+        # it runs, so opting out removes them from the CURRENT week as well as future ones.
+        # An opt-out that only applied from next Monday would not be one.
+        user.leaderboard_opt_out = leaderboard_opt_out
     await session.flush()
     return user
 

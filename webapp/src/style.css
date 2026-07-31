@@ -666,6 +666,66 @@ html, body { overflow-x: hidden; }
   margin: var(--sm) 0 0;
 }
 
+/* ======================================================================
+   THE WEEKLY LEAGUE
+   ====================================================================== */
+
+/* A podium for the top three. Gold, silver, bronze read instantly and need no legend,
+ * which matters on a screen that exists in four languages. */
+.podium {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--xs);
+  align-items: end;
+  margin: var(--lg) 0;
+}
+.podium-seat {
+  display: grid; gap: 2px; justify-items: center;
+  padding: var(--md) var(--xs);
+  border-radius: var(--r);
+  background: var(--card);
+  border: 1px solid var(--edge);
+  text-align: center;
+  min-width: 0;                    /* long names shrink instead of blowing the column */
+}
+/* First place taller and first in reading order, so the eye lands on the winner rather
+ * than on the left-hand column. */
+.podium-seat.p1 { order: 2; padding-top: var(--lg); border-color: var(--gold-border);
+                  background: var(--gold-bg); }
+.podium-seat.p2 { order: 1; }
+.podium-seat.p3 { order: 3; }
+.podium-seat.me { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.podium-rank { font-weight: 800; font-size: var(--t-title); line-height: 1; }
+.podium-seat.p1 .podium-rank { color: var(--gold-dark); }
+.podium-name {
+  font-size: var(--t-caption); font-weight: 600;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.podium-score { font-size: var(--t-caption); color: var(--text-2); }
+
+/* Fourth downwards. A plain list — the podium already carries the drama. */
+.rank-list { display: grid; gap: 1px; background: var(--edge);
+             border: 1px solid var(--edge); border-radius: var(--r); overflow: hidden; }
+.rank-row {
+  display: grid;
+  grid-template-columns: 2.2rem 1fr auto;
+  gap: var(--sm);
+  align-items: center;
+  padding: var(--sm) var(--md);
+  background: var(--card);
+  font-size: var(--t-caption);
+}
+.rank-row.me { background: var(--gold-bg); font-weight: 700; }
+.rank-row.standalone {
+  margin-top: var(--md);
+  border: 1px solid var(--gold-border);
+  border-radius: var(--r);
+}
+.rank-n { color: var(--text-2); font-variant-numeric: tabular-nums; }
+.rank-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rank-score { font-weight: 700; font-variant-numeric: tabular-nums; }
+
 /* Repeat rounds — go back over what you have already answered.
  *
  * Two chips, not two more mode cards. Exam and practice are what the app is for and this

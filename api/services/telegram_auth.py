@@ -57,6 +57,10 @@ class TelegramUser:
     chat_id: int
     language_code: str | None = None
     username: str | None = None
+    # The learner's own first name, for the leaderboard and nothing else. Signed by
+    # Telegram like everything else here, so it cannot be spoofed by the client — which
+    # matters when it is about to be shown to other people.
+    first_name: str | None = None
 
 
 def _secret_key(bot_token: str) -> bytes:
@@ -114,6 +118,7 @@ def verify(init_data: str, *, now: float | None = None) -> TelegramUser:
         chat_id=chat_id,
         language_code=user.get("language_code"),
         username=user.get("username"),
+        first_name=user.get("first_name"),
     )
 
 

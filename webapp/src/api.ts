@@ -12,6 +12,7 @@ import type {
   PracticeAnswer,
   Profile,
   Question,
+  Leaderboard,
   QuestionTranslation,
   RepeatSource,
   ResetPreview,
@@ -55,7 +56,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 export const api = {
   me: () => request<Me>("/me"),
 
-  settings: (body: { lang?: string; translations_on?: boolean }) =>
+  settings: (body: { lang?: string; translations_on?: boolean; leaderboard_opt_out?: boolean }) =>
     request<Me>("/settings", { method: "PATCH", body: JSON.stringify(body) }),
 
   nextQuestion: (opts: { topicId?: number; excludeId?: number } = {}) => {
@@ -136,6 +137,11 @@ export const vocab = {
 };
 
 /** --- quiz sessions ------------------------------------------------------ */
+
+export const leaderboard = {
+  /** This week's league. The only endpoint that returns other people. */
+  board: () => request<Leaderboard>("/leaderboard"),
+};
 
 export const sessions = {
   /** Returns the sitting AND its whole paper. The paper is frozen server-side, so there

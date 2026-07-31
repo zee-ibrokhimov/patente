@@ -83,6 +83,9 @@ export interface Me {
   support_contact: string;
   /** A Tribute trial with a card attached, as opposed to a hand-granted pass. */
   trialing: boolean;
+  /** Hidden from the weekly league. The switch that makes showing real first names to
+   *  other learners defensible. */
+  leaderboard_opt_out: boolean;
 }
 
 export interface TopicStat {
@@ -199,6 +202,9 @@ export interface Profile {
   readiness: number | null;
   readiness_sample: number;
   readiness_min_sample: number;
+  /** Streak freezes in hand. A freeze nobody can see protects nobody psychologically —
+   *  the point of having one is knowing you are covered. */
+  streak_freezes: number;
   /** The real bar: 27 of 30 correct. Without it a percentage means nothing. */
   pass_accuracy: number;
   exams: {
@@ -207,6 +213,29 @@ export interface Profile {
     avg_errors: number | null;
     recent: ExamHistory[];
   };
+}
+
+/** --- the weekly league --------------------------------------------------- */
+
+/** One row. Deliberately the smallest thing that can be rendered.
+ *
+ *  No chat id and no username: this is the only payload in the product carrying one
+ *  learner's data to another, and a first name plus a score cannot be used to FIND
+ *  somebody. See api/services/leaderboard.py. */
+export interface LeaderboardEntry {
+  rank: number;
+  name: string | null;
+  score: number;
+  is_me: boolean;
+}
+
+export interface Leaderboard {
+  week_start: string;
+  /** Everyone ranked, not just those returned — so the client can tell a real competition
+   *  from three people and say so rather than drawing a podium nobody can move on. */
+  ranked: number;
+  entries: LeaderboardEntry[];
+  me: { rank: number | null; score: number; opted_out: boolean };
 }
 
 /** --- vocabulary trainer -------------------------------------------------- */

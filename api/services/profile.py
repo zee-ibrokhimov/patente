@@ -32,7 +32,8 @@ from datetime import date, datetime, timedelta, timezone
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.models import Event, QuizSession
+from api.models import Event, QuizSession, User
+from api.services import streak as streak_service
 from shared.constants import (
     EV_ANSWER_GIVEN,
     EXAM_MAX_ERRORS,
@@ -217,8 +218,25 @@ async def user_profile(
 ) -> dict:
     now = now or datetime.now(timezone.utc)
     readiness, sample = await _readiness(session, chat_id)
+
+    # The streak now comes from `streak.refresh`, which is the same count as before PLUS the
+    # freeze: it bridges a single missed day if the learner has one to spend, and records
+    # which day it covered. `_streak` is left in place and still tested — it is the unfrozen
+    # rule, and having the plain version to compare against is what makes the freeze
+    # provably a bridge rather than a different count.
+    #
+    # Spending happens on read because there is no scheduler here. That is also the right
+    # moment: nobody is harmed by a gap nobody has looked at, and it works whenever the
+    # learner comes back rather than depending on a job having run in the right timezone.
+    user = await session.get(User, chat_id)
+    if user is not None:
+        streak_days, freezes = await streak_service.refresh(session, user, now.date())
+    else:
+        streak_days, freezes = await _streak(session, chat_id, now.date()), 0
+
     return {
-        "streak_days": await _streak(session, chat_id, now.date()),
+        "streak_days": streak_days,
+        "streak_freezes": freezes,
         "readiness": readiness,
         "readiness_sample": sample,
         "readiness_min_sample": MIN_SAMPLE,

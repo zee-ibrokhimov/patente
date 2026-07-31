@@ -35,6 +35,9 @@ class UserSettingsIn(BaseModel):
     lang: str | None = Field(default=None, description=f"one of {UI_LANGUAGES}")
     translations_on: bool | None = None
     onboarded: bool | None = None
+    # Hide me from the weekly league. The switch that makes showing real first names to
+    # other learners defensible: one tap, immediate, and retroactive.
+    leaderboard_opt_out: bool | None = None
 
 
 class UserOut(BaseModel):
@@ -74,6 +77,9 @@ class UserOut(BaseModel):
         default=False,
         description="a Tribute trial with a card attached, as opposed to a granted pass",
     )
+    # Hidden from the weekly league. The client renders the Settings switch from this, and
+    # a switch that cannot read its own state would show everyone as visible.
+    leaderboard_opt_out: bool = False
     free_explanations_left: int
     onboarded_at: datetime | None
     created_at: datetime
@@ -304,6 +310,39 @@ class SessionAnswerIn(BaseModel):
     answer: bool = Field(description="true = VERO, false = FALSO")
 
 
+# --- leaderboard ------------------------------------------------------------
+
+class LeaderboardEntry(BaseModel):
+    """One row. Deliberately the smallest thing that can be rendered.
+
+    NO chat_id and no username. This is the only response in the product that carries one
+    user's data to another, and anything here that could be used to FIND a person rather
+    than merely rank them does not belong — a first name and a score cannot be looked up.
+    """
+
+    rank: int
+    name: str | None = None
+    score: int
+    is_me: bool = False
+
+
+class LeaderboardMeOut(BaseModel):
+    """Where the caller stands. `rank` is null when they have not scored this week."""
+
+    rank: int | None = None
+    score: int = 0
+    opted_out: bool = False
+
+
+class LeaderboardOut(BaseModel):
+    week_start: datetime
+    # How many learners are ranked in total, so the client can tell a real competition from
+    # three people and say so instead of rendering a podium nobody can move on.
+    ranked: int
+    entries: list[LeaderboardEntry]
+    me: LeaderboardMeOut
+
+
 # --- profile ----------------------------------------------------------------
 
 class ExamHistoryOut(BaseModel):
@@ -332,6 +371,10 @@ class ProfileOut(BaseModel):
     readiness: float | None
     readiness_sample: int
     readiness_min_sample: int
+    # Freezes in hand. A streak that can survive one bad evening is one people keep going
+    # rather than abandon, and the count has to be visible or it protects nobody
+    # psychologically — the point is knowing you are covered.
+    streak_freezes: int = 0
     pass_accuracy: float
     exams: ExamSummaryOut
 

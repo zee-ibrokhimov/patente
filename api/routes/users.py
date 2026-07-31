@@ -82,6 +82,7 @@ async def _out(user: User, session: AsyncSession) -> UserOut:
                      "pass" if ent.has_pass else
                      "channel" if ent.via_channel else "none"),
         trialing=trialing,
+        leaderboard_opt_out=user.leaderboard_opt_out,
         bot_username=settings.bot_username,
         support_contact=settings.support_contact,
         free_explanations_left=ent.free_explanations_left,
@@ -116,6 +117,7 @@ async def update(
             lang=body.lang,
             translations_on=body.translations_on,
             onboarded=body.onboarded,
+            leaderboard_opt_out=body.leaderboard_opt_out,
         )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc

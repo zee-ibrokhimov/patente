@@ -142,6 +142,23 @@ TIER_FEATURED = TIER_6M
 TRIAL_DAYS = 0
 
 
+# --- the leaderboard --------------------------------------------------------
+# A weekly league, Monday to Sunday in UTC.
+#
+# Weekly rather than all-time because an all-time board is won permanently by whoever
+# arrived first, and nobody who joins later can ever place — which is the opposite of an
+# engagement mechanic. A fixed week also creates the deadline that makes it work, and needs
+# no reset job: "this week" is a WHERE clause on the answer log.
+#
+# Ranked on CORRECT answers, not answers given. Counting attempts rewards tapping quickly
+# and being wrong, on a product whose entire pitch is understanding the question.
+LEADERBOARD_SIZE = 15
+# Below this many ranked learners the board is hiding more than it shows — with four users
+# somebody is permanently last, which is demoralising rather than motivating. The API still
+# returns the rows; the client is told it is too quiet to display as a competition.
+LEADERBOARD_MIN_PLAYERS = 5
+
+
 # --- Leitner boxes ----------------------------------------------------------
 # Box 1 is "just got it wrong", box 5 is "solid". A wrong answer always drops
 # straight back to box 1 — the whole point is that wrong answers come back soon.
@@ -266,6 +283,12 @@ EV_PROGRESS_RESET = "progress_reset"
 # remember to clear.
 EV_PASS_ENDING = "pass_ending"
 EV_PASS_LAPSED = "pass_lapsed"
+# A streak freeze was spent, and which DAY it covered. In the event log rather than a
+# "frozen until" column for the same reason as the lapse notices: a column has to be cleared
+# correctly every time, and getting that wrong means either an eternal streak or a freeze
+# that silently does nothing. Keyed on the day, so computing the streak twice cannot spend
+# two freezes.
+EV_STREAK_FROZEN = "streak_frozen"
 # Quiz sessions. EV_SESSION_START/END already existed for the study session; these name
 # the bounded, gradeable kind so an exam is separable in the funnel.
 EV_EXAM_STARTED = "exam_started"
@@ -282,6 +305,7 @@ EVENT_TYPES = (
     EV_PROGRESS_RESET,
     EV_PASS_ENDING,
     EV_PASS_LAPSED,
+    EV_STREAK_FROZEN,
 )
 
 # --- vocabulary trainer -----------------------------------------------------

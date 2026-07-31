@@ -42,6 +42,7 @@ from api.schemas import (
     QuestionTranslationOut,
     SessionAnswerIn,
     SessionOut,
+    LeaderboardOut,
     SessionResultsOut,
     StartSessionIn,
     ProfileOut,
@@ -60,6 +61,7 @@ from api.schemas import (
 from api.services import (
     channel,
     content,
+    leaderboard,
     profile as profile_service,
     quiz_sessions,
     telegram_auth,
@@ -112,6 +114,20 @@ async def webapp_user(
     # Only offer it as a default if we actually speak it.
     lang = telegram.language_code if telegram.language_code in UI_LANGUAGES else "it"
     user, _created = await users.get_or_create(session, telegram.chat_id, lang)
+
+    # Keep the name Telegram signed for, for the leaderboard and nothing else.
+    #
+    # Refreshed on every visit rather than written once at creation: a name is something
+    # people change, and a stale one is being shown to STRANGERS. Trimmed and bounded
+    # because it is rendered in other learners' apps — a 200-character "name" is a way to
+    # break someone else's screen, and Telegram does not promise a length.
+    #
+    # Written even for someone who has opted out. The opt-out governs whether they are
+    # RANKED (see leaderboard.py); throwing the name away as well would mean it silently
+    # went missing if they ever opted back in.
+    name = (telegram.first_name or "").strip()[:32] or None
+    if name != user.display_name:
+        user.display_name = name
 
     # Channel membership is a source of Premium, so it has to be known before entitlement
     # is evaluated — but only the FIRST check blocks. Someone whose status has never been
@@ -542,6 +558,20 @@ async def vocab_stats(
 
 
 # --- starting over ----------------------------------------------------------
+
+
+@router.get("/leaderboard", response_model=LeaderboardOut)
+async def leaderboard_board(
+    user: User = Depends(webapp_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """This week's league table, Monday to Sunday UTC, ranked on correct answers.
+
+    The ONLY response in this product that carries one learner's data to another. Everything
+    that decides what may be shown lives in the service rather than here, so a second caller
+    cannot get it wrong — see api/services/leaderboard.py.
+    """
+    return LeaderboardOut(**await leaderboard.board(session, user))
 
 
 @router.get("/reset/preview", response_model=ResetPreviewOut)

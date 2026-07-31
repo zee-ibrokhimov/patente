@@ -71,6 +71,31 @@ class User(Base):
     channel_status: Mapped[str | None] = mapped_column(Text, default=None)
     channel_checked_at: Mapped[datetime | None] = mapped_column(default=None)
 
+    # --- the leaderboard ----------------------------------------------------
+    #
+    # The learner's own first name, as Telegram signed it. Stored ONLY so other learners can
+    # see who they are competing with — the one place in this product where one user's
+    # personal data is shown to another, which is why it is worth a comment rather than a
+    # column definition.
+    #
+    # Refreshed on every visit rather than written once: a name is something people change,
+    # and a stale one is being shown to strangers.
+    display_name: Mapped[str | None] = mapped_column(Text, default=None)
+
+    # Opt OUT, not opt in. A leaderboard nobody has opted into is an empty screen, and a
+    # Telegram first name is already visible to anyone sharing a group with them. The switch
+    # is what makes it defensible: someone who does not want to appear must be able to say
+    # so in one tap and never appear again — including retroactively.
+    leaderboard_opt_out: Mapped[bool] = mapped_column(default=False)
+
+    # Streak freezes held. A freeze covers ONE missed day, so an evening that got away from
+    # someone does not erase a month of work — which is the single most demoralising thing a
+    # streak can do, and why people abandon them rather than start again.
+    #
+    # A balance rather than a flag: earned slowly, spent automatically, capped. Which DAYS
+    # were covered lives in the event log, not here — see api/services/streak.py.
+    streak_freezes: Mapped[int] = mapped_column(default=0)
+
     onboarded_at: Mapped[datetime | None] = mapped_column(default=None)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
