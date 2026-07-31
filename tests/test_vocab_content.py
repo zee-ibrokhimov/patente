@@ -156,3 +156,43 @@ def test_the_core_terms_are_spelled_consistently():
     the file's spelling, or that one row keeps its capital forever."""
     core = [t["it"] for t in TERMS if t["rank"] <= len(CORE)]
     assert core == [c.lower() for c in core], f"inconsistent casing: {core}"
+
+
+def test_rank_never_increases_with_frequency():
+    """The sheet arrived sorted A-Z, and the drill orders by `rank` with a comment
+    claiming "commonest words first". Nobody checked, so a learner met `A breve`,
+    `A coloro che`, `A livelli sfalsati` and `A raso` before `precedenza`.
+
+    The property is stated directly rather than inferred: walking the list in rank order,
+    frequency must never go UP. A first attempt at this test counted how many consecutive
+    pairs were in alphabetical order and failed at 95% — but that is an artefact of ties.
+    Most terms share a frequency and are tie-broken alphabetically on purpose, so the
+    ordering is stable across re-exports. Measuring the proxy said "still alphabetical"
+    about a list that was correctly frequency-ordered.
+    """
+    ranked = sorted([t for t in TERMS if t["rank"] > len(CORE) and "freq" in t],
+                    key=lambda t: t["rank"])
+    if not ranked:
+        pytest.skip("frequency data not present in this export")
+    for a, b in zip(ranked, ranked[1:]):
+        assert b["freq"] <= a["freq"], (
+            f"{b['it']} (freq {b['freq']}) is ranked below {a['it']} (freq {a['freq']})"
+        )
+
+
+def test_the_commonest_words_come_first():
+    """Not merely "not alphabetical" — actually useful. The top of the sheet section
+    should be words that genuinely dominate the bank."""
+    after_core = [t["it"].lower() for t in TERMS if t["rank"] > len(CORE)][:12]
+    assert "conducente" in after_core, "the single commonest exam word is not near the front"
+
+
+def test_words_that_never_appear_are_at_the_back():
+    """104 of them. A learner should not be drilled on vocabulary the exam never uses
+    while `pedoni` and `divieto` are still ahead of them."""
+    ranked = [t for t in TERMS if t["rank"] > len(CORE) and "freq" in t]
+    if not ranked:
+        pytest.skip("frequency data not present in this export")
+    zero = [t["rank"] for t in ranked if t["freq"] == 0]
+    nonzero = [t["rank"] for t in ranked if t["freq"] > 0]
+    assert min(zero) > max(nonzero), "a zero-frequency word is ranked above a used one"

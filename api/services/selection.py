@@ -19,6 +19,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from sqlalchemy import func, select
+from sqlalchemy import true as sa_true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.models import Progress, Question
@@ -110,3 +111,79 @@ async def exam_paper(
         stmt = stmt.where(Question.id.not_in(exclude))
     rows = await session.scalars(stmt.order_by(func.random()).limit(count))
     return list(rows)
+
+
+async def practice_paper(
+    session: AsyncSession,
+    user,
+    entitlement: Entitlement,
+    count: int,
+    exclude: set[int] | None = None,
+    now: datetime | None = None,
+) -> list[Question]:
+    """A practice batch that serves what this learner is about to forget.
+
+    THE BUG THIS FIXES. Practice was drawing from `exam_paper` — ORDER BY random() over
+    all 7106 questions. Every answer wrote a Leitner box and a due date into `progress`,
+    and NOTHING ever read them back: the only reader is `next_question`, reachable solely
+    from the loopback route the bot used before quizzing moved into the Mini App. So a
+    learner answered a question wrong, it was scheduled to return in ten minutes, and it
+    never came. The app recorded spaced repetition and practised uniform random.
+
+    Order, and each part earns its place:
+
+      1. DUE — what they got wrong, soonest first. This is the whole point.
+      2. UNSEEN — new material, at random.
+      3. NOT-YET-DUE — rather than an empty paper, because a short session that runs out
+         is worse than one that revises slightly early.
+
+    The exam keeps its uniform random draw. A simulator that quietly tested you on your
+    weakest topics would report a score that means nothing — see exam_paper.
+    """
+    now = now or datetime.now(timezone.utc)
+    exclude = exclude or set()
+    picked: list[Question] = []
+    seen_ids = set(exclude)
+
+    def take(rows):
+        for q in rows:
+            if q.id in seen_ids or len(picked) >= count:
+                continue
+            seen_ids.add(q.id)
+            picked.append(q)
+
+    if entitlement.can_use_spaced_repetition:
+        due = await session.scalars(
+            select(Question)
+            .join(Progress, Progress.question_id == Question.id)
+            .where(Progress.chat_id == user.chat_id, Progress.due_at <= now,
+                   Question.id.not_in(exclude) if exclude else sa_true())
+            .order_by(Progress.due_at)
+            .limit(count)
+        )
+        take(due)
+
+    if len(picked) < count:
+        already = select(Progress.question_id).where(Progress.chat_id == user.chat_id)
+        fresh = await session.scalars(
+            select(Question)
+            .where(Question.id.not_in(already))
+            .where(Question.id.not_in(seen_ids) if seen_ids else sa_true())
+            .order_by(func.random())
+            .limit(count - len(picked))
+        )
+        take(fresh)
+
+    if len(picked) < count:
+        # Everything seen and nothing due yet. Revising early beats stopping.
+        soon = await session.scalars(
+            select(Question)
+            .join(Progress, Progress.question_id == Question.id)
+            .where(Progress.chat_id == user.chat_id)
+            .where(Question.id.not_in(seen_ids) if seen_ids else sa_true())
+            .order_by(Progress.due_at)
+            .limit(count - len(picked))
+        )
+        take(soon)
+
+    return picked

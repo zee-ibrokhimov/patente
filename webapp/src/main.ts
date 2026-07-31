@@ -393,7 +393,7 @@ function homeScreen(): HTMLElement {
 
   // The promotion is the B variant of this screen and sits BELOW the cards, so it can
   // never push the two things this screen exists for off the fold.
-  if (state.me && !state.me.has_pass) wrap.append(premiumBlock());
+  if (state.me && !state.me.premium) wrap.append(premiumBlock());
   return wrap;
 }
 
@@ -538,6 +538,10 @@ function openSupport(): void {
  *  — see the note in api/services/users.py about why a trial is not a Purchase row. */
 function trialDaysLeft(): number | null {
   const me = state.me;
+  // `has_pass` and not `premium`, deliberately, and the one place that is still right:
+  // a trial is a pass with a date on it. Someone Premium through channel membership has
+  // no expiry to count down, and showing them "3 days left" would be a lie.
+  // `trialing` distinguishes a card-backed Tribute trial from a hand-granted pass.
   if (!me?.has_pass || !me.pass_expires_at || me.purchased) return null;
   const ms = Date.parse(me.pass_expires_at) - Date.now();
   return ms > 0 ? Math.max(1, Math.ceil(ms / 86_400_000)) : null;
@@ -609,7 +613,7 @@ function currentQuestion(run: Run): Question | undefined {
  */
 function translationToggle(): HTMLElement | null {
   const me = state.me;
-  if (!me || !me.has_pass) return null;
+  if (!me || !me.premium) return null;
   if (!TRANSLATION_LANGUAGES.includes(me.lang)) return null;
 
   const row = el("label", "q-tr");
@@ -1031,7 +1035,7 @@ function profileScreen(): HTMLElement {
   wrap.append(history);
 
   // --- weak topics, or the promotion that points at them ---
-  if (state.me && !state.me.has_pass) {
+  if (state.me && !state.me.premium) {
     wrap.append(premiumBlock());
   } else {
     const link = el("button", "link-row");
@@ -1187,7 +1191,7 @@ function statsScreen(): HTMLElement {
   }
   wrap.append(topicCard);
 
-  if (state.me && !state.me.has_pass) wrap.append(premiumBlock());
+  if (state.me && !state.me.premium) wrap.append(premiumBlock());
 
   const tip = el("div", "tip");
   tip.append(icons.bulb(24));
@@ -1292,7 +1296,7 @@ function settingsScreen(): HTMLElement {
   wrap.append(trCard);
 
   // --- subscription ---
-  if (me.has_pass) {
+  if (me.premium) {
     const sub = el("div", "card sub-active");
     sub.style.marginTop = "var(--md)";
     const badge = el("span", "sub-badge");
@@ -1483,7 +1487,7 @@ function vocabScreen(): HTMLElement {
 function vocabLocked(): HTMLElement {
   const card = el("div", "v-locked");
   card.append(el("div", "v-locked-title", t("v_locked")));
-  if (state.me && !state.me.has_pass) card.append(premiumBlock());
+  if (state.me && !state.me.premium) card.append(premiumBlock());
   return card;
 }
 

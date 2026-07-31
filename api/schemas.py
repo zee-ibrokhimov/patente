@@ -36,6 +36,16 @@ class UserOut(BaseModel):
     # A trial is a pass with an expiry and no purchase behind it, so the client needs
     # both flags to tell a paying subscriber from someone still trialling.
     purchased: bool
+    # The question every paid surface actually asks. `has_pass` alone is NOT it: the
+    # server enforces `entitlement.premium`, which is a pass OR channel membership OR
+    # staff — so a learner who is Premium through the channel was shown a paywall on
+    # every screen while the API served them everything behind it.
+    premium: bool = False
+    premium_via: str = Field(
+        default="none",
+        description="pass | channel | staff | none — why they have it, for the UI to explain",
+    )
+
     # Where to send someone who wants to pay. The Mini App cannot know the bot it was
     # opened from — Telegram does not tell it — so without this the buy button has
     # nowhere to go, which is exactly what it had.

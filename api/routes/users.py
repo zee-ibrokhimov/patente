@@ -62,6 +62,12 @@ async def _out(user: User, session: AsyncSession) -> UserOut:
         pass_expires_at=user.pass_expires_at,
         has_pass=ent.has_pass,
         purchased=purchased,
+        premium=ent.premium,
+        # Most specific reason first: staff outranks a pass, and a pass is the one worth
+        # naming to someone who paid for it.
+        premium_via=("staff" if ent.is_staff else
+                     "pass" if ent.has_pass else
+                     "channel" if ent.via_channel else "none"),
         trialing=trialing,
         bot_username=settings.bot_username,
         support_contact=settings.support_contact,

@@ -62,6 +62,12 @@ export interface Me {
   /** True once the user has actually bought something. Distinguishes a paying subscriber
    *  from someone on the free trial, who also has a pass. */
   purchased: boolean;
+  /** The single question every paid surface should ask. `has_pass` is only ONE of the
+   *  three ways to have it — reading that instead showed paywalls to channel members
+   *  the server was already serving in full. */
+  premium: boolean;
+  premium_via: "pass" | "channel" | "staff" | "none";
+
   /** Where to send someone who wants to pay. Telegram does not tell a Mini App which bot
    *  opened it, so without this the buy button has nowhere to go. */
   bot_username: string;

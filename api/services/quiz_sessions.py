@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.models import QuizSession, QuizSessionItem
 from api.services import events, selection
+from api.services.entitlement import evaluate
 from shared.constants import (
     EV_EXAM_FINISHED,
     EV_EXAM_STARTED,
@@ -105,7 +106,11 @@ async def create(
 
     is_exam = mode == MODE_EXAM
     count = EXAM_QUESTIONS if is_exam else PRACTICE_BATCH
-    paper = await selection.exam_paper(session, count)
+    # The exam is a uniform random draw because that is what an exam IS. Practice is
+    # teaching, so it serves what is due first — see selection.practice_paper for the
+    # bug that made this necessary.
+    paper = (await selection.exam_paper(session, count) if is_exam
+             else await selection.practice_paper(session, user, evaluate(user), count))
     if not paper:
         raise SessionError("no questions available", status=503)
 
@@ -232,7 +237,9 @@ async def extend(
     used = set((await session.scalars(
         select(QuizSessionItem.question_id).where(QuizSessionItem.session_id == row.id)
     )).all())
-    more = await selection.exam_paper(session, PRACTICE_BATCH, exclude=used)
+    more = await selection.practice_paper(
+        session, user, evaluate(user), PRACTICE_BATCH, exclude=used
+    )
     if not more:
         # The learner has worked through all 7106. Not an error: they have simply
         # finished the bank, and the sitting stays open so they can end it themselves.
