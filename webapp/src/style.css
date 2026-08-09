@@ -667,6 +667,50 @@ html, body { overflow-x: hidden; }
 }
 
 /* ======================================================================
+   THE OWNER'S CONSOLE
+   ======================================================================
+   One person sees this, so it is built for density rather than delight —
+   finding a learner and granting them access should take two taps on a phone
+   while they are mid-conversation with that learner. */
+.admin-stats {
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  gap: var(--xs); margin: var(--md) 0;
+}
+.admin-stat {
+  background: var(--card); border: 1px solid var(--edge);
+  border-radius: var(--r); padding: var(--sm); text-align: center; min-width: 0;
+}
+.admin-stat-n { font-weight: 800; font-size: var(--t-title); line-height: 1.1; }
+.admin-stat-l { font-size: 11px; color: var(--text-2); }
+
+.admin-row {
+  display: flex; gap: var(--xs); align-items: center;
+  padding: var(--sm) 0; border-top: 1px solid var(--edge);
+}
+.admin-who { flex: 1; min-width: 0; }
+.admin-name {
+  font-weight: 600; font-size: var(--t-caption);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.admin-sub {
+  font-size: 11px; color: var(--text-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.admin-btn {
+  flex: none; min-height: 36px; padding: 0 var(--sm);
+  border: 1px solid var(--edge); border-radius: var(--r-sm);
+  background: var(--surface); color: var(--text);
+  font: inherit; font-size: var(--t-caption); cursor: pointer;
+}
+.admin-input {
+  width: 100%; margin-top: var(--sm); padding: var(--sm);
+  border: 1px solid var(--edge); border-radius: var(--r);
+  background: var(--card); color: var(--text); font: inherit;
+  font-size: var(--t-caption);
+}
+.admin-text { resize: vertical; min-height: 84px; }
+
+/* ======================================================================
    THE WEEKLY LEAGUE
    ====================================================================== */
 

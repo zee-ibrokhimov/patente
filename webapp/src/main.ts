@@ -1,4 +1,4 @@
-import { api, ApiError, leaderboard, sessions, vocab } from "./api";
+import { admin, api, ApiError, leaderboard, sessions, vocab } from "./api";
 import { readinessGauge } from "./gauge";
 import { art, icons } from "./icons";
 import { TRANSLATION_LANGUAGES, lang, setLang, t } from "./i18n";
@@ -17,6 +17,9 @@ import type {
   Stats,
   VocabAnswer,
   VocabList,
+  AdminLink,
+  AdminOverview,
+  AdminUser,
   Leaderboard,
   RepeatSource,
   VocabRound,
@@ -25,7 +28,7 @@ import type {
 import "./style.css";
 
 type Screen = "home" | "run" | "results" | "profile" | "stats" | "settings" | "vocab"
-  | "ratings";
+  | "ratings" | "admin";
 
 /** The author of the vocabulary list, and the condition on which it may be used.
  *
@@ -102,8 +105,12 @@ const state: {
   /** This week's league, fetched on entering the tab. Null means "not loaded yet", which
    *  is a different screen from an empty board. */
   ratings: Leaderboard | null;
+  /** The owner's console. Loaded on entry and never at boot — it is one person's screen
+   *  and everybody else would be paying for a request that 404s. */
+  adminData: { overview: AdminOverview | null; users: AdminUser[]; links: AdminLink[];
+               query: string; busy: boolean } | null;
 } = { me: null, screen: "home", run: null, results: null, stats: null, profile: null,
-      resumable: null, reviewWrongOnly: true, ratings: null,
+      resumable: null, reviewWrongOnly: true, ratings: null, adminData: null,
       vocab: { view: "test", round: null, index: 0, current: null, right: 0, typed: "",
                busy: false, list: null, query: "", stats: null, locked: false } };
 
@@ -1671,6 +1678,30 @@ function settingsScreen(): HTMLElement {
   lbCard.append(lbRow);
   wrap.append(lbCard);
 
+  // --- the owner's console ---
+  //
+  // Cosmetic gate, deliberately. Every endpoint behind it 404s for anyone who is not staff,
+  // decided server-side from a Telegram-signed payload — hiding the entry point only stops
+  // a learner tripping over a screen that would give them nothing but errors.
+  //
+  // In Settings rather than the tab bar: the bar is already five items and a sixth for one
+  // person would cost every learner a thumb-width of the screen they actually use.
+  if (isStaff()) {
+    const adminCard = el("div", "card");
+    adminCard.style.marginTop = "var(--md)";
+    const adminRow = el("div", "row");
+    const adminText = el("div", "row-main");
+    adminText.append(el("div", "row-title", "Admin"),
+                     el("div", "row-sub", "Grant access, trial links, newsletter"));
+    adminRow.append(adminText);
+    const go = el("button", "btn secondary", "Open");
+    go.type = "button";
+    go.onclick = () => void openAdmin();
+    adminRow.append(go);
+    adminCard.append(adminRow);
+    wrap.append(adminCard);
+  }
+
   // --- subscription ---
   if (me.premium) {
     const sub = el("div", "card sub-active");
@@ -2026,6 +2057,261 @@ function vocabList(): HTMLElement {
   return box;
 }
 
+
+// ---------------------------------------------------------------------------
+// the owner's console
+// ---------------------------------------------------------------------------
+
+/** Admin screens, reachable only by staff.
+ *
+ *  The gate here is cosmetic and deliberately so: every endpoint behind it 404s for anyone
+ *  who is not staff, decided by the server from a Telegram-signed payload. Hiding the entry
+ *  point stops a normal learner tripping over a screen that would only give them errors —
+ *  it is NOT what makes the console safe. See api/routes/webapp_admin.py.
+ */
+function isStaff(): boolean {
+  return state.me?.premium_via === "staff";
+}
+
+async function openAdmin(): Promise<void> {
+  state.screen = "admin";
+  state.adminData = { overview: null, users: [], links: [], query: "", busy: true };
+  render();
+  await refreshAdmin();
+}
+
+async function refreshAdmin(): Promise<void> {
+  if (!state.adminData) return;
+  try {
+    const [overview, users, links] = await Promise.all([
+      admin.overview(),
+      admin.users(state.adminData.query),
+      admin.links(),
+    ]);
+    state.adminData = {
+      ...state.adminData,
+      overview,
+      users: users.users,
+      links: links.links,
+      busy: false,
+    };
+  } catch (err) {
+    state.adminData = { ...state.adminData, busy: false };
+    reportError(err);
+  }
+  render();
+}
+
+function adminScreen(): HTMLElement {
+  const wrap = el("section", "screen");
+  const data = state.adminData;
+
+  const head = el("div", "v-head");
+  head.append(el("h2", "v-title", "Admin"));
+  wrap.append(head);
+
+  if (!data || data.busy) {
+    wrap.append(el("p", "caption", t("loading")));
+    return wrap;
+  }
+
+  if (data.overview) {
+    const o = data.overview;
+    const grid = el("div", "admin-stats");
+    for (const [label, value] of [
+      ["Users", o.users], ["Premium", o.premium], ["On trial", o.on_trial],
+      ["Active 24h", o.active_24h],
+    ] as const) {
+      const cell = el("div", "admin-stat");
+      cell.append(el("div", "admin-stat-n", String(value)),
+                  el("div", "admin-stat-l", label));
+      grid.append(cell);
+    }
+    wrap.append(grid);
+  }
+
+  wrap.append(adminUsers(data.users));
+  wrap.append(adminLinks(data.links));
+  wrap.append(adminBroadcast());
+  return wrap;
+}
+
+/** Find somebody and give them access. This is how the product is sold now. */
+function adminUsers(users: AdminUser[]): HTMLElement {
+  const card = el("div", "card");
+  card.style.marginTop = "var(--md)";
+  card.append(el("div", "row-title", "Users"));
+
+  const search = el("input", "admin-input") as HTMLInputElement;
+  search.placeholder = "chat id, name or referral code";
+  search.value = state.adminData?.query ?? "";
+  search.onchange = () => {
+    if (!state.adminData) return;
+    state.adminData.query = search.value.trim();
+    void refreshAdmin();
+  };
+  card.append(search);
+
+  for (const u of users.slice(0, 25)) {
+    const row = el("div", "admin-row");
+    const who = el("div", "admin-who");
+    who.append(el("div", "admin-name", u.name || String(u.chat_id)));
+    const bits = [String(u.chat_id), u.lang];
+    if (u.source) bits.push(`via ${u.source}`);
+    if (u.premium) bits.push("PREMIUM");
+    who.append(el("div", "admin-sub", bits.join(" · ")));
+    row.append(who);
+
+    const give = el("button", "admin-btn", "Grant");
+    give.type = "button";
+    give.onclick = () => void grantTo(u);
+    row.append(give);
+
+    const dm = el("button", "admin-btn", "Message");
+    dm.type = "button";
+    dm.onclick = () => void messageOne(u);
+    row.append(dm);
+
+    card.append(row);
+  }
+  if (!users.length) card.append(el("p", "caption", "Nobody matches."));
+  return card;
+}
+
+async function grantTo(u: AdminUser): Promise<void> {
+  const days = window.prompt(`Grant how many days to ${u.name || u.chat_id}?`, "30");
+  if (!days) return;
+  const n = Number(days);
+  if (!Number.isFinite(n) || n < 1) { toast("Not a number of days."); return; }
+  const reason = window.prompt("What was this for? (kept in the log)", "paid directly") || "";
+  try {
+    const out = await admin.grant(u.chat_id, n, reason, false);
+    toast(`Access until ${out.pass_expires_at.slice(0, 10)}`);
+    await refreshAdmin();
+  } catch (err) { reportError(err); }
+}
+
+async function messageOne(u: AdminUser): Promise<void> {
+  const text = window.prompt(`Message to ${u.name || u.chat_id}:`, "");
+  if (!text) return;
+  try {
+    const out = await admin.message(u.chat_id, text);
+    toast(out.delivered ? "Sent." : "Not delivered — they may have blocked the bot.");
+  } catch (err) { reportError(err); }
+}
+
+/** Referral links: the only thing that grants a trial. */
+function adminLinks(links: AdminLink[]): HTMLElement {
+  const card = el("div", "card");
+  card.style.marginTop = "var(--md)";
+  card.append(el("div", "row-title", "Trial links"));
+  card.append(el("div", "row-sub",
+    "Only these grant a trial. A bare /start grants nothing."));
+
+  for (const link of links) {
+    const row = el("div", "admin-row");
+    const who = el("div", "admin-who");
+    who.append(el("div", "admin-name", `${link.code} — ${link.trial_days}d`));
+    const bits = [`${link.uses} used`];
+    if (link.max_uses) bits.push(`cap ${link.max_uses}`);
+    if (!link.active) bits.push("OFF");
+    if (link.label) bits.push(link.label);
+    who.append(el("div", "admin-sub", bits.join(" · ")));
+    row.append(who);
+
+    const copy = el("button", "admin-btn", "Copy");
+    copy.type = "button";
+    copy.onclick = () => {
+      void navigator.clipboard?.writeText(link.url);
+      toast("Link copied.");
+    };
+    row.append(copy);
+
+    // Switched off, never deleted — deleting would erase the attribution of everyone the
+    // link ever brought.
+    const toggle = el("button", "admin-btn", link.active ? "Turn off" : "Turn on");
+    toggle.type = "button";
+    toggle.onclick = async () => {
+      try {
+        await admin.updateLink(link.code, { active: !link.active });
+        await refreshAdmin();
+      } catch (err) { reportError(err); }
+    };
+    row.append(toggle);
+    card.append(row);
+  }
+
+  const add = el("button", "btn secondary", "New link");
+  add.type = "button";
+  add.style.marginTop = "var(--sm)";
+  add.onclick = () => void createLink();
+  card.append(add);
+  return card;
+}
+
+async function createLink(): Promise<void> {
+  const code = window.prompt("Code (letters, digits, - and _):", "");
+  if (!code) return;
+  const days = Number(window.prompt("Trial days for this link:", "7") || "0");
+  if (!Number.isFinite(days) || days < 1) { toast("Not a number of days."); return; }
+  const label = window.prompt("What is it for? (your note)", "") || "";
+  const capRaw = window.prompt("Maximum uses, or blank for unlimited:", "") || "";
+  const max_uses = capRaw.trim() ? Number(capRaw) : null;
+  try {
+    await admin.createLink({ code, label, trial_days: days, max_uses });
+    await refreshAdmin();
+    toast("Link created.");
+  } catch (err) { reportError(err); }
+}
+
+/** A newsletter. Counted before it is sent, because it cannot be unsent. */
+function adminBroadcast(): HTMLElement {
+  const card = el("div", "card");
+  card.style.marginTop = "var(--md)";
+  card.append(el("div", "row-title", "Newsletter"));
+
+  const box = el("textarea", "admin-input admin-text") as HTMLTextAreaElement;
+  box.placeholder = "Message to send…";
+  box.rows = 4;
+  card.append(box);
+
+  const langRow = el("div", "admin-row");
+  const langSel = el("select", "admin-input") as HTMLSelectElement;
+  for (const [value, label] of [["", "All languages"], ["ru", "Russian"],
+                                ["en", "English"], ["it", "Italian"],
+                                ["uz", "Uzbek"]] as const) {
+    const opt = el("option", "", label) as HTMLOptionElement;
+    opt.value = value;
+    langSel.append(opt);
+  }
+  langRow.append(langSel);
+  card.append(langRow);
+
+  const send = el("button", "btn", "Count, then send");
+  send.type = "button";
+  send.onclick = async () => {
+    const text = box.value.trim();
+    if (!text) { toast("Nothing to send."); return; }
+    const lang = langSel.value || null;
+    try {
+      // Count FIRST and make the owner confirm the number. The server refuses a send whose
+      // confirmed count does not match what it just reported, so this is not decoration —
+      // it is the only chance to notice the filter is wrong.
+      const { recipients } = await admin.previewBroadcast(
+        { text, lang, premium_only: false });
+      if (!recipients) { toast("Nobody matches that filter."); return; }
+      if (!window.confirm(`Send to ${recipients} people? This cannot be undone.`)) return;
+      const out = await admin.broadcast({
+        text, lang, premium_only: false, label: "", confirm_recipients: recipients,
+      });
+      toast(`Sending to ${out.queued}.`);
+      box.value = "";
+    } catch (err) { reportError(err); }
+  };
+  card.append(send);
+  return card;
+}
+
 // ---------------------------------------------------------------------------
 // the weekly league
 // ---------------------------------------------------------------------------
@@ -2161,6 +2447,7 @@ function backTarget(): (() => void) | null {
   // Vocabulary is entered from the home screen rather than the tab bar, so it is the one
   // tab-bar-visible screen with somewhere unambiguous to go back to.
   if (state.screen === "vocab") return goHome;
+  if (state.screen === "admin") return () => { state.screen = "settings"; render(); };
   return null;
 }
 
@@ -2180,6 +2467,7 @@ function render(): void {
     case "settings": screen = settingsScreen(); break;
     case "vocab": screen = vocabScreen(); break;
     case "ratings": screen = ratingsScreen(); break;
+    case "admin": screen = adminScreen(); break;
     default: screen = homeScreen();
   }
   if (back && !nativeBack) screen.prepend(fallbackBack(back));

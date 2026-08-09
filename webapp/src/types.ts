@@ -305,3 +305,47 @@ export interface ResetPreview {
   sittings: number;
   words: number;
 }
+
+/** --- the owner's console --------------------------------------------------
+ *
+ *  Every one of these is served only to a staff caller; the server decides, and this
+ *  client never does. See api/routes/webapp_admin.py. */
+
+export interface AdminOverview {
+  users: number;
+  premium: number;
+  on_trial: number;
+  paid_purchases: number;
+  active_24h: number;
+  sales_contact: string;
+}
+
+export interface AdminUser {
+  chat_id: number;
+  name: string | null;
+  lang: string;
+  premium: boolean;
+  pass_expires_at: string | null;
+  source: string | null;
+  created_at: string;
+}
+
+export interface AdminLink {
+  code: string;
+  label: string;
+  trial_days: number;
+  active: boolean;
+  max_uses: number | null;
+  uses: number;
+  url: string;
+  created_at: string;
+}
+
+export interface BroadcastSent {
+  at: string;
+  recipients: number;
+  delivered: number;
+  failed: number;
+  label: string;
+  preview: string;
+}

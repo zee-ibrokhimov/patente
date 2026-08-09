@@ -12,6 +12,10 @@ import type {
   PracticeAnswer,
   Profile,
   Question,
+  AdminLink,
+  AdminOverview,
+  AdminUser,
+  BroadcastSent,
   Leaderboard,
   QuestionTranslation,
   RepeatSource,
@@ -137,6 +141,47 @@ export const vocab = {
 };
 
 /** --- quiz sessions ------------------------------------------------------ */
+
+/** The owner's console. Every call 404s for anyone who is not staff — the server decides,
+ *  and this client never gates anything itself. */
+export const admin = {
+  overview: () => request<AdminOverview>("/admin/overview"),
+  users: (q: string) =>
+    request<{ users: AdminUser[] }>(`/admin/users?q=${encodeURIComponent(q)}`),
+  grant: (chatId: number, days: number, reason: string, notify: boolean) =>
+    request<{ pass_expires_at: string }>(`/admin/users/${chatId}/grant`, {
+      method: "POST",
+      body: JSON.stringify({ days, reason, notify }),
+    }),
+  links: () => request<{ links: AdminLink[] }>("/admin/links"),
+  createLink: (body: { code: string; label: string; trial_days: number; max_uses: number | null }) =>
+    request<{ code: string }>("/admin/links", { method: "POST", body: JSON.stringify(body) }),
+  updateLink: (code: string, body: { active?: boolean }) =>
+    request<{ code: string }>(`/admin/links/${encodeURIComponent(code)}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  message: (chatId: number, text: string) =>
+    request<{ delivered: boolean }>("/admin/message", {
+      method: "POST",
+      body: JSON.stringify({ chat_id: chatId, text }),
+    }),
+  /** Count first, ALWAYS. The send refuses unless this number is echoed back, because a
+   *  newsletter cannot be unsent and the population can change between the two calls. */
+  previewBroadcast: (body: { text: string; lang: string | null; premium_only: boolean }) =>
+    request<{ recipients: number }>("/admin/broadcast/preview", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  broadcast: (body: {
+    text: string; lang: string | null; premium_only: boolean;
+    label: string; confirm_recipients: number;
+  }) => request<{ queued: number }>("/admin/broadcast", {
+    method: "POST",
+    body: JSON.stringify(body),
+  }),
+  history: () => request<{ sent: BroadcastSent[] }>("/admin/broadcast/history"),
+};
 
 export const leaderboard = {
   /** This week's league. The only endpoint that returns other people. */
