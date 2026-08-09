@@ -38,7 +38,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.models import Event, Purchase, User
 from api.services import entitlement as entitlement_service
 from api.services import events, notify
-from shared.constants import EV_PASS_ENDING, EV_PASS_LAPSED
+from shared.constants import (
+    EV_PASS_ENDING,
+    EV_PASS_LAPSED,
+    MANUAL_PURCHASE_PREFIX as MANUAL_PREFIX,
+)
 
 log = logging.getLogger(__name__)
 
@@ -95,14 +99,30 @@ def _premium_without_the_pass(user: User) -> bool:
 
 
 async def _has_subscription(session: AsyncSession, chat_id: int) -> bool:
-    """Whether money has ever moved for this user.
+    """Whether something will RENEW this user without them lifting a finger.
 
-    Someone with a Tribute subscription will be auto-renewed, so warning them that it is
-    about to happen is noise. Someone with a hand-granted pass will not be, so it is not.
+    NOT "whether money has ever moved", which is what this used to ask and which inverted
+    the feature. The old reasoning was sound while Tribute existed: a subscription renews
+    itself, so warning someone it is about to happen is noise.
+
+    Payments are direct now, and every hand sale writes a Purchase row through the grant
+    route. So a paying customer looked exactly like a Tribute subscriber and was skipped —
+    while gift recipients, who paid nothing, were warned. The people most worth keeping were
+    the only ones never told their access was ending, and the renewal ask is the
+    conversation this business runs on.
+
+    A manual sale is identified by its synthetic id: `tribute_purchase_id` is UNIQUE and NOT
+    NULL and there is no Tribute any more, so the grant route writes
+    "manual:<chat>:<stamp>:<uuid>" into it. Anything without that prefix is a real Tribute
+    row, and those were the only ones that ever renewed themselves.
     """
     return bool(await session.scalar(
-        select(Purchase.id).where(Purchase.chat_id == chat_id,
-                                  Purchase.amount_cents > 0).limit(1)
+        select(Purchase.id).where(
+            Purchase.chat_id == chat_id,
+            Purchase.amount_cents > 0,
+            Purchase.refunded_at.is_(None),
+            ~Purchase.tribute_purchase_id.startswith(MANUAL_PREFIX),
+        ).limit(1)
     ))
 
 

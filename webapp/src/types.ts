@@ -341,6 +341,9 @@ export interface AdminOverview {
 }
 
 export interface AdminUser {
+  /** Last event of any kind. From the log, because there is no last_seen column — and it
+   *  is the only thing on a row that says whether this person is still here. */
+  last_seen?: string | null;
   chat_id: number;
   name: string | null;
   lang: string;

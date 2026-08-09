@@ -1230,3 +1230,34 @@ html, body { overflow-x: hidden; }
   background: var(--edge); overflow: hidden;
 }
 .cover-fill { height: 100%; background: var(--accent); border-radius: 999px; }
+
+/* --- admin: the grant sheet ------------------------------------------------ */
+/* A sheet rather than three chained window.prompt dialogs. The prompts could not show the
+   price with the length, defaulted to the wrong amount two times in three, and cancelling
+   the middle one aborted a sale silently. */
+.sheet {
+  position: fixed; inset: 0; z-index: 60;
+  background: rgba(15, 23, 42, .45);
+  display: grid; align-items: end;
+  padding: var(--gutter);
+  padding-bottom: calc(var(--gutter) + env(safe-area-inset-bottom, 0px));
+}
+.sheet-card {
+  background: var(--card); border-radius: var(--card-radius);
+  padding: var(--card-pad-fluid); max-height: 80vh; overflow-y: auto;
+}
+
+/* --- admin: segment chips -------------------------------------------------- */
+/* Scrolls sideways rather than wrapping to three rows on a narrow phone. */
+.chips {
+  display: flex; gap: var(--sm); overflow-x: auto; margin: var(--sm) 0 var(--md);
+  padding-bottom: 2px; scrollbar-width: none;
+}
+.chips::-webkit-scrollbar { display: none; }
+.chip {
+  flex: none; appearance: none; cursor: pointer;
+  border: 1px solid var(--edge); background: var(--card); color: var(--text-2);
+  border-radius: 999px; padding: 0 var(--md); height: 34px;
+  font-family: inherit; font-size: 14px; font-weight: 600;
+}
+.chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }

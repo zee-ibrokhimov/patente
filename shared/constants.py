@@ -304,6 +304,14 @@ EV_REPORT_RESOLVED = "report_resolved"
 # Access was ended or shortened by hand. Carries the PREVIOUS expiry, which is what makes a
 # mistaken revoke undoable — re-granting the difference restores it exactly.
 EV_PASS_REVOKED = "pass_revoked"
+
+# What a hand sale's `tribute_purchase_id` starts with.
+#
+# The column is UNIQUE and NOT NULL and there is no Tribute any more, so the grant route
+# puts a synthetic id there. It is a shared constant rather than a literal in two files
+# because lapse.py READS it to tell a manual sale from a real subscription — and when those
+# two disagree, paying customers stop being warned that their access is ending.
+MANUAL_PURCHASE_PREFIX = "manual:"
 # Quiz sessions. EV_SESSION_START/END already existed for the study session; these name
 # the bounded, gradeable kind so an exam is separable in the funnel.
 EV_EXAM_STARTED = "exam_started"

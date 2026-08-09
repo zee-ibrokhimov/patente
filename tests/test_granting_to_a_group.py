@@ -169,3 +169,80 @@ async def test_the_day_cap_still_applies(client, registered, api_db):
     r = await client.post("/webapp/admin/grant-many/preview", headers=auth(), json={
         "segment": "active", "days": 3650, "within_days": 7})
     assert r.status_code == 422
+
+
+# --- the same segments, now something to LOOK at -----------------------------
+
+async def test_the_user_list_can_be_filtered_by_segment(client, registered, api_db):
+    """The four segments existed only as a destination for free days. "Who runs out this
+    week so I can ask them to renew" — the conversation that produces money — had no
+    screen."""
+    await a_user(api_db, 8300, expires_in=2)      # ending soon
+    await a_user(api_db, 8301, expires_in=90)     # not ending
+
+    body = (await client.get("/webapp/admin/users?segment=expiring", headers=auth())).json()
+    ids = {u["chat_id"] for u in body["users"]}
+    assert 8300 in ids, "somebody expiring in 2 days is not in the expiring segment"
+    assert 8301 not in ids, "somebody with 90 days left was listed as expiring"
+
+
+async def test_the_list_reports_when_each_person_was_last_seen(client, registered, api_db):
+    """From the event log — there is no last_seen column. Without it a row says
+    "123456 · ru · PREMIUM", which is equally true of somebody who left a month ago."""
+    await a_user(api_db, 8310, seen_days_ago=3)
+    row = next(u for u in (await client.get("/webapp/admin/users", headers=auth())
+                           ).json()["users"] if u["chat_id"] == 8310)
+    assert row["last_seen"], "the row cannot say whether this person is still here"
+
+
+async def test_quiet_is_the_mirror_of_active(client, registered, api_db):
+    """Measured the same way, from the same log, so the two can never disagree about what
+    using the app means."""
+    await a_user(api_db, 8320, seen_days_ago=1)    # active
+    await a_user(api_db, 8321, seen_days_ago=40)   # quiet
+
+    active = {u["chat_id"] for u in (await client.get(
+        "/webapp/admin/users?segment=active", headers=auth())).json()["users"]}
+    quiet = {u["chat_id"] for u in (await client.get(
+        "/webapp/admin/users?segment=quiet", headers=auth())).json()["users"]}
+
+    assert 8320 in active and 8320 not in quiet
+    assert 8321 in quiet and 8321 not in active
+    assert not (active & quiet), "somebody is both active and quiet"
+
+
+async def test_a_newsletter_can_target_a_segment(client, registered, api_db):
+    """"Your access ends Friday, message me to extend" had to go to everyone or nobody."""
+    await a_user(api_db, 8330, expires_in=2)
+    await a_user(api_db, 8331, expires_in=90)
+
+    everyone = (await client.post("/webapp/admin/broadcast/preview", headers=auth(),
+                                  json={"text": "hi"})).json()["recipients"]
+    expiring = (await client.post("/webapp/admin/broadcast/preview", headers=auth(),
+                                  json={"text": "hi", "segment": "expiring"})).json()["recipients"]
+    assert expiring < everyone, "the segment filter reaches as many people as no filter"
+    assert expiring >= 1
+
+
+async def test_the_segment_narrows_the_language_filter_rather_than_replacing_it(
+        client, registered, api_db):
+    """Intersected, so "expiring, in Russian" is expressible. Both halves already existed
+    and neither could see the other."""
+    await a_user(api_db, 8340, expires_in=2)
+    async with api_db() as s:
+        user = await s.get(User, 8340)
+        user.lang = "en"
+        await s.commit()
+
+    async def reach(**body) -> int:
+        r = await client.post("/webapp/admin/broadcast/preview", headers=auth(),
+                              json={"text": "hi", **body})
+        return r.json()["recipients"]
+
+    # The only expiring user speaks English. Asking for expiring+Russian must therefore
+    # reach nobody, and expiring+English must reach them — which is only true if the two
+    # filters are intersected rather than one replacing the other.
+    assert await reach(segment="expiring", lang="en") >= 1, \
+        "an expiring English speaker was filtered out by language"
+    assert await reach(segment="expiring", lang="ru") == 0, \
+        "the language filter was ignored once a segment was given"

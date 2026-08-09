@@ -128,7 +128,7 @@ const state: {
    *  and everybody else would be paying for a request that 404s. */
   adminData: { overview: AdminOverview | null; users: AdminUser[]; links: AdminLink[];
                reports: AdminReport[]; openReports: number;
-               query: string; busy: boolean } | null;
+               query: string; segment: string; busy: boolean } | null;
   /** A quiz being prepared. Non-null only between tapping Start and the first question. */
   preparing: { mode: Mode; source: RepeatSource } | null;
 } = { me: null, screen: "home", run: null, results: null, stats: null, profile: null,
@@ -2233,7 +2233,7 @@ function isStaff(): boolean {
 async function openAdmin(): Promise<void> {
   state.screen = "admin";
   state.adminData = { overview: null, users: [], links: [], reports: [], openReports: 0,
-                      query: "", busy: true };
+                      query: "", segment: "", busy: true };
   render();
   await refreshAdmin();
 }
@@ -2243,7 +2243,7 @@ async function refreshAdmin(): Promise<void> {
   try {
     const [overview, users, links, reports] = await Promise.all([
       admin.overview(),
-      admin.users(state.adminData.query),
+      admin.users(state.adminData.query, state.adminData.segment),
       admin.links(),
       admin.reports(),
     ]);
@@ -2524,6 +2524,26 @@ function adminUsers(users: AdminUser[]): HTMLElement {
   card.style.marginTop = "var(--md)";
   card.append(el("div", "row-title", "Users"));
 
+  // The same segments the group grant targets — now something to LOOK at rather than only
+  // a destination for free days. "Who runs out this week so I can ask them to renew" is the
+  // conversation that produces money, and it had no screen.
+  const chips = el("div", "chips");
+  for (const [value, label] of [
+    ["", "All"], ["expiring", "Ending soon"], ["lapsed", "Expired"],
+    ["quiet", "Quiet"], ["trial", "Trial"], ["active", "Active"],
+  ] as const) {
+    const chip = el("button", `chip${state.adminData?.segment === value ? " on" : ""}`, label);
+    chip.type = "button";
+    chip.onclick = () => {
+      if (!state.adminData) return;
+      state.adminData = { ...state.adminData, segment: value, busy: true };
+      render();
+      void refreshAdmin();
+    };
+    chips.append(chip);
+  }
+  card.append(chips);
+
   const search = el("input", "admin-input") as HTMLInputElement;
   search.placeholder = "chat id, name or referral code";
   search.value = state.adminData?.query ?? "";
@@ -2546,6 +2566,12 @@ function adminUsers(users: AdminUser[]): HTMLElement {
     const left = daysLeft(u.pass_expires_at);
     if (left !== null) bits.push(left >= 0 ? `${left}d left` : `expired ${-left}d ago`);
     else if (u.premium) bits.push("PREMIUM");
+    // How long since they last did ANYTHING. The question retention starts from, and the
+    // row could not answer it: "123456 · ru · PREMIUM" is equally true of somebody who
+    // left a month ago.
+    const quiet = u.last_seen === undefined ? null : -(daysLeft(u.last_seen ?? null) ?? 0);
+    if (u.last_seen) bits.push(quiet && quiet > 0 ? `quiet ${quiet}d` : "here today");
+    else if (u.last_seen === null) bits.push("never opened it");
     who.append(el("div", "admin-sub", bits.join(" · ")));
     row.append(who);
 
@@ -2615,24 +2641,66 @@ function adminUsers(users: AdminUser[]): HTMLElement {
   return card;
 }
 
+/** The tiers, priced. One tap sets the length and the money together.
+ *
+ *  Every euro this business records used to enter through three chained window.prompt
+ *  boxes — days, then an amount that defaulted to 10.99 whichever length had just been
+ *  chosen, then a reason. On a phone that is three modal dialogs, cancelling the middle one
+ *  aborted the sale with no trace, and the default price was wrong two times in three.
+ *
+ *  Prices mirror TIER_PRICE_CENTS in shared/constants.py. */
+const GRANT_PRESETS = [
+  { label: "1 month · €2.99", days: 30, cents: 299 },
+  { label: "3 months · €7.99", days: 90, cents: 799 },
+  { label: "6 months · €10.99", days: 180, cents: 1099 },
+  { label: "Gift · no payment", days: 30, cents: 0 },
+] as const;
+
 async function grantTo(u: AdminUser): Promise<void> {
-  const days = window.prompt(`Grant how many days to ${u.name || u.chat_id}?`, "30");
-  if (!days) return;
-  const n = Number(days);
-  if (!Number.isFinite(n) || n < 1) { toast("Not a number of days."); return; }
-  // What they paid, because a pass with no money behind it is how the app decides somebody
-  // is on a TRIAL. Without this the buyer is told "Free trial — nothing will be charged"
-  // immediately after paying, and revenue reads zero for ever.
-  const paid = window.prompt(
-    "How much did they pay, in EUR? (0 for a free comp)", "10.99") || "0";
-  const amount_cents = Math.round(Number(paid.replace(",", ".")) * 100);
-  if (!Number.isFinite(amount_cents) || amount_cents < 0) { toast("Not an amount."); return; }
-  const reason = window.prompt("What was this for? (kept in the log)", "paid directly") || "";
-  try {
-    const out = await admin.grant(u.chat_id, n, reason, false, amount_cents);
-    toast(`Access until ${out.pass_expires_at.slice(0, 10)}`);
-    await refreshAdmin();
-  } catch (err) { reportError(err); }
+  const who = u.name || String(u.chat_id);
+  const sheet = el("div", "sheet");
+  const card = el("div", "sheet-card");
+  card.append(el("div", "row-title", `Grant to ${who}`));
+  const left = daysLeft(u.pass_expires_at);
+  card.append(el("p", "caption", left !== null && left >= 0
+    ? `They have ${left} day(s) left. A grant is ADDED to that.`
+    : "They have no access right now."));
+
+  const close = () => sheet.remove();
+
+  for (const preset of GRANT_PRESETS) {
+    const b = el("button", "btn secondary", preset.label);
+    b.type = "button";
+    b.style.marginTop = "var(--sm)";
+    b.onclick = async () => {
+      const money = preset.cents
+        ? `€${(preset.cents / 100).toFixed(2)}`
+        : "nothing — a gift";
+      if (!(await ask(`${preset.days} days to ${who}, for ${money}?`))) return;
+      close();
+      try {
+        const out = await admin.grant(
+          u.chat_id, preset.days,
+          // The reason is what makes the event log readable a month later, and it is
+          // derivable — nobody should be asked to type it on a phone mid-sale.
+          preset.cents ? `sold ${preset.label}` : "gift",
+          false, preset.cents);
+        toast(`Granted. Now until ${new Date(out.pass_expires_at).toLocaleDateString()}.`);
+        await refreshAdmin();
+      } catch (err) { reportError(err); }
+    };
+    card.append(b);
+  }
+
+  const cancel = el("button", "btn", "Cancel");
+  cancel.type = "button";
+  cancel.style.marginTop = "var(--md)";
+  cancel.onclick = close;
+  card.append(cancel);
+
+  sheet.append(card);
+  sheet.onclick = (ev) => { if (ev.target === sheet) close(); };
+  document.body.append(sheet);
 }
 
 async function messageOne(u: AdminUser): Promise<void> {
@@ -2746,6 +2814,19 @@ function adminBroadcast(): HTMLElement {
   langRow.append(langSel);
   card.append(langRow);
 
+  // WHO. Same segments again — a third definition of "expiring" is a third thing that can
+  // drift from the other two.
+  const who = el("select", "admin-input") as HTMLSelectElement;
+  for (const [value, label] of [
+    ["", "Everyone"], ["expiring", "Access ending soon"], ["lapsed", "Access expired"],
+    ["quiet", "Gone quiet"], ["trial", "On a free trial"], ["active", "Using it now"],
+  ] as const) {
+    const opt = el("option", "", label) as HTMLOptionElement;
+    opt.value = value;
+    who.append(opt);
+  }
+  card.append(who);
+
   const premium = el("label", "admin-check");
   const premiumBox = el("input") as HTMLInputElement;
   premiumBox.type = "checkbox";
@@ -2811,7 +2892,7 @@ function adminBroadcast(): HTMLElement {
       // Same filter as the send below. If these disagree the confirmed number describes a
       // different population, and the server rejects it — correctly, but confusingly.
       const { recipients } = await admin.previewBroadcast(
-        { text, lang, premium_only: premiumBox.checked });
+        { text, lang, premium_only: premiumBox.checked, segment: who.value });
       if (!recipients) { toast("Nobody matches that filter."); return; }
       const buttons = chosenButtons();
       const extras = [
@@ -2824,6 +2905,7 @@ function adminBroadcast(): HTMLElement {
       if (!ok) return;
       const out = await admin.broadcast({
         text, lang, premium_only: premiumBox.checked, label: "",
+        segment: who.value,
         confirm_recipients: recipients,
         photo_url: photo.value.trim() || null,
         buttons,

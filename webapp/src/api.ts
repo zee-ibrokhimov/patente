@@ -148,8 +148,11 @@ export const vocab = {
  *  and this client never gates anything itself. */
 export const admin = {
   overview: () => request<AdminOverview>("/admin/overview"),
-  users: (q: string) =>
-    request<{ users: AdminUser[] }>(`/admin/users?q=${encodeURIComponent(q)}`),
+  /** `segment` reuses the same four the group grant targets, so the list and the grant can
+   *  never disagree about who is in one. Empty means everybody. */
+  users: (q = "", segment = "") =>
+    request<{ users: AdminUser[]; segment: string }>(
+      `/admin/users?q=${encodeURIComponent(q)}&segment=${encodeURIComponent(segment)}`),
   grant: (chatId: number, days: number, reason: string, notify: boolean,
           amountCents = 0) =>
     request<{ pass_expires_at: string }>(`/admin/users/${chatId}/grant`, {
@@ -171,14 +174,16 @@ export const admin = {
     }),
   /** Count first, ALWAYS. The send refuses unless this number is echoed back, because a
    *  newsletter cannot be unsent and the population can change between the two calls. */
-  previewBroadcast: (body: { text: string; lang: string | null; premium_only: boolean }) =>
+  previewBroadcast: (body: {
+    text: string; lang: string | null; premium_only: boolean; segment?: string;
+  }) =>
     request<{ recipients: number }>("/admin/broadcast/preview", {
       method: "POST",
       body: JSON.stringify(body),
     }),
   broadcast: (body: {
     text: string; lang: string | null; premium_only: boolean;
-    label: string; confirm_recipients: number;
+    label: string; confirm_recipients: number; segment?: string;
     photo_url?: string | null;
     /** Up to three. `{text, webapp: true}` opens the Mini App in place, which is what makes
      *  an offer one tap from the paywall instead of a trip through a browser. */

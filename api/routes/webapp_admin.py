@@ -57,6 +57,7 @@ from shared.constants import (
     EV_PASS_REVOKED,
     EV_REPORT_RESOLVED,
     EV_USER_DELETED,
+    MANUAL_PURCHASE_PREFIX,
     SERVABLE_STATUSES,
     STATUS_FLAGGED,
     UI_LANGUAGES,
@@ -152,6 +153,8 @@ async def overview(
 @router.get("/users")
 async def list_users(
     q: str = Query(default="", max_length=64),
+    segment: str = Query(default=""),
+    within_days: int = Query(default=7, ge=1, le=90),
     limit: int = Query(default=50, ge=1, le=200),
     _staff: User = Depends(staff_user),
     session: AsyncSession = Depends(get_session),
@@ -161,6 +164,22 @@ async def list_users(
     Newest first: the person the owner is looking for has almost always just messaged them.
     """
     stmt = select(User).order_by(User.created_at.desc()).limit(limit)
+
+    # The same four segments the group-grant targets, now something you can LOOK at.
+    # They existed only as a destination for free days: "who runs out this week so I can
+    # ask them to renew" — the conversation that actually produces money — had no screen.
+    # `_segment_ids` is reused rather than reimplemented, so the list and the grant can
+    # never disagree about who is in a segment.
+    if segment:
+        ids = await _segment_ids(session, segment, within_days)
+        if not ids:
+            return {"users": [], "segment": segment}
+        stmt = stmt.where(User.chat_id.in_(ids))
+        # Soonest-to-expire first for the two segments that are about a deadline; the
+        # default newest-first is useless when the question is "who is running out".
+        if segment in ("expiring", "lapsed"):
+            stmt = stmt.order_by(None).order_by(User.pass_expires_at.asc()).limit(limit)
+
     if q:
         term = f"%{q}%"
         conditions = [User.display_name.ilike(term), User.source.ilike(term)]
@@ -170,7 +189,24 @@ async def list_users(
 
     now = datetime.now(timezone.utc)
     rows = list(await session.scalars(stmt))
+
+    # When each of them was last seen, in one query rather than one per row.
+    #
+    # From the event log, because there is no `last_seen` column and adding one would be a
+    # migration to store something already recorded. Without this the panel cannot answer
+    # the question retention starts from — who is slipping away — and a row said only
+    # "123456 · ru · PREMIUM", which is true of somebody who left a month ago.
+    seen: dict[int, datetime] = {}
+    if rows:
+        for chat_id, last in await session.execute(
+            select(Event.chat_id, func.max(Event.created_at))
+            .where(Event.chat_id.in_([u.chat_id for u in rows]))
+            .group_by(Event.chat_id)
+        ):
+            seen[chat_id] = last
+
     return {
+        "segment": segment,
         "users": [
             {
                 "chat_id": u.chat_id,
@@ -180,6 +216,7 @@ async def list_users(
                 "pass_expires_at": u.pass_expires_at,
                 "source": u.source,
                 "created_at": u.created_at,
+                "last_seen": seen.get(u.chat_id),
             }
             for u in rows
         ]
@@ -247,7 +284,8 @@ async def grant(
             # top-up right after a renewal — violated the UNIQUE constraint and failed the
             # second sale. Caught by its own test.
             tribute_purchase_id=(
-                f"manual:{chat_id}:{now:%Y%m%d%H%M%S}:{uuid4().hex[:8]}"),
+                f"{MANUAL_PURCHASE_PREFIX}{chat_id}:{now:%Y%m%d%H%M%S}:"
+                f"{uuid4().hex[:8]}"),
             tier=f"manual_{body.days}d",
             amount_cents=body.amount_cents,
             currency=body.currency.upper()[:8],
@@ -395,6 +433,14 @@ class BroadcastIn(BaseModel):
     text: str = Field(min_length=1, max_length=3500)
     lang: str | None = None
     premium_only: bool = False
+    # WHO, using the same segments as the group grant and the user list.
+    #
+    # Until now a newsletter could be filtered by language and by subscribers-only and
+    # nothing else, so "your access ends Friday, message me to extend" had to go to
+    # everybody or to nobody — the renewal ask had no audience. Reuses `_segment_ids`
+    # rather than growing a second definition of "expiring" that can drift from the first.
+    segment: str = Field(default="")
+    within_days: int = Field(default=7, ge=1, le=90)
     label: str = Field(default="", max_length=80)
     # Refuse to send unless the caller has seen the count. A newsletter cannot be unsent,
     # and the number of people it is about to reach is the one fact worth confirming.
@@ -413,6 +459,20 @@ class BroadcastIn(BaseModel):
     buttons: list[dict] | None = None
 
 
+async def _audience(session: AsyncSession, body: BroadcastIn) -> list[int]:
+    """Who a newsletter reaches: the language/premium filter, narrowed by a segment.
+
+    Intersected rather than replaced, so "expiring, in Russian" is expressible. Both halves
+    already existed and neither could see the other.
+    """
+    ids = await broadcast.recipients(
+        session, lang=body.lang, premium_only=body.premium_only)
+    if not body.segment:
+        return ids
+    inside = set(await _segment_ids(session, body.segment, body.within_days))
+    return [chat_id for chat_id in ids if chat_id in inside]
+
+
 @router.post("/broadcast/preview")
 async def preview_broadcast(
     body: BroadcastIn,
@@ -421,8 +481,7 @@ async def preview_broadcast(
 ):
     if body.lang and body.lang not in UI_LANGUAGES:
         raise HTTPException(422, f"lang must be one of {UI_LANGUAGES}")
-    ids = await broadcast.recipients(
-        session, lang=body.lang, premium_only=body.premium_only)
+    ids = await _audience(session, body)
     return {"recipients": len(ids), "capped_at": broadcast.MAX_RECIPIENTS}
 
 
@@ -443,8 +502,7 @@ async def send_broadcast(
     if body.lang and body.lang not in UI_LANGUAGES:
         raise HTTPException(422, f"lang must be one of {UI_LANGUAGES}")
 
-    ids = await broadcast.recipients(
-        session, lang=body.lang, premium_only=body.premium_only)
+    ids = await _audience(session, body)
     if not ids:
         raise HTTPException(409, "nobody matches that filter")
     if body.confirm_recipients is None or body.confirm_recipients != len(ids):
@@ -679,7 +737,7 @@ async def delete_link(
 # cannot be taken back from someone who has already been told they have it.
 MAX_GRANT_RECIPIENTS = 500
 
-SEGMENTS = ("active", "expiring", "lapsed", "trial")
+SEGMENTS = ("active", "expiring", "lapsed", "trial", "quiet")
 
 
 class GrantManyIn(BaseModel):
@@ -718,6 +776,12 @@ async def _segment_ids(session: AsyncSession, segment: str, within_days: int) ->
     elif segment == "lapsed":
         stmt = (select(User.chat_id)
                 .where(User.pass_expires_at.is_not(None), User.pass_expires_at <= now))
+    elif segment == "quiet":
+        # Nobody has heard from them. The mirror image of `active`, and the segment
+        # retention starts from — measured the same way, from the event log, so the two
+        # can never disagree about what "using the app" means.
+        seen = select(func.distinct(Event.chat_id)).where(Event.created_at > since)
+        stmt = select(User.chat_id).where(User.chat_id.not_in(seen))
     elif segment == "trial":
         # Access with no money behind it: a referral trial or a previous gift. `purchased`
         # is computed the same way everywhere — a Purchase row with amount_cents > 0.
