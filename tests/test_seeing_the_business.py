@@ -168,11 +168,6 @@ async def test_generation_skips_what_is_already_written(client, registered, api_
     assert isinstance(already, set)
 
 
-def select_cluster_ids():
-    from sqlalchemy import select
-    return select(Question.cluster_id).where(Question.cluster_id.is_not(None)).limit(1)
-
-
 # --- spend -------------------------------------------------------------------
 
 async def test_spend_counts_what_the_model_did(client, registered, api_db):
