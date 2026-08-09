@@ -289,6 +289,13 @@ EV_PASS_LAPSED = "pass_lapsed"
 # that silently does nothing. Keyed on the day, so computing the streak twice cannot spend
 # two freezes.
 EV_STREAK_FROZEN = "streak_frozen"
+# A newsletter or a personal message went out from the admin panel. In the event log rather
+# than a table of its own: it is append-only, already backed up, and "did I already send
+# this" is exactly the question somebody needs answered before sending again. It is also the
+# only record that a newsletter happened at all.
+EV_BROADCAST_SENT = "broadcast_sent"
+# A referral link was created or switched off. Who gave away access, and when.
+EV_LINK_CHANGED = "link_changed"
 # Quiz sessions. EV_SESSION_START/END already existed for the study session; these name
 # the bounded, gradeable kind so an exam is separable in the funnel.
 EV_EXAM_STARTED = "exam_started"
@@ -306,6 +313,8 @@ EVENT_TYPES = (
     EV_PASS_ENDING,
     EV_PASS_LAPSED,
     EV_STREAK_FROZEN,
+    EV_BROADCAST_SENT,
+    EV_LINK_CHANGED,
 )
 
 # --- vocabulary trainer -----------------------------------------------------

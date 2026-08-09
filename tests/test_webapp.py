@@ -105,8 +105,17 @@ async def test_a_valid_signature_cannot_reach_another_users_data(client, registe
     assert r.json()["chat_id"] != OWNER
 
 
-def webapp_paths() -> list[str]:
-    """Every documented path under /webapp.
+def webapp_paths(*, admin: bool = False) -> list[str]:
+    """Every documented path under /webapp — learner-facing by default.
+
+    The split matters. `/webapp/*` is the LEARNER surface and its whole safety argument is
+    that identity comes from a Telegram signature and never from the request.
+    `/webapp/admin/*` is the owner's console: acting on somebody else is its entire job, so
+    it necessarily names them, and it is safe for a different reason — a staff dependency on
+    every route, checked in tests/test_admin_panel.py.
+
+    Passing them through one list would let an admin route's legitimate chat_id silence the
+    invariant that protects the learner surface.
 
     Read from the OpenAPI schema, NOT from `app.routes`. FastAPI 0.141 stores an
     included router as a single `_IncludedRouter` wrapper object rather than flattening
@@ -118,7 +127,8 @@ def webapp_paths() -> list[str]:
     """
     from api.main import app
 
-    return [p for p in app.openapi()["paths"] if p.startswith("/webapp")]
+    paths = [p for p in app.openapi()["paths"] if p.startswith("/webapp")]
+    return [p for p in paths if p.startswith("/webapp/admin") is admin]
 
 
 async def test_the_webapp_surface_is_not_empty():
@@ -126,14 +136,44 @@ async def test_the_webapp_surface_is_not_empty():
     assert len(webapp_paths()) >= 8
 
 
-async def test_no_webapp_route_accepts_a_chat_id(client):
-    """The structural guarantee: if no route declares chat_id, none can be tricked
-    into using one. This fails loudly if somebody later adds /webapp/users/{chat_id}."""
+async def test_no_learner_route_accepts_a_chat_id(client):
+    """The structural guarantee: if no route declares chat_id, none can be tricked into
+    using one. This fails loudly if somebody later adds /webapp/users/{chat_id}.
+
+    Scoped to the learner surface since 2026-08-09, when the owner's console arrived under
+    /webapp/admin. That console names other users on purpose — granting somebody access is
+    the job — and is protected by a staff dependency instead. The two rules are separate so
+    that neither can be weakened by the other.
+    """
     assert [p for p in webapp_paths() if "chat_id" in p] == []
 
 
+async def test_the_admin_surface_exists_and_is_all_staff_gated(client):
+    """Guards the split above: if the admin list were empty, the exemption would be
+    silently covering nothing — and if a route there is unguarded, the exemption is
+    covering a hole."""
+    import inspect
+
+    from api.routes import webapp_admin
+
+    assert len(webapp_paths(admin=True)) >= 6
+
+    unguarded = [
+        f"{sorted(route.methods)} {route.path}"
+        for route in webapp_admin.router.routes
+        if not any(getattr(p.default, "dependency", None) is webapp_admin.staff_user
+                   for p in inspect.signature(route.endpoint).parameters.values())
+    ]
+    assert unguarded == [], f"admin routes with no staff check: {unguarded}"
+
+
 async def test_the_dangerous_routes_are_not_exposed_under_webapp(client):
-    """Granting a pass and erasing a user must have no public path, ever."""
+    """Granting a pass and erasing a user must have no path a LEARNER can reach.
+
+    Granting moved under /webapp/admin on 2026-08-09 — payment is a direct arrangement now,
+    so handing out access by hand is the product. It is reachable only behind the staff
+    dependency, and only the learner surface is checked here.
+    """
     paths = webapp_paths()
     assert not any("pass" in p for p in paths)
     assert not any("file-id" in p for p in paths)

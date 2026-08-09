@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps import get_session
 from api.models import Question
-from api.routes import admin, figures, quiz, users, webapp, webhooks
+from api.routes import admin, webapp_admin, figures, quiz, users, webapp, webhooks
 from shared.config import settings
 
 app = FastAPI(
@@ -31,6 +31,10 @@ app.include_router(webhooks.router)
 # (HMAC-signed) and webapp (initData-signed). users/quiz/figures take identity from
 # the URL and must stay private — see api/routes/webapp.py.
 app.include_router(webapp.router)
+# The owner's console. Same public prefix, same Telegram-signed authentication, and every
+# route behind a staff dependency — see api/routes/webapp_admin.py for why it lives here
+# rather than on a domain of its own.
+app.include_router(webapp_admin.router)
 
 
 @app.get("/health", tags=["ops"])
