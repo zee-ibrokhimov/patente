@@ -198,6 +198,23 @@ export const admin = {
       method: "DELETE",
     }),
 
+  /** Give the same days to a whole segment — the way to reward people who actually use it.
+   *  Count first, always: the server refuses a grant whose confirmed number does not match
+   *  what it just reported, because access cannot be taken back once somebody has been told
+   *  they have it. */
+  previewGrantMany: (body: { segment: string; days: number; within_days: number }) =>
+    request<{ recipients: number; capped_at: number }>("/admin/grant-many/preview", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  grantMany: (body: {
+    segment: string; days: number; within_days: number;
+    reason: string; notify: boolean; confirm_recipients: number;
+  }) => request<{ granted: number; segment: string; days: number }>("/admin/grant-many", {
+    method: "POST",
+    body: JSON.stringify(body),
+  }),
+
   /** What learners have told you is wrong. Collected since launch and, until now, read by
    *  nothing. */
   reports: (unresolved = true) =>

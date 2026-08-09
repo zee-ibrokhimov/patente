@@ -2295,10 +2295,114 @@ function adminScreen(): HTMLElement {
   // and a queue placed below three other cards is a queue that gets read once.
   wrap.append(adminReports(data.reports, data.openReports));
   wrap.append(adminUsers(data.users));
+  wrap.append(adminGrantMany());
   wrap.append(adminLinks(data.links));
   wrap.append(adminBroadcast());
   return wrap;
 }
+
+/** Give days to everyone in a segment.
+ *
+ *  "i need a grants so i can give to my users if they are using my project" — the
+ *  one-at-a-time Grant cannot say that, because it starts from a search for a name.
+ *
+ *  ACTIVE is measured from the event log: anyone who did anything in the app in the window.
+ *  There is no `last_seen` column and adding one would be a migration to store something
+ *  already recorded.
+ *
+ *  Counts before it grants, and the server refuses a number that does not match what it
+ *  just reported. That is not ceremony — the segment is computed twice, the population
+ *  moves between the two calls, and there is no way to take access back from somebody who
+ *  has already been told they have it.
+ */
+function adminGrantMany(): HTMLElement {
+  const card = el("div", "card");
+  card.style.marginTop = "var(--md)";
+  card.append(el("div", "row-title", "Grant to a group"));
+  card.append(el("p", "caption",
+    "Reward people who use the app, or give everyone whose access is ending a few more days."));
+
+  const segment = el("select", "admin-input") as HTMLSelectElement;
+  for (const [value, label] of [
+    ["active", "Used the app recently"],
+    ["expiring", "Access ending soon"],
+    ["lapsed", "Access already expired"],
+    ["trial", "On a free trial (never paid)"],
+  ] as const) {
+    const opt = el("option", "", label) as HTMLOptionElement;
+    opt.value = value;
+    segment.append(opt);
+  }
+  card.append(segment);
+
+  const window_ = el("input", "admin-input") as HTMLInputElement;
+  window_.type = "number";
+  window_.min = "1";
+  window_.max = "90";
+  window_.value = "7";
+  card.append(window_);
+
+  const windowHint = el("p", "caption", "");
+  card.append(windowHint);
+
+  const days = el("input", "admin-input") as HTMLInputElement;
+  days.type = "number";
+  days.min = "1";
+  days.max = "400";
+  days.value = "7";
+  days.placeholder = "Days to give";
+  card.append(days);
+
+  const tell = el("label", "admin-check");
+  const tellBox = el("input") as HTMLInputElement;
+  tellBox.type = "checkbox";
+  tellBox.checked = true;
+  tell.append(tellBox, document.createTextNode(" Tell them"));
+  card.append(tell);
+
+  // The window means something different per segment, so the hint is rewritten rather than
+  // left as one sentence that is wrong for three of the four.
+  const describe = () => {
+    const n = window_.value || "7";
+    const text: Record<string, string> = {
+      active: `Anyone who used the app in the last ${n} days.`,
+      expiring: `Anyone whose access runs out within ${n} days.`,
+      lapsed: "Everyone whose access has already run out. The number above is ignored.",
+      trial: "Everyone with access and no payment behind it. The number above is ignored.",
+    };
+    windowHint.textContent = text[segment.value] || "";
+  };
+  segment.onchange = describe;
+  window_.oninput = describe;
+  describe();
+
+  const go = el("button", "btn", "Count, then grant");
+  go.type = "button";
+  go.onclick = async () => {
+    const body = {
+      segment: segment.value,
+      days: Number(days.value) || 0,
+      within_days: Number(window_.value) || 7,
+    };
+    if (body.days < 1) { toast("How many days?"); return; }
+    go.disabled = true;
+    try {
+      const { recipients } = await admin.previewGrantMany(body);
+      if (!recipients) { toast("Nobody is in that group."); return; }
+      const ok = await ask(
+        `Give ${body.days} day(s) to ${recipients} people? Access cannot be taken back.`);
+      if (!ok) return;
+      const out = await admin.grantMany({
+        ...body, reason: "", notify: tellBox.checked, confirm_recipients: recipients,
+      });
+      toast(`Granted to ${out.granted}.`);
+      await refreshAdmin();
+    } catch (err) { reportError(err); } finally { go.disabled = false; }
+  };
+  card.append(go);
+  return card;
+}
+
 
 /** What learners have told you is wrong.
  *

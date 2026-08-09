@@ -28,6 +28,7 @@ that is indistinguishable from a typo is not.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
@@ -625,3 +626,136 @@ async def delete_link(
     await session.delete(link)
     await session.commit()
     return {"deleted": code}
+
+
+# --- granting to more than one person at a time ------------------------------
+
+# A ceiling on a segment grant. MAX_GRANT_DAYS already caps how LONG one grant can be; this
+# caps how MANY it can reach, which is the other way a slip becomes unrecoverable — access
+# cannot be taken back from someone who has already been told they have it.
+MAX_GRANT_RECIPIENTS = 500
+
+SEGMENTS = ("active", "expiring", "lapsed", "trial")
+
+
+class GrantManyIn(BaseModel):
+    """Give the same number of days to everyone in a segment."""
+
+    segment: str
+    days: int = Field(ge=1, le=MAX_GRANT_DAYS)
+    # What "active" and "expiring" measure against. 7 for active means "used it this week".
+    within_days: int = Field(default=7, ge=1, le=90)
+    reason: str = Field(default="", max_length=200)
+    notify: bool = True
+    # Same guard as the newsletter, for the same reason: the segment is computed twice, the
+    # population moves between the two calls, and a grant cannot be taken back.
+    confirm_recipients: int | None = None
+
+
+async def _segment_ids(session: AsyncSession, segment: str, within_days: int) -> list[int]:
+    """Who a segment contains, in a stable order.
+
+    ACTIVE is measured from the event log rather than from a `last_seen` column, because no
+    such column exists and adding one would be a migration to store something already
+    recorded. Any event counts — answering, starting a sitting, opening a screen — which is
+    the honest reading of "using my project".
+    """
+    now = datetime.now(timezone.utc)
+    since = now - timedelta(days=within_days)
+
+    if segment == "active":
+        stmt = (select(func.distinct(Event.chat_id))
+                .where(Event.created_at > since))
+    elif segment == "expiring":
+        # Still paid up, but not for long. This is the renewal conversation.
+        stmt = (select(User.chat_id)
+                .where(User.pass_expires_at > now,
+                       User.pass_expires_at <= now + timedelta(days=within_days)))
+    elif segment == "lapsed":
+        stmt = (select(User.chat_id)
+                .where(User.pass_expires_at.is_not(None), User.pass_expires_at <= now))
+    elif segment == "trial":
+        # Access with no money behind it: a referral trial or a previous gift. `purchased`
+        # is computed the same way everywhere — a Purchase row with amount_cents > 0.
+        paid = select(Purchase.chat_id).where(Purchase.amount_cents > 0)
+        stmt = (select(User.chat_id)
+                .where(User.pass_expires_at > now, User.chat_id.not_in(paid)))
+    else:
+        raise HTTPException(422, f"segment must be one of {SEGMENTS}")
+
+    return sorted(await session.scalars(stmt.order_by(None)))
+
+
+@router.post("/grant-many/preview")
+async def preview_grant_many(
+    body: GrantManyIn,
+    _staff: User = Depends(staff_user),
+    session: AsyncSession = Depends(get_session),
+):
+    ids = await _segment_ids(session, body.segment, body.within_days)
+    return {"recipients": len(ids), "capped_at": MAX_GRANT_RECIPIENTS}
+
+
+@router.post("/grant-many")
+async def grant_many(
+    body: GrantManyIn,
+    background: BackgroundTasks,
+    staff: User = Depends(staff_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Give days to everyone in a segment — the way to reward people who actually use it.
+
+    EXTENDS each person's own expiry, exactly as the single grant does, so somebody who
+    already paid for a month does not have it silently shortened to the gift.
+
+    No Purchase row is written. These are gifts, not sales: counting them as revenue would
+    make every figure in the overview wrong, and marking the recipients `purchased` would
+    tell someone who was given a week that they have an active paid subscription.
+
+    Notifications go out in the BACKGROUND while the grant itself commits first. The access
+    is the thing that must not fail; being told about it can lag or fail per person, and
+    Telegram rate limits mean 500 messages take half a minute.
+    """
+    ids = await _segment_ids(session, body.segment, body.within_days)
+    if not ids:
+        raise HTTPException(409, "nobody is in that segment")
+    if len(ids) > MAX_GRANT_RECIPIENTS:
+        raise HTTPException(
+            409, f"{len(ids)} people — more than the {MAX_GRANT_RECIPIENTS} cap")
+    if body.confirm_recipients is None or body.confirm_recipients != len(ids):
+        raise HTTPException(
+            409, f"confirm {len(ids)} recipients — you sent {body.confirm_recipients}")
+
+    now = datetime.now(timezone.utc)
+    granted: list[tuple[int, str, datetime]] = []
+    for chat_id in ids:
+        user = await session.get(User, chat_id)
+        if user is None:
+            continue                      # an event from an account since deleted
+        base = (user.pass_expires_at
+                if user.pass_expires_at and user.pass_expires_at > now else now)
+        user.pass_expires_at = base + timedelta(days=body.days)
+        granted.append((chat_id, user.lang, user.pass_expires_at))
+
+    await events.record(
+        session, EV_PASS_GRANTED, chat_id=staff.chat_id,
+        segment=body.segment, within_days=body.within_days,
+        days=body.days, recipients=len(granted), reason=body.reason[:200],
+        bulk=True,
+    )
+    await session.commit()
+
+    if body.notify:
+        background.add_task(_tell_them, granted)
+
+    return {"granted": len(granted), "segment": body.segment, "days": body.days}
+
+
+async def _tell_them(granted: list[tuple[int, str, datetime]]) -> None:
+    """Tell each recipient, slowly enough not to be rate-limited. Never raises."""
+    for chat_id, lang, expires_at in granted:
+        try:
+            await notify.payment(chat_id, lang, "paid", expires_at, "")
+        except Exception:                                             # noqa: BLE001
+            log.warning("could not tell %s about their grant", chat_id, exc_info=True)
+        await asyncio.sleep(broadcast.PAUSE)
