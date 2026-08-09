@@ -73,13 +73,30 @@ def test_a_malformed_verdict_is_not_read_as_agreement():
 
 # --- the numeric gate ------------------------------------------------------
 
-def test_an_explanation_carrying_a_number_is_flagged():
+def test_an_ungrounded_number_is_flagged():
     judged = [member(1, True)]
     parsed = {"spiegazione": "Il limite fuori dai centri abitati è di 90 km/h.",
               "verdetti": verdicts("VERO")}
     status, reasons, _ = check(parsed, judged)
     assert status == STATUS_FLAGGED
-    assert "contains a number or a unit" in reasons
+    # No article is passed here, so grounding cannot be checked and the gate stays blunt —
+    # the right direction to fail in when there is nothing to verify against.
+    assert any("not in the cited article" in r for r in reasons), reasons
+    assert any("90" in r for r in reasons), \
+        "the reviewer needs to know WHICH figure to check"
+
+
+def test_the_same_number_passes_once_the_article_says_it():
+    """The reversal, on the same sentence. 90 is an unverifiable claim until the statute in
+    front of the model contains it — at which point repeating it is the explanation doing
+    exactly what it is for, and withholding it is pure loss."""
+    judged = [member(1, True)]
+    parsed = {"spiegazione": "Il limite fuori dai centri abitati è di 90 km/h.",
+              "verdetti": verdicts("VERO")}
+    article = [{"text": "La velocità non può superare i 90 km/h sulle strade "
+                        "extraurbane secondarie."}]
+    status, reasons, _ = check(parsed, judged, article)
+    assert status == STATUS_DRAFT, reasons
 
 
 def test_an_explanation_with_no_quantity_at_all_passes():
@@ -124,17 +141,35 @@ def test_a_real_quantity_beside_a_citation_is_still_caught():
               "verdetti": verdicts("VERO")}
     status, reasons, _ = check(parsed, judged)
     assert status == STATUS_FLAGGED
-    assert "contains a number or a unit" in reasons
+    # No article is passed here, so grounding cannot be checked and the gate stays blunt —
+    # which is the right direction to fail in when there is nothing to verify against.
+    assert any("not in the cited article" in r for r in reasons), reasons
+    assert any("25" in r and "10" in r for r in reasons), \
+        "the reviewer needs to know WHICH figures to check"
 
 
-def test_units_are_caught_without_a_digit():
-    """Deliberately over-inclusive: plan §3.3 lists "anni" alongside km/h, so a
-    duration counts as a numeric claim even spelled out. A false flag costs a glance
-    at a row the reviewer is opening anyway; a missed one ships a wrong limit."""
-    assert NUMERIC_RE.search("una distanza in metri")
-    assert NUMERIC_RE.search("il tasso in g/l")
-    assert NUMERIC_RE.search("la sospensione dura alcuni mesi")
-    assert not NUMERIC_RE.search("il conducente deve rallentare")
+def test_a_bare_unit_no_longer_withholds_an_explanation():
+    """REVERSED on 2026-08-09, and the reversal is the point.
+
+    The rule used to gate on unit WORDS as well as digits — "metri", "mesi", "g/l" — on the
+    reasoning that a false flag costs a reviewer a glance while a missed one ships a wrong
+    limit. That trade was right while a human read every draft before it shipped. Nobody
+    does now: a flagged row is simply withheld, and the learner is told the explanation is
+    not available.
+
+    Measured on live data, 9 of 10 withheld rows were withheld by this gate, several of
+    them quoting the article correctly. "Una distanza in metri" carries no claim that can
+    be wrong, so withholding an otherwise sound explanation for it is pure loss.
+
+    NUMERIC_RE is kept because content/ still uses it as a cheap pre-filter; what changed is
+    that the SERVING decision no longer consults it.
+    """
+    from api.services.explanations import ungrounded_numbers
+
+    for harmless in ("una distanza in metri", "il tasso in g/l",
+                     "la sospensione dura alcuni mesi"):
+        assert ungrounded_numbers(harmless, []) == [], \
+            f"{harmless!r} would still be withheld"
 
 
 def test_low_confidence_is_flagged_even_when_everything_agrees():

@@ -381,7 +381,48 @@ def parsed_texts(parsed: dict) -> dict[str, str]:
     }
 
 
-def check_gates(parsed: dict, judged: list[dict]) -> tuple[str, list[str], list[dict]]:
+def ungrounded_numbers(text: str, articles: list[dict]) -> list[str]:
+    """Numbers in the explanation that do not appear in the statute it was given.
+
+    THE GATE THIS REPLACES BANNED ALL DIGITS, and it was the single biggest reason a
+    learner was told "not available yet". Measured on live data: 9 of the 10 withheld rows
+    were withheld by it, including explanations that were quoting the article correctly.
+
+    The fear behind it is right — a wrong speed limit is the worst thing this product can
+    say, and the reviewer had learned to ignore a gate that fired on every draft. But
+    "contains a digit" is not the same property as "invented a figure". An explanation that
+    says 50 km/h because the article in front of it says 50 km/h is exactly what the
+    feature is for; one that says 70 when the statute says 50 is the actual danger, and the
+    old gate could not tell them apart, so it withheld both.
+
+    This checks grounding instead: every number in the text must appear in the article text
+    the model was shown. That passes quoted figures and catches invented ones, which is the
+    distinction that matters.
+
+    Deliberately strict about what counts as grounded — the number must appear literally.
+    A figure that is right but rephrased ("cinquanta") will still flag, and that is the
+    correct direction to fail in.
+    """
+    stripped = CITATION_RE.sub("", text)
+    # Bare digits only. Unit words on their own ("metri", "km/h") say nothing without a
+    # figure attached, and gating on them is what made the old rule fire on almost
+    # everything.
+    numbers = re.findall(r"\d+(?:[.,]\d+)?", stripped)
+    if not numbers:
+        return []
+    corpus = " ".join(a.get("text", "") for a in articles)
+    if not corpus:
+        # No statute to check against — fall back to the old, blunt behaviour rather than
+        # passing everything, because an unchecked number is the thing being guarded.
+        return sorted(set(numbers))
+    # Normalise the decimal separator: the corpus writes 3,5 and a model may write 3.5.
+    haystack = corpus.replace(",", ".")
+    return sorted({n for n in numbers if n.replace(",", ".") not in haystack})
+
+
+def check_gates(
+    parsed: dict, judged: list[dict], articles: list[dict] | None = None
+) -> tuple[str, list[str], list[dict]]:
     """(status, reasons, disagreements).
 
     `reasons` withhold the whole cluster and make the status `flagged`. `disagreements`
@@ -435,8 +476,10 @@ def check_gates(parsed: dict, judged: list[dict]) -> tuple[str, list[str], list[
     # derived from one applies to all — and matching "км/ч" as well as "km/h" would be
     # three regexes kept in agreement by hand.
     italian = parsed_texts(parsed).get(LANG_IT, "")
-    if NUMERIC_RE.search(CITATION_RE.sub("", italian)):
-        reasons.append("contains a number or a unit")
+    invented = ungrounded_numbers(italian, articles or [])
+    if invented:
+        reasons.append("contains a number that is not in the cited article: "
+                       + ", ".join(invented))
     if any(
         str(v.get("certezza", "")).lower() == "bassa"
         for v in parsed.get("verdetti", [])
@@ -544,7 +587,7 @@ class Outcome:
 
 
 async def generate(
-    session: AsyncSession, cluster_id: int, model: str | None = None
+    session: AsyncSession, cluster_id: int, model: str | None = None, attempt: int = 0
 ) -> Outcome:
     """Call the model for one cluster and store every language it returns.
 
@@ -596,14 +639,28 @@ async def generate(
 
     texts = parsed_texts(parsed)
     if parsed.get("insufficiente") or LANG_IT not in texts:
-        # Roughly a third of calls land here and it is partly run-to-run noise, so
-        # nothing is written and the next request simply tries again. Italian missing
-        # counts as a decline even if other languages came back: it is the canonical
-        # text the gates and the reviewer both work from.
-        log.info("model declined cluster %s: articles insufficient", cluster_id)
+        # Roughly a third of calls land here and it is PARTLY RUN-TO-RUN NOISE — which is
+        # the whole argument for asking twice. The learner is standing there having tapped
+        # "Why?", and "not available yet" for a cluster that would have answered on a
+        # second roll is the most annoying way to fail: nothing is wrong, it just did not
+        # try. One retry, not a loop, because a cluster whose articles genuinely do not
+        # cover the statements will decline every time and paying repeatedly to hear that
+        # is how a per-request cost becomes unbounded.
+        #
+        # Italian missing counts as a decline even if other languages came back: it is the
+        # canonical text the gates and the reviewer both work from.
+        if attempt == 0:
+            log.info("cluster %s declined, asking once more", cluster_id)
+            again = await generate(session, cluster_id, model, attempt=1)
+            # Carry the first attempt's tokens so the caller's accounting is honest.
+            return Outcome(again.outcome, row=again.row,
+                           tokens_in=again.tokens_in + tokens[0],
+                           tokens_out=again.tokens_out + tokens[1],
+                           fatal=again.fatal, detail=again.detail, langs=again.langs)
+        log.info("model declined cluster %s twice: articles insufficient", cluster_id)
         return Outcome("declined", tokens_in=tokens[0], tokens_out=tokens[1])
 
-    status, reasons, disagreements = check_gates(parsed, judged)
+    status, reasons, disagreements = check_gates(parsed, judged, grounded)
     flags = record_flags(reasons, disagreements)
     disputed = disputed_ids(disagreements)
     stored: dict[str, Explanation] = {}
