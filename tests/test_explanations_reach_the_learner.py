@@ -206,7 +206,15 @@ async def test_a_decline_is_retried_once(api_db, monkeypatch, tmp_path):
 
 async def test_it_does_not_retry_forever(api_db, monkeypatch, tmp_path):
     """A cluster whose articles genuinely do not cover the statements declines every time.
-    Paying repeatedly to hear that is how a per-request cost becomes unbounded."""
+    Paying repeatedly to hear that is how a per-request cost becomes unbounded.
+
+    The bound is now THREE, and the third is deliberately not a repeat. Two identical
+    refusals mean the articles are the problem rather than the roll of the dice, so the last
+    attempt drops the statute requirement and asks from the exam syllabus — measured on
+    cluster 1487, which declined twice and then answered. A third IDENTICAL call would be
+    precisely the waste this test exists to prevent, so the prompt is asserted as well as
+    the count.
+    """
     from tests.test_explanation_service import FakeClient
 
     client = FakeClient(reply={"insufficiente": True, "spiegazione": {}, "verdetti": []})
@@ -220,8 +228,14 @@ async def test_it_does_not_retry_forever(api_db, monkeypatch, tmp_path):
     async with api_db() as s:
         outcome = await explanations.generate(s, 1)
 
-    assert client.calls == 2, f"asked {client.calls} times, expected exactly 2"
+    assert client.calls == 3, f"asked {client.calls} times, expected exactly 3"
     assert outcome.outcome == "declined"
+
+    # The last call must have been the syllabus prompt. Without this the test passes on a
+    # third identical retry, which is more spend for the same refusal.
+    system = next(m["content"] for m in client.messages if m["role"] == "system")
+    assert system == explanations.SYLLABUS_PROMPT, \
+        "the third attempt repeated the strict prompt instead of dropping the statute rule"
 
 
 async def test_the_retry_reports_both_calls_tokens(api_db, monkeypatch, tmp_path):

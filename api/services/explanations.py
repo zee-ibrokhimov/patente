@@ -198,6 +198,38 @@ Rispondi SOLO con un oggetto JSON di questa forma esatta:
 Includi un verdetto per ogni affermazione, con "n" pari al suo numero.
 """
 
+# The last resort, for questions the Codice does not answer.
+#
+# Part of the ministerial syllabus is simply not statute. "Cover the wounds of a casualty
+# with fractures", "put an unconscious casualty in the recovery position", "failing to obey
+# the rules for merging results in..." — these are first aid, physiology and driving
+# practice. Art. 189 says stop and assist; it does not say how to treat a fracture. Handed
+# only the Codice, the model declines, and it is RIGHT to: the answer is not in what it was
+# given. Retrieval cannot fix that, because the text does not exist to retrieve.
+#
+# So the third attempt changes the question rather than the search: explain from the
+# standard driving-theory syllabus, and say plainly that no article settles it. The one
+# thing forbidden is the failure mode this whole module is built around — inventing a
+# citation. A wrong article number is worse than no article number, because it is checkable
+# and a learner who checks it loses trust in everything else on the screen.
+SYLLABUS_PROMPT = SYSTEM_PROMPT.replace(
+    """Se gli articoli forniti non bastano a decidere, imposta "insufficiente": true e lascia
+"spiegazione" vuota. NON inventare e NON tirare a indovinare: una spiegazione assente è
+accettabile, una spiegazione sbagliata non lo è.""",
+    """Gli articoli forniti NON bastano a decidere: è già stato verificato. Questa domanda
+appartiene al programma d'esame ma non è disciplinata dal Codice della Strada — per esempio
+il primo soccorso, la fisiologia della guida, la meccanica del veicolo o le conseguenze
+pratiche di un comportamento.
+
+Spiega quindi la regola secondo il PROGRAMMA D'ESAME ufficiale per la patente B e la
+pratica di guida corrente, non secondo gli articoli.
+
+NON citare alcun articolo e lascia "articolo_citato" vuoto. Inventare un numero di articolo
+è l'errore più grave possibile: è verificabile, e un candidato che lo verifica perde
+fiducia in tutto il resto. Se davvero non conosci la risposta corretta, imposta
+"insufficiente": true.""",
+)
+
 # One lock per cluster. Ten users answering the same question at once would otherwise
 # be ten identical paid calls, and the loser of the race would overwrite the winner.
 _locks: dict[int, asyncio.Lock] = {}
@@ -541,14 +573,18 @@ def figure_part(image_path: str | None) -> dict | None:
 
 
 def build_messages(
-    topic: str, judged: list[dict], grounded: list[dict], image_path: str | None
+    topic: str,
+    judged: list[dict],
+    grounded: list[dict],
+    image_path: str | None,
+    syllabus: bool = False,
 ) -> list[dict]:
     content: list[dict] = [{"type": "text", "text": build_text_prompt(topic, judged, grounded)}]
     figure = figure_part(image_path)
     if figure:
         content.append(figure)
     return [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": SYLLABUS_PROMPT if syllabus else SYSTEM_PROMPT},
         {"role": "user", "content": content},
     ]
 
@@ -804,7 +840,7 @@ async def generate(
     client = openai_client()
     kwargs = dict(
         model=model or settings.openai_model,
-        messages=build_messages(topic, judged, grounded, image),
+        messages=build_messages(topic, judged, grounded, image, syllabus=attempt >= 2),
         response_format={"type": "json_object"},
     )
     try:
@@ -840,18 +876,38 @@ async def generate(
         #
         # Italian missing counts as a decline even if other languages came back: it is the
         # canonical text the gates and the reviewer both work from.
-        if attempt == 0:
-            log.info("cluster %s declined, asking once more", cluster_id)
-            again = await generate(session, cluster_id, model, attempt=1)
-            # Carry the first attempt's tokens so the caller's accounting is honest.
+        # Attempt 0 -> ask again (noise). Attempt 1 -> ask WITHOUT the statute requirement,
+        # because two refusals on the same articles is not noise, it is the articles.
+        #
+        # Part of the ministerial syllabus is not law: first aid, physiology, vehicle
+        # mechanics, the practical consequences of a behaviour. Clusters 2823 and 2814 ask
+        # how to treat a casualty; 1487 asks what failing to obey the merging rules leads
+        # to. No retrieval reaches an answer that was never written into the Codice, so the
+        # third attempt changes the question instead of the search — see SYLLABUS_PROMPT.
+        if attempt < 2:
+            log.info("cluster %s declined, asking again (attempt %s)", cluster_id, attempt + 1)
+            again = await generate(session, cluster_id, model, attempt=attempt + 1)
+            # Carry this attempt's tokens so the caller's accounting is honest.
             return Outcome(again.outcome, row=again.row,
                            tokens_in=again.tokens_in + tokens[0],
                            tokens_out=again.tokens_out + tokens[1],
                            fatal=again.fatal, detail=again.detail, langs=again.langs)
-        log.info("model declined cluster %s twice: articles insufficient", cluster_id)
+        log.info("cluster %s declined even without the statute requirement", cluster_id)
         return Outcome("declined", tokens_in=tokens[0], tokens_out=tokens[1])
 
-    status, reasons, disagreements = check_gates(parsed, judged, grounded)
+    # In syllabus mode the articles are NOT what the answer rests on, so they cannot ground
+    # its numbers. Passing an empty list makes every number in the text ungrounded and
+    # therefore withholds the cluster — deliberately strict. A first-aid explanation
+    # normally carries no figures at all, but "keep 3 metres back" or "under 50 km/h" from
+    # a model working without a source is exactly the sentence this product must never
+    # print, and there is nothing here to check it against.
+    status, reasons, disagreements = check_gates(
+        parsed, judged, [] if attempt >= 2 else grounded)
+    if attempt >= 2:
+        # Recorded on the row so it is visible for ever after, not just in a log line: this
+        # text was written from the exam syllabus and cites no article by design. A reviewer
+        # comparing it against the Codice would otherwise conclude the citation went missing.
+        reasons = reasons + ["explained from the exam syllabus — no article covers it"]
     flags = record_flags(reasons, disagreements)
     disputed = disputed_ids(disagreements)
     stored: dict[str, Explanation] = {}

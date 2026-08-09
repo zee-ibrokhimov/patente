@@ -119,34 +119,41 @@ async def test_a_report_records_the_reporters_language(client, registered, api_d
 # --- 3. the silent language swap --------------------------------------------
 
 async def test_an_explanation_states_its_language(client, registered, api_db):
-    """Uzbek falls back to Russian on purpose — a bad explanation is the only thing on
-    screen and is the thing being sold, so Uzbek ships as translations first. But nothing
-    told the reader: they paid for explanations and silently got a language they had not
-    chosen. Saying so is the difference between a known limit and a broken product."""
-    from sqlalchemy import delete as sa_delete
+    """The reader is always TOLD which language the explanation is in.
+
+    That is the contract, and it has outlived the limitation it was written for. When this
+    was first added, Uzbek explanations did not exist — Uzbek shipped as translations only
+    and an Uzbek reader silently received Russian, which is why saying so mattered. Uzbek is
+    in EXPLANATION_LANGUAGES now, so an Uzbek reader gets Uzbek, and the assertion that they
+    are served Russian became false.
+
+    It did not fail honestly, though. `explanations._missing` is module state that survives
+    between tests in one process: an entry for (cluster, "uz") makes deliver skip Uzbek and
+    fall back to Russian, and its absence makes it serve Uzbek. So the result depended on
+    which tests had run first, and the suite failed roughly one run in two while the test
+    passed alone. Clearing the cache made it deterministic — and deterministic in the
+    failing direction, which is what exposed the assertion as stale rather than flaky.
+
+    What is asserted now is the part that still protects the reader: whatever language comes
+    back, it is one this app actually serves, and the response names it.
+    """
     from sqlalchemy import update as sa_update
 
-    from api.models import Explanation, Question
+    from api.services import explanations as explanation_service
+    from shared.constants import EXPLANATION_LANGUAGES
+
+    explanation_service._missing.clear()
 
     async with api_db() as s:
         await s.execute(sa_update(User).where(User.chat_id == OWNER).values(lang="uz"))
-        # State the precondition rather than hoping for it. The Russian fallback only
-        # applies when there is NO Uzbek explanation for this cluster — if an earlier test
-        # in the session wrote one, serving Uzbek is the CORRECT behaviour and this
-        # assertion asserts nothing. That is why this failed on roughly every other full
-        # run while passing alone; the flake predates the prefetch work and was reproduced
-        # with those changes stashed.
-        question = await s.get(Question, 1)
-        if question is not None and question.cluster_id is not None:
-            await s.execute(sa_delete(Explanation).where(
-                Explanation.cluster_id == question.cluster_id,
-                Explanation.lang == "uz"))
         await s.commit()
 
     r = await client.post("/webapp/questions/1/explanation", headers=auth())
     body = r.json()
     if body["explanation_state"] == "shown":
-        assert body["explanation_lang"] == "ru", "an Uzbek reader is served Russian"
+        lang = body["explanation_lang"]
+        assert lang, "an explanation was served without saying what language it is in"
+        assert lang in EXPLANATION_LANGUAGES, f"served a language this app does not write: {lang}"
 
 
 async def test_a_russian_reader_is_told_russian(client, registered):
