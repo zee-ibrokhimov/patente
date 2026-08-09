@@ -1217,3 +1217,16 @@ html, body { overflow-x: hidden; }
   margin-top: var(--lg); font-size: 12px; font-weight: 700;
   letter-spacing: .14em; text-transform: uppercase; color: var(--text-2);
 }
+
+/* --- admin: content coverage ---------------------------------------------- */
+.cover { margin-top: var(--md); }
+.cover-label { font-size: 15px; font-weight: 600; }
+.cover-n {
+  font-size: var(--t-caption); color: var(--text-2);
+  font-variant-numeric: tabular-nums; margin-top: 2px;
+}
+.cover-bar {
+  height: 6px; margin-top: 6px; border-radius: 999px;
+  background: var(--edge); overflow: hidden;
+}
+.cover-fill { height: 100%; background: var(--accent); border-radius: 999px; }

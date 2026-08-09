@@ -2289,6 +2289,43 @@ function adminScreen(): HTMLElement {
       grid.append(cell);
     }
     wrap.append(grid);
+
+    // Coverage. Deliberately shown as "259 of 7,106" with the percentage, not a bare
+    // percentage: 3.6% reads as a rounding error, while "259 of 7,106" is unmistakably a
+    // bank that is almost entirely unwritten — which is the fact worth acting on.
+    const c = o.content;
+    if (c) {
+      const card = el("div", "card");
+      card.style.marginTop = "var(--md)";
+      card.append(el("div", "row-title", "Content written"));
+
+      const pct = (n: number, total: number) =>
+        total ? `${((n / total) * 100).toFixed(1)}%` : "—";
+
+      for (const [label, n, total, note] of [
+        ["Questions translated", c.translated, c.questions_total, ""],
+        ["Rules explained", c.explained, c.clusters_total, ""],
+      ] as const) {
+        const line = el("div", "cover");
+        line.append(el("div", "cover-label", label));
+        line.append(el("div", "cover-n",
+          `${n.toLocaleString()} of ${total.toLocaleString()} · ${pct(n, total)}`));
+        const bar = el("div", "cover-bar");
+        const fill = el("div", "cover-fill");
+        fill.style.width = `${total ? Math.max(1, (n / total) * 100) : 0}%`;
+        bar.append(fill);
+        line.append(bar);
+        if (note) line.append(el("div", "caption", note));
+        card.append(line);
+      }
+
+      if (c.explanations_withheld || c.explanations_disputed) {
+        card.append(el("p", "caption",
+          `${c.explanations_withheld} rule(s) written but withheld by a quality gate · `
+          + `${c.explanations_disputed} argue with the answer key`));
+      }
+      wrap.append(card);
+    }
   }
 
   // Reports first. It is the only section that represents somebody waiting for an answer,

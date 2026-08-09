@@ -316,7 +316,22 @@ export interface ResetPreview {
  *  Every one of these is served only to a staff caller; the server decides, and this
  *  client never does. See api/routes/webapp_admin.py. */
 
+/** How much of the bank is written. Both translations and explanations are generated on
+ *  demand, so the content fills in whatever order users happen to wander through it — these
+ *  are the only numbers that say how far that has got. */
+export interface AdminContent {
+  questions_total: number;
+  translated: number;
+  clusters_total: number;
+  explained: number;
+  /** Written, then withheld by a gate: an ungroundable number, or the model arguing with
+   *  the answer key. The only visible measure of how often generation misfires. */
+  explanations_withheld: number;
+  explanations_disputed: number;
+}
+
 export interface AdminOverview {
+  content: AdminContent;
   users: number;
   premium: number;
   on_trial: number;

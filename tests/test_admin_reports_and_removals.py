@@ -176,3 +176,65 @@ def test_buttons_are_capped():
 def test_no_buttons_is_fine():
     assert broadcast.buttons_for(None) == []
     assert broadcast.buttons_for([]) == []
+
+
+# --- content coverage --------------------------------------------------------
+
+async def test_the_overview_reports_how_much_content_exists(client, registered, api_db):
+    """Both translations and explanations are generated on demand, so the bank fills in
+    whatever order a handful of users wander through it — and nothing reported how far that
+    had got. Translations were at 3.6% of 7,106 when this was added, which the owner had no
+    way of knowing from the panel."""
+    body = (await client.get("/webapp/admin/overview", headers=auth())).json()
+    assert "content" in body, "the panel still cannot report coverage"
+    c = body["content"]
+    for key in ("questions_total", "translated", "clusters_total", "explained"):
+        assert key in c, f"missing {key}"
+    assert c["questions_total"] >= c["translated"], "more translated than exist"
+    assert c["clusters_total"] >= c["explained"], "more explained than exist"
+
+
+async def test_coverage_counts_questions_not_translation_rows(client, registered, api_db):
+    """A translated question holds one row per language. Counting rows would report three
+    times the coverage — the kind of number that looks like progress and is not."""
+    from api.models import Translation
+
+    # Measured as a DELTA. The shared fixture already seeds content, so an absolute
+    # assertion here tests the fixture rather than the query.
+    before = (await client.get("/webapp/admin/overview",
+                               headers=auth())).json()["content"]["translated"]
+    async with api_db() as s:
+        # A question the fixture has NOT already translated — question 1 is, and inserting
+        # over it fails the (question_id, lang) unique constraint rather than testing
+        # anything.
+        from api.models import Question
+        translated_ids = set(await s.scalars(select(Translation.question_id)))
+        fresh = next(q for q in await s.scalars(select(Question.id))
+                     if q not in translated_ids)
+        for lang in ("ru", "en", "uz"):
+            s.add(Translation(question_id=fresh, lang=lang, statement="x"))
+        await s.commit()
+
+    after = (await client.get("/webapp/admin/overview",
+                              headers=auth())).json()["content"]["translated"]
+    assert after - before == 1, \
+        f"one question in three languages moved the count by {after - before}"
+
+
+async def test_a_withheld_explanation_is_not_counted_as_written(client, registered, api_db):
+    """`flagged` never reaches a learner, so counting it as coverage would report the bank
+    as more complete than anybody can actually read."""
+    from api.models import Cluster, Explanation
+
+    before = (await client.get("/webapp/admin/overview", headers=auth())).json()["content"]
+    async with api_db() as s:
+        s.add(Cluster(id=9001, natural_key="t1|txt:9001", topic_id=1, rule_summary="r"))
+        await s.commit()
+        s.add(Explanation(cluster_id=9001, lang="it", text="t", status="flagged"))
+        await s.commit()
+
+    after = (await client.get("/webapp/admin/overview", headers=auth())).json()["content"]
+    assert after["explanations_withheld"] - before["explanations_withheld"] == 1, \
+        "the withheld count does not see it"
+    assert after["explained"] == before["explained"], \
+        "a withheld explanation was counted as written and would be reported as coverage"

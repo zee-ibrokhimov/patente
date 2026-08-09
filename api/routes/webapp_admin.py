@@ -40,7 +40,10 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps import get_session
-from api.models import Event, Explanation, Purchase, Question, ReferralLink, Report, User
+from api.models import (
+    Cluster, Event, Explanation, Purchase, Question, ReferralLink, Report,
+    Translation, User,
+)
 from api.routes.webapp import webapp_user
 from api.services import broadcast, events, explanations, lapse, notify, referrals
 from api.services.entitlement import evaluate
@@ -54,6 +57,8 @@ from shared.constants import (
     EV_PASS_REVOKED,
     EV_REPORT_RESOLVED,
     EV_USER_DELETED,
+    SERVABLE_STATUSES,
+    STATUS_FLAGGED,
     UI_LANGUAGES,
 )
 
@@ -97,7 +102,43 @@ async def overview(
     active_today = await session.scalar(
         select(func.count(func.distinct(Event.chat_id)))
         .where(Event.created_at > now - timedelta(days=1)))
+
+    # How much of the bank is actually written.
+    #
+    # Both are generated on demand, so the bank fills in whatever order a handful of users
+    # happen to wander through it — and nothing anywhere reported how far that had got. The
+    # numbers are small and surprising (translations were at 3.6% of 7,106 when this was
+    # added), which is exactly why they belong on the screen the owner opens rather than in
+    # a query he would have to know to run.
+    #
+    # DISTINCT question / cluster, not row counts: a translated question holds one row per
+    # language, so counting rows reports three times the coverage.
+    questions_total = await session.scalar(select(func.count(Question.id)))
+    translated = await session.scalar(
+        select(func.count(func.distinct(Translation.question_id))))
+    clusters_total = await session.scalar(select(func.count(Cluster.id)))
+    explained = await session.scalar(
+        select(func.count(func.distinct(Explanation.cluster_id)))
+        .where(Explanation.status.in_(SERVABLE_STATUSES)))
+    # Written but withheld — a gate caught a number it could not ground, or the model
+    # argued against the answer key. Worth its own figure: it is the only visible measure
+    # of how often generation produces something untrustworthy.
+    withheld = await session.scalar(
+        select(func.count(func.distinct(Explanation.cluster_id)))
+        .where(Explanation.status == STATUS_FLAGGED))
+    disputed = await session.scalar(
+        select(func.count(Explanation.id))
+        .where(Explanation.disputed.is_not(None), Explanation.disputed != ""))
+
     return {
+        "content": {
+            "questions_total": questions_total or 0,
+            "translated": translated or 0,
+            "clusters_total": clusters_total or 0,
+            "explained": explained or 0,
+            "explanations_withheld": withheld or 0,
+            "explanations_disputed": disputed or 0,
+        },
         "users": total or 0,
         "premium": premium or 0,
         "on_trial": trials or 0,
