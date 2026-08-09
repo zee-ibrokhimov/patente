@@ -42,13 +42,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.deps import get_session
 from api.models import Event, Explanation, Purchase, Question, ReferralLink, Report, User
 from api.routes.webapp import webapp_user
-from api.services import broadcast, events, explanations, notify, referrals
+from api.services import broadcast, events, explanations, lapse, notify, referrals
 from api.services.entitlement import evaluate
 from api.services.users import _clean_source
 from shared.constants import (
     EV_BROADCAST_SENT,
     EV_LINK_CHANGED,
+    EV_PASS_ENDING,
     EV_PASS_GRANTED,
+    EV_PASS_LAPSED,
+    EV_PASS_REVOKED,
     EV_REPORT_RESOLVED,
     EV_USER_DELETED,
     UI_LANGUAGES,
@@ -759,3 +762,82 @@ async def _tell_them(granted: list[tuple[int, str, datetime]]) -> None:
         except Exception:                                             # noqa: BLE001
             log.warning("could not tell %s about their grant", chat_id, exc_info=True)
         await asyncio.sleep(broadcast.PAUSE)
+
+
+# --- taking access back ------------------------------------------------------
+
+class RevokeIn(BaseModel):
+    """End a pass now, or shorten it by a number of days."""
+
+    mode: str = Field(default="end")           # "end" | "shorten"
+    days: int = Field(default=0, ge=0, le=MAX_GRANT_DAYS)
+
+
+@router.post("/users/{chat_id}/revoke")
+async def revoke(
+    chat_id: int,
+    body: RevokeIn,
+    staff: User = Depends(staff_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Take access back — the only way down that does not destroy the learner.
+
+    Everything else in this panel moves access UP. `grant` is `days >= 1`, `grant-many`
+    only ever adds, and until now the sole correction for a slipped digit or a gift sent to
+    the wrong segment was DELETE /users/{chat_id}, which erases somebody's progress,
+    sessions and answers to fix a date. The group-grant confirm says the quiet part out
+    loud: "Access cannot be taken back."
+
+    SET TO `now`, NEVER TO NULL. The two behave identically for the `premium` count and the
+    `trial` segment, which both filter `pass_expires_at > now` — but `lapse.py` and the
+    `lapsed` segment filter `pass_expires_at IS NOT NULL`, so NULL would quietly erase the
+    fact that this person ever had access at all.
+
+    AND SUPPRESS THE LAPSE NOTICE. Setting the expiry to `now` drops the user straight into
+    lapse.py's ended-window (`pass_expires_at <= now` within LOOK_BACK), so the next cron
+    run would message them "your Premium has ended", pointing at renewal — for a gift the
+    owner had just quietly taken back, usually mid-conversation with them. `_already_told`
+    matches on (chat_id, type, expires_at), so recording the announcement here, without
+    sending it, is exactly what stops it. Same for the 3-day ending warning when a shortened
+    pass lands inside that window.
+
+    Purchases are untouched. `refunded_at` belongs to the Tribute refund matcher, and giving
+    money back is a separate act from ending access.
+    """
+    user = await session.get(User, chat_id)
+    if user is None:
+        raise HTTPException(404, "no such user")
+
+    now = datetime.now(timezone.utc)
+    previous = user.pass_expires_at
+    if previous is None or previous <= now:
+        raise HTTPException(409, "they have no access to take back")
+
+    if body.mode == "end":
+        user.pass_expires_at = now
+    elif body.mode == "shorten":
+        if body.days < 1:
+            raise HTTPException(422, "shorten by how many days?")
+        reduced = previous - timedelta(days=body.days)
+        user.pass_expires_at = reduced if reduced > now else now
+    else:
+        raise HTTPException(422, 'mode must be "end" or "shorten"')
+
+    stamp = user.pass_expires_at.isoformat()
+    await events.record(session, EV_PASS_REVOKED, chat_id=chat_id,
+                        by=staff.chat_id, mode=body.mode, days=body.days,
+                        previous=previous.isoformat(), expires_at=stamp)
+
+    # Pre-record whichever notice this new expiry would otherwise trigger, so the cron
+    # sees it as already announced and stays quiet.
+    if user.pass_expires_at <= now:
+        await events.record(session, EV_PASS_LAPSED, chat_id=chat_id, expires_at=stamp)
+    elif user.pass_expires_at <= now + lapse.WARN_BEFORE:
+        await events.record(session, EV_PASS_ENDING, chat_id=chat_id, expires_at=stamp)
+
+    await session.commit()
+    return {
+        "chat_id": chat_id,
+        "pass_expires_at": user.pass_expires_at,
+        "previous": previous,
+    }

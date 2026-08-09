@@ -26,6 +26,8 @@ MAIN = (WEB / "main.ts").read_text(encoding="utf-8")
 
 # (capability, the api.ts member, what main.ts must call)
 CAPABILITIES = [
+    ("take access back", "revoke", "admin.revoke("),
+    ("grant to a group", "grantMany", "admin.grantMany("),
     ("remove a user", "deleteUser", "admin.deleteUser("),
     ("remove a link", "deleteLink", "admin.deleteLink("),
     ("read reports", "reports", "admin.reports("),

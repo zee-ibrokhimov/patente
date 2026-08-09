@@ -2301,6 +2301,16 @@ function adminScreen(): HTMLElement {
   return wrap;
 }
 
+/** Whole days until a pass runs out; negative once it has. Null when there is no pass.
+ *
+ *  Floored rather than rounded: "1d left" must not appear for something that expires in
+ *  four hours, because the whole use of this number is deciding whether to act today. */
+function daysLeft(expires: string | null): number | null {
+  if (!expires) return null;
+  const ms = Date.parse(expires) - Date.now();
+  return Math.floor(ms / 86_400_000);
+}
+
 /** Give days to everyone in a segment.
  *
  *  "i need a grants so i can give to my users if they are using my project" — the
@@ -2493,7 +2503,12 @@ function adminUsers(users: AdminUser[]): HTMLElement {
     who.append(el("div", "admin-name", u.name || String(u.chat_id)));
     const bits = [String(u.chat_id), u.lang];
     if (u.source) bits.push(`via ${u.source}`);
-    if (u.premium) bits.push("PREMIUM");
+    // The expiry, in days, on the row. The endpoint has always returned pass_expires_at and
+    // the row never showed it — so "take back 10 days" was guesswork, and deciding who to
+    // ask for a renewal meant opening each person one at a time.
+    const left = daysLeft(u.pass_expires_at);
+    if (left !== null) bits.push(left >= 0 ? `${left}d left` : `expired ${-left}d ago`);
+    else if (u.premium) bits.push("PREMIUM");
     who.append(el("div", "admin-sub", bits.join(" · ")));
     row.append(who);
 
@@ -2511,6 +2526,34 @@ function adminUsers(users: AdminUser[]): HTMLElement {
     // `ask` prefers Telegram's own sheet: some Android clients suppress window.confirm
     // inside the webview, and a suppressed confirm on a DELETE would mean either nothing
     // happens or — worse, if the check were skipped — it happens without being asked.
+    // Take back before Delete, and deliberately adjacent to it: ending access is the
+    // proportionate correction for a slipped digit, and deleting the learner to fix a date
+    // is what people did while this did not exist.
+    const back = el("button", "admin-btn danger", "Take back");
+    back.type = "button";
+    back.disabled = daysLeft(u.pass_expires_at) === null
+                    || (daysLeft(u.pass_expires_at) ?? -1) < 0;
+    back.onclick = async () => {
+      const answer = window.prompt(
+        "End access now, or take back how many days? (\"end\", or a number)", "end");
+      if (answer === null) return;
+      const trimmed = answer.trim().toLowerCase();
+      const body = trimmed === "end"
+        ? { mode: "end" as const }
+        : { mode: "shorten" as const, days: Number(trimmed) };
+      if (body.mode === "shorten" && !(body.days > 0)) { toast("Not a number."); return; }
+      if (!(await ask(body.mode === "end"
+        ? `End access for ${u.name || u.chat_id} now?`
+        : `Take ${body.days} day(s) back from ${u.name || u.chat_id}?`))) return;
+      back.disabled = true;
+      try {
+        await admin.revoke(u.chat_id, body);
+        toast("Access updated.");
+        await refreshAdmin();
+      } catch (err) { back.disabled = false; reportError(err); }
+    };
+    row.append(back);
+
     const remove = el("button", "admin-btn danger", "Delete");
     remove.type = "button";
     remove.onclick = async () => {

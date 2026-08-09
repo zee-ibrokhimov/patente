@@ -198,6 +198,11 @@ export const admin = {
       method: "DELETE",
     }),
 
+  /** End or shorten somebody's access — the only way down that does not delete them. */
+  revoke: (chatId: number, body: { mode: "end" | "shorten"; days?: number }) =>
+    request<{ pass_expires_at: string; previous: string }>(
+      `/admin/users/${chatId}/revoke`, { method: "POST", body: JSON.stringify(body) }),
+
   /** Give the same days to a whole segment — the way to reward people who actually use it.
    *  Count first, always: the server refuses a grant whose confirmed number does not match
    *  what it just reported, because access cannot be taken back once somebody has been told

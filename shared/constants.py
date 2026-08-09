@@ -301,6 +301,9 @@ EV_LINK_CHANGED = "link_changed"
 # the only honest measure of explanation quality this product has: no human reviewed a draft
 # before its first reader did, so the readers ARE the review.
 EV_REPORT_RESOLVED = "report_resolved"
+# Access was ended or shortened by hand. Carries the PREVIOUS expiry, which is what makes a
+# mistaken revoke undoable — re-granting the difference restores it exactly.
+EV_PASS_REVOKED = "pass_revoked"
 # Quiz sessions. EV_SESSION_START/END already existed for the study session; these name
 # the bounded, gradeable kind so an exam is separable in the funnel.
 EV_EXAM_STARTED = "exam_started"
@@ -310,6 +313,7 @@ EVENT_TYPES = (
     EV_PAYWALL_HIT, EV_PAYWALL_DISMISSED, EV_PURCHASE_STARTED, EV_PURCHASE_COMPLETED,
     EV_PURCHASE_REFUNDED, EV_SESSION_START, EV_SESSION_END, EV_REPORT_SUBMITTED,
     EV_REPORT_RESOLVED,
+    EV_PASS_REVOKED,
     EV_USER_DELETED,
     EV_PASS_GRANTED,
     EV_EXAM_STARTED, EV_EXAM_FINISHED,
