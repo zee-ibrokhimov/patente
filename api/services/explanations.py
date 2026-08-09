@@ -79,6 +79,7 @@ import mimetypes
 import re
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -715,7 +716,8 @@ async def generate(
         row = await existing(session, cluster_id, code)
         if row is None:
             row = Explanation(cluster_id=cluster_id, lang=code, text=text,
-                              status=status, flags=flags, disputed=disputed)
+                              status=status, flags=flags, disputed=disputed,
+                              generated_at=datetime.now(timezone.utc))
             session.add(row)
         elif row.status == STATUS_APPROVED:
             # A human approved this wording. A regeneration must not quietly replace
@@ -748,6 +750,7 @@ async def generate(
             row.status = status
             row.flags = flags
             row.disputed = disputed
+            row.generated_at = datetime.now(timezone.utc)
             row.reviewed_at = None
             row.reviewer = None
         stored[code] = row

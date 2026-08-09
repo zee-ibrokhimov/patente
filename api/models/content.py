@@ -136,6 +136,12 @@ class Translation(Base):
     lang: Mapped[str] = mapped_column(Text, index=True)
     stem: Mapped[str | None] = mapped_column(Text, default=None)
     statement: Mapped[str] = mapped_column(Text)
+    # When this text was last produced by a model. `created_at` is when the ROW first
+    # appeared and never moves, and a regeneration rewrites in place — so without this there
+    # is no way to tell a translation made under one model from one made under another,
+    # which matters here because the translation model has already been changed once.
+    generated_at: Mapped[datetime | None] = mapped_column(default=None)
+
     reviewed_at: Mapped[datetime | None] = mapped_column(default=None)
 
     question: Mapped[Question] = relationship(back_populates="translations")
@@ -174,6 +180,17 @@ class Explanation(Base):
     # because of one costs most of the bank for nothing. A user still never sees an
     # explanation that contradicts the answer they were just shown.
     disputed: Mapped[str | None] = mapped_column(Text, default=None)
+
+    # When the TEXT was last produced by a model. Distinct from `created_at`, which is
+    # when the row first appeared and never moves — `generate` updates a row in place, so
+    # without this there is no way to tell an explanation written last week from one
+    # rewritten a minute ago.
+    #
+    # It is what makes "which rows predate the selector fix" answerable. Cluster 638 shipped
+    # a wrong rule because the prompt-building code was broken; after fixing it, nothing in
+    # the database distinguished the rows generated before from the rows generated after,
+    # and the audit could only say which TOPICS had been exposed.
+    generated_at: Mapped[datetime | None] = mapped_column(default=None)
 
     reviewed_at: Mapped[datetime | None] = mapped_column(default=None)
     reviewer: Mapped[str | None] = mapped_column(Text, default=None)
