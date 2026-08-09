@@ -198,13 +198,21 @@ export const sessions = {
       body: JSON.stringify({ mode, source }),
     }),
 
-  /** Prepare the next few questions before the learner reaches them. Answers immediately;
-   *  the work happens server-side in the background. */
-  prefetch: (id: number, fromOrdinal: number, count = 5) =>
-    request<{ questions: number }>(`/sessions/${id}/prefetch`, {
-      method: "POST",
-      body: JSON.stringify({ from_ordinal: fromOrdinal, count }),
-    }),
+  /** Prepare a slice of the paper: translations, and explanations for their clusters.
+   *
+   *  `wait` decides whether the server answers when the work is DONE or when it has merely
+   *  been queued. The loading screen needs the former, and without it there is nothing to
+   *  wait FOR — the response used to come back in milliseconds whatever the model was
+   *  doing, so the loading screen was racing a promise rather than the work. The rolling
+   *  top-ups mid-quiz want the latter: the learner is reading, and must not be blocked. */
+  prefetch: (id: number, fromOrdinal: number, count = 5, wait = false) =>
+    request<{ questions: number; ready: number; pending: number; waited: boolean }>(
+      `/sessions/${id}/prefetch`,
+      {
+        method: "POST",
+        body: JSON.stringify({ from_ordinal: fromOrdinal, count, wait }),
+      },
+    ),
 
   /** Resume. The app persists nothing across a reopen, so this is how a backgrounded
    *  exam comes back — with the server's deadline, not a remembered one. */

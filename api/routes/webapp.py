@@ -22,8 +22,11 @@ in one place and both surfaces follow.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
+from functools import partial
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -347,6 +350,35 @@ class PrefetchIn(BaseModel):
 
     from_ordinal: int = Field(ge=1)
     count: int = Field(default=5, ge=1, le=10)
+    # Whether to answer only once the work is DONE.
+    #
+    # The loading screen at the start of a quiz needs this; the rolling top-ups must not
+    # have it. Someone watching "preparing your questions" wants that screen to end when the
+    # questions are genuinely ready. Someone reading question 3 while the next five are
+    # fetched wants it to cost them nothing. Same endpoint, opposite requirement — so the
+    # caller says which, rather than the endpoint guessing.
+    wait: bool = Field(default=False)
+
+
+# How long the loading screen is allowed to hold the request open.
+#
+# Not a cancellation: whatever is still running when this expires KEEPS running and lands in
+# the cache for whoever reads that question next. The deadline bounds how long a learner
+# stares at a spinner, not how much work gets done — cancelling would throw away a
+# half-finished paid model call, which is the one outcome with no upside.
+PREFETCH_DEADLINE = 75.0
+
+# Tasks outstanding past the deadline. asyncio keeps only weak references to running tasks,
+# so without a strong one here the garbage collector is free to destroy a warm() mid-flight
+# — the failure mode being that prefetch works under load and silently drops work when idle.
+_detached: set[asyncio.Task] = set()
+
+
+def _detach(coro) -> asyncio.Task:
+    task = asyncio.create_task(coro)
+    _detached.add(task)
+    task.add_done_callback(_detached.discard)
+    return task
 
 
 @router.post("/sessions/{session_id}/prefetch")
@@ -387,25 +419,51 @@ async def prefetch(
     # would be held while the warmers open their own connections to the same SQLite file.
     await session.commit()
 
-    warmed_translations = warmed_explanations = 0
+    jobs: list[tuple[str, Callable[[], Awaitable[None]]]] = []
     for question_id, cluster_id in items:
         if entitlement.can_translate and user.translations_on:
-            background.add_task(translations.warm, question_id)
-            warmed_translations += 1
+            jobs.append(("translation", partial(translations.warm, question_id)))
         # Explanations only where they can be shown, and only in a mode that shows them —
         # an exam never offers one, so preparing thirty would be paid calls for text nobody
         # is ever given.
         if (cluster_id is not None
                 and entitlement.can_explain
                 and MODE_OFFERS_EXPLANATION.get(row.mode)):
-            background.add_task(explanations.warm, cluster_id, user.lang)
-            warmed_explanations += 1
+            jobs.append(("explanation", partial(explanations.warm, cluster_id, user.lang)))
+
+    warmed_translations = sum(1 for kind, _ in jobs if kind == "translation")
+    warmed_explanations = sum(1 for kind, _ in jobs if kind == "explanation")
+
+    ready = pending = 0
+    if body.wait:
+        # Actually do the work before answering. This used to hand every job to
+        # BackgroundTasks and return at once — which meant the response was ready in
+        # milliseconds and reported counts for work that had not started, so a client could
+        # not wait for the prefetch even in principle. The loading screen was therefore
+        # timing out against a promise, not against the model.
+        #
+        # asyncio.wait rather than wait_for: on the deadline the unfinished jobs are left
+        # RUNNING, not cancelled. Each warm() owns its session and swallows its own errors,
+        # so a straggler finishing after the response simply populates the cache early for
+        # whoever reads that question next.
+        started = [_detach(run()) for _kind, run in jobs]
+        if started:
+            finished, unfinished = await asyncio.wait(started, timeout=PREFETCH_DEADLINE)
+            ready, pending = len(finished), len(unfinished)
+    else:
+        for _kind, run in jobs:
+            background.add_task(run)
 
     return {
         "from_ordinal": body.from_ordinal,
         "questions": len(items),
         "translations": warmed_translations,
         "explanations": warmed_explanations,
+        # What the caller actually got. `translations`/`explanations` are how much work was
+        # QUEUED — they have always been that, and read as a completion count.
+        "waited": body.wait,
+        "ready": ready,
+        "pending": pending,
     }
 
 

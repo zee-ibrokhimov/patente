@@ -209,19 +209,37 @@ def test_only_the_prefetch_route_warms_explanations():
     """The boundary that replaced "never warm". Preparation belongs to the one route the
     client calls behind its loading screen; anywhere else and it is unbounded again.
 
-    Matches the CALL, not the name — the comments necessarily mention `explanations.warm`,
-    and an earlier version of this test failed on its own explanation.
+    Asserts WHERE the reference is, not how it is invoked. A previous version matched
+    `add_task(\\s*explanations\\.warm` — the exact call form of the day — and broke the
+    moment the route began awaiting its jobs instead of scheduling them, reporting "0 places
+    warm explanations" for a change that moved nothing across the boundary. The rule is
+    about location, so location is what is checked; comment mentions are stripped first,
+    because the code here necessarily talks about `explanations.warm` in prose.
     """
-    import re
-
     source = open(webapp_route.__file__, encoding="utf-8").read()
-    calls = [m.start() for m in re.finditer(r"add_task\(\s*explanations\.warm", source)]
-    assert len(calls) == 1, f"{len(calls)} places warm explanations; only prefetch may"
+    code = "\n".join(
+        "" if line.lstrip().startswith("#") else line.split("  #")[0]
+        for line in source.splitlines()
+    )
 
-    prefetch_at = source.index("async def prefetch(")
-    next_route = source.index("@router.get(\"/sessions/{session_id}\"")
-    assert prefetch_at < calls[0] < next_route, \
-        "explanation warming is outside the prefetch route"
+    hits = [i for i in range(len(code))
+            if code.startswith("explanations.warm", i)]
+    assert hits, "nothing warms explanations at all — the loading screen prepares nothing"
+
+    # The span ends where the FUNCTION ends, not where the next route begins. Those are not
+    # the same place: a module-level helper defined in the gap between them would sit inside
+    # the looser span while being entirely outside the route, and a leak planted there
+    # passed this test until the boundary was tightened. The end is therefore the next
+    # top-level definition or decorator, whichever comes first.
+    prefetch_at = code.index("async def prefetch(")
+    ends = [code.index(marker, prefetch_at + 1)
+            for marker in ("\n@router.", "\ndef ", "\nasync def ", "\nclass ")
+            if marker in code[prefetch_at + 1:]]
+    prefetch_end = min(ends)
+    outside = [i for i in hits if not (prefetch_at < i < prefetch_end)]
+    assert not outside, (
+        f"{len(outside)} reference(s) to explanations.warm outside the prefetch route — "
+        f"preparation is unbounded again")
 
 
 def test_translations_are_still_warmed():

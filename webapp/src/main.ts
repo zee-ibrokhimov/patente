@@ -59,7 +59,9 @@ const RATINGS_MIN_PLAYERS = 5;
  *  hostage. Everything caches, and each card re-asks for its own translation regardless, so
  *  a miss costs one spinner rather than an unreadable question. */
 const PREFETCH_WINDOW = 5;
-const PREFETCH_WAIT_MS = 2500;
+// (PREFETCH_WAIT_MS is gone. It capped the loading screen at 2500ms against an endpoint
+//  that answered in milliseconds without doing the work, so it never bounded anything real
+//  — the wait now ends when the questions are ready.)
 
 /** A sitting in flight.
  *
@@ -125,7 +127,7 @@ const state: {
   adminData: { overview: AdminOverview | null; users: AdminUser[]; links: AdminLink[];
                query: string; busy: boolean } | null;
   /** A quiz being prepared. Non-null only between tapping Start and the first question. */
-  preparing: { mode: Mode; source: RepeatSource } | null;
+  preparing: { mode: Mode; source: RepeatSource; done?: number; total?: number } | null;
 } = { me: null, screen: "home", run: null, results: null, stats: null, profile: null,
       resumable: null, reviewWrongOnly: true, ratings: null, adminData: null,
       preparing: null,
@@ -240,15 +242,30 @@ async function startRun(mode: Mode, source: RepeatSource = "smart"): Promise<voi
   render();
   try {
     const session = await sessions.start(mode, source);
-    // Prepare the opening five and give them a moment to land. Bounded: a slow model must
-    // delay the quiz by a second or two, never hold it hostage — everything is cached and
-    // the client re-asks per question anyway, so a miss costs a spinner on one card.
-    try {
-      await Promise.race([
-        sessions.prefetch(session.id, 1, PREFETCH_WINDOW),
-        new Promise((resolve) => setTimeout(resolve, PREFETCH_WAIT_MS)),
-      ]);
-    } catch { /* a failed prefetch is a slower question, not a failed quiz */ }
+    // Prepare the opening five and WAIT for them — one at a time, so the screen can count.
+    //
+    // This used to race the request against a 2500ms timer, which could never have worked:
+    // the endpoint handed every job to BackgroundTasks and answered immediately, so the
+    // race was between a timer and a response that arrived in milliseconds having done
+    // nothing at all. The loading screen always won, and the learner still met an
+    // untranslated question one. Now the server waits for the work, and this waits for the
+    // server.
+    //
+    // One question per call rather than five in one call: it is the only way to show honest
+    // progress, and it costs almost nothing, because five translations issued in parallel
+    // measured 19.7s against ~3.9s each — they serialise anyway under the account's rate
+    // limit. Anything already cached returns at once, so a warm quiz still starts instantly.
+    const total = Math.min(PREFETCH_WINDOW, session.question_count);
+    for (let i = 0; i < total; i++) {
+      if (!state.preparing) break;           // they navigated away; stop spending
+      state.preparing = { ...state.preparing, done: i, total };
+      render();
+      try {
+        await sessions.prefetch(session.id, i + 1, 1, true);
+      } catch {
+        /* a failed prefetch is a slower question, not a failed quiz — keep going */
+      }
+    }
     state.preparing = null;
     enterRun(session);
   } catch (err) {
@@ -2599,6 +2616,24 @@ function preparingScreen(): HTMLElement {
   box.append(el("h2", "prep-title",
     state.preparing?.mode === "exam" ? t("exam") : t("practice")));
   box.append(el("p", "prep-sub", t("preparing_quiz")));
+
+  // A determinate bar, because the wait is now genuinely as long as the work.
+  //
+  // While this screen was capped at 2.5s an unlabelled spinner was defensible. Waiting for
+  // five cold model calls is not the same thing: without a count it is indistinguishable
+  // from a hang, and the honest reading of a frozen spinner is that the app has crashed.
+  // The steps are real — one per question actually prepared, not a timer pretending.
+  const total = state.preparing?.total ?? 0;
+  if (total > 0) {
+    const done = state.preparing?.done ?? 0;
+    const bar = el("div", "prep-bar");
+    const fill = el("div", "prep-bar-fill");
+    fill.style.width = `${Math.round((done / total) * 100)}%`;
+    bar.append(fill);
+    box.append(bar);
+    box.append(el("p", "prep-count", `${done} / ${total}`));
+  }
+
   wrap.append(box);
   return wrap;
 }

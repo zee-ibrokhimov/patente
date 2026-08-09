@@ -123,10 +123,24 @@ async def test_an_explanation_states_its_language(client, registered, api_db):
     screen and is the thing being sold, so Uzbek ships as translations first. But nothing
     told the reader: they paid for explanations and silently got a language they had not
     chosen. Saying so is the difference between a known limit and a broken product."""
+    from sqlalchemy import delete as sa_delete
     from sqlalchemy import update as sa_update
+
+    from api.models import Explanation, Question
 
     async with api_db() as s:
         await s.execute(sa_update(User).where(User.chat_id == OWNER).values(lang="uz"))
+        # State the precondition rather than hoping for it. The Russian fallback only
+        # applies when there is NO Uzbek explanation for this cluster — if an earlier test
+        # in the session wrote one, serving Uzbek is the CORRECT behaviour and this
+        # assertion asserts nothing. That is why this failed on roughly every other full
+        # run while passing alone; the flake predates the prefetch work and was reproduced
+        # with those changes stashed.
+        question = await s.get(Question, 1)
+        if question is not None and question.cluster_id is not None:
+            await s.execute(sa_delete(Explanation).where(
+                Explanation.cluster_id == question.cluster_id,
+                Explanation.lang == "uz"))
         await s.commit()
 
     r = await client.post("/webapp/questions/1/explanation", headers=auth())
