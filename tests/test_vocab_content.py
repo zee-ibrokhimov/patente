@@ -82,7 +82,7 @@ CORE = ["segnale", "segnale luminoso", "carreggiata", "corsia", "banchina",
 @pytest.mark.parametrize("term", CORE)
 def test_the_core_legal_terms_are_in_the_word_list(term):
     """These are what the written exam actually turns on. They were absent from the
-    owner's frequency sheet — only `sosta` appeared — so a learner could drill all 1090
+    owner's frequency sheet — only `sosta` appeared — so a learner could drill every
     words and never meet `segnale` or `precedenza`."""
     assert term in BY_IT, f"{term} is missing from the vocabulary"
 

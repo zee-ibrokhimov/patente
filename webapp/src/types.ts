@@ -86,6 +86,11 @@ export interface Me {
   /** Hidden from the weekly league. The switch that makes showing real first names to
    *  other learners defensible. */
   leaderboard_opt_out: boolean;
+
+  /** How many terms the glossary holds. Counted server-side and never written into a
+   *  string: the headline used to read "1090 exam words" directly above "0 of 1104
+   *  learned", because only one of the two numbers was ever real. */
+  vocab_terms: number;
 }
 
 export interface TopicStat {

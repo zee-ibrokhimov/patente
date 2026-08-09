@@ -76,7 +76,7 @@ class VocabProgress(Base):
     Direction is NOT tracked separately. Knowing `sosta -> parking` and being able to
     produce `sosta` from `parking` are genuinely different skills, and a stricter design
     would box them apart. It is one row on purpose: doubling the state doubles the drill
-    length for a list of 1090 words, and the round mixes directions anyway, so both get
+    length for a list this long, and the round mixes directions anyway, so both get
     exercised. If recall in one direction turns out to lag badly, split it then — with
     data, rather than now on a guess.
     """

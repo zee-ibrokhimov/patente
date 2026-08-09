@@ -82,7 +82,12 @@ def test_the_paywall_does_not_advertise_a_shipped_feature_as_coming():
     because a replace loop only ever updated one of them."""
     for lang in LANGS:
         value = BLOCKS[lang]["f_vocab_s"]
-        assert "1090" in value, f"{lang} f_vocab_s is {value!r}, not the word count"
+        # Anchored on the placeholder, not on a digit. This used to read `"1090" in value`,
+        # which asserted the presence of a specific number — so it held four locale strings
+        # at a size the glossary had already outgrown, and would have failed the fix rather
+        # than the bug. What the test means is "this names a size", and the size arrives at
+        # render time now. See test_the_glossary_size_is_counted_not_typed.py.
+        assert "{n}" in value, f"{lang} f_vocab_s is {value!r}, not the word count"
         for phrase in ("soon", "Скоро", "arrivo", "orada"):
             assert phrase.lower() not in value.lower(), \
                 f"{lang} still advertises vocabulary as coming: {value!r}"

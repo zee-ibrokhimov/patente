@@ -1,6 +1,6 @@
 """The vocabulary list is credited to its author, in the app, in every language.
 
-The 1090-term glossary was compiled by Zukhriddin Kamolov (Telegram @TTYMI_OKMK2). He gave
+The glossary was compiled by Zukhriddin Kamolov (Telegram @TTYMI_OKMK2). He gave
 permission for this project to use it ON CONDITION that he is credited as its author.
 
 That makes these assertions different in kind from the rest of the suite. Everything else

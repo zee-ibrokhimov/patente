@@ -80,6 +80,14 @@ class UserOut(BaseModel):
     # Hidden from the weekly league. The client renders the Settings switch from this, and
     # a switch that cannot read its own state would show everyone as visible.
     leaderboard_opt_out: bool = False
+    # How many terms the glossary actually holds, counted rather than remembered.
+    #
+    # The Vocabulary screen showed "1090 exam words" directly above "0 of 1104 learned" —
+    # two counts of one table disagreeing in adjacent lines, because the headline was a
+    # literal typed into eight locale strings while the progress line interpolated a real
+    # query. The seed grew; the prose did not. A number describing the content has to be
+    # read from the content, or it is only true on the day someone types it.
+    vocab_terms: int = 0
     free_explanations_left: int
     onboarded_at: datetime | None
     created_at: datetime

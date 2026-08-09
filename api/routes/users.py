@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps import get_session, get_user
 from shared.config import settings
-from api.models import Purchase, User
+from api.models import Purchase, User, VocabTerm
 from api.schemas import GrantPassIn, UserIn, UserOut, UserSettingsIn
 from api.services import users
 from api.services.entitlement import evaluate
@@ -67,6 +67,11 @@ async def _out(user: User, session: AsyncSession) -> UserOut:
             )
         )
     )
+    # Counted on every read rather than cached at import. It is a COUNT over ~1100 rows of
+    # build-time content and costs nothing measurable, while a process-lifetime cache would
+    # be wrong in exactly the place this field exists to be right: reseeding a larger
+    # glossary would leave every running worker still reporting the old size.
+    vocab_terms = (await session.scalar(select(func.count()).select_from(VocabTerm))) or 0
     return UserOut(
         chat_id=user.chat_id,
         lang=user.lang,
@@ -83,6 +88,7 @@ async def _out(user: User, session: AsyncSession) -> UserOut:
                      "channel" if ent.via_channel else "none"),
         trialing=trialing,
         leaderboard_opt_out=user.leaderboard_opt_out,
+        vocab_terms=vocab_terms,
         bot_username=settings.bot_username,
         support_contact=settings.support_contact,
         free_explanations_left=ent.free_explanations_left,

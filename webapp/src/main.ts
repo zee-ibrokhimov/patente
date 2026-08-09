@@ -32,7 +32,7 @@ type Screen = "home" | "run" | "results" | "profile" | "stats" | "settings" | "v
 
 /** The author of the vocabulary list, and the condition on which it may be used.
  *
- *  The 1090-term glossary was compiled by Zukhriddin Kamolov, who gave permission to use it
+ *  The glossary was compiled by Zukhriddin Kamolov, who gave permission to use it
  *  provided he is credited as its author. That makes the credit a TERM OF USE rather than a
  *  courtesy: if this constant stops being rendered, the app is using someone else's work
  *  outside the terms it was given under.
@@ -603,13 +603,23 @@ function repeatRow(): HTMLElement {
   return row;
 }
 
+/** How many terms the glossary holds, straight from the server.
+ *
+ *  Every surface that names a size calls this. The alternative — writing the number into
+ *  the locale strings — is what put "1090 exam words" above "0 of 1104 learned" on the
+ *  same screen: the seed grew by fourteen terms and four translations of one sentence did
+ *  not. Zero only if the glossary really is empty, since `render` runs after `me` loads. */
+function vocabSize(): number {
+  return state.me?.vocab_terms ?? 0;
+}
+
 function vocabEntry(): HTMLElement {
   const card = el("button", "v-entry");
   card.type = "button";
   card.append(el("span", "v-entry-icon", "\u{1F4DA}"));
   const body = el("span", "v-entry-body");
   body.append(el("span", "v-entry-title", t("v_title")),
-              el("span", "v-entry-sub", t("v_sub")));
+              el("span", "v-entry-sub", t("v_sub", { n: vocabSize() })));
   card.append(body);
   card.append(el("span", "v-entry-go", "\u203A"));
   card.onclick = () => void openVocab();
@@ -653,7 +663,7 @@ function modeCard(mode: Mode, title: string, desc: string, tag: string): HTMLEle
 function premiumFeatures(order: "sell" | "explain"): Array<{ title: string; sub: string }> {
   const ai = { title: t("f_ai"), sub: t("f_ai_s") };
   const lang = { title: t("f_lang"), sub: t("f_lang_s") };
-  const vocab = { title: t("f_vocab"), sub: t("f_vocab_s") };
+  const vocab = { title: t("f_vocab"), sub: t("f_vocab_s", { n: vocabSize() }) };
   const future = { title: t("f_future"), sub: t("f_future_s") };
   const trial = { title: t("f_trial"), sub: t("f_trial_s") };
   // "explain" leads with the AI explanation because the user has just got something
@@ -1934,7 +1944,7 @@ function vocabScreen(): HTMLElement {
   const v = state.vocab;
 
   const head = el("div", "v-head");
-  head.append(el("h2", "v-title", t("v_title")), el("p", "v-sub", t("v_sub")));
+  head.append(el("h2", "v-title", t("v_title")), el("p", "v-sub", t("v_sub", { n: vocabSize() })));
   wrap.append(head);
 
   if (v.stats) {
@@ -1969,7 +1979,7 @@ function vocabScreen(): HTMLElement {
 
 /** Who compiled the word list.
  *
- *  The 1090-term glossary is not ours. Zukhriddin Kamolov compiled it and gave permission
+ *  The glossary is not ours. Zukhriddin Kamolov compiled it and gave permission
  *  to use it on the condition that he is credited as its author — so this is a term of use,
  *  not a courtesy, and it belongs on the screen the list is actually used on rather than
  *  buried in a settings page nobody opens.
@@ -2091,7 +2101,7 @@ function vocabList(): HTMLElement {
   search.type = "search";
   search.placeholder = t("v_search");
   search.value = v.query;
-  // Debounced: a request per keystroke over 1090 rows is a lot of round trips for a
+  // Debounced: a request per keystroke over a thousand-odd rows is a lot of round trips for a
   // list that is not changing under the user.
   let timer: number | undefined;
   search.oninput = () => {

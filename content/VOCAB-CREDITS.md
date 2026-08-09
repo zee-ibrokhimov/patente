@@ -1,6 +1,7 @@
 # The vocabulary list — author and terms of use
 
-The 1090-term driving-theory glossary in `content/vocab.json` **was not compiled by this
+The driving-theory glossary in `content/vocab.json` — 1,104 terms as seeded — **was not
+compiled by this
 project**. It is the work of:
 
 > **Zukhriddin Kamolov** — Telegram [@TTYMI_OKMK2](https://t.me/TTYMI_OKMK2)
