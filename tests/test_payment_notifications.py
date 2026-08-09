@@ -17,7 +17,18 @@ import pytest
 from api.services import notify
 from shared.constants import TIER_1M, TIER_PRICE_CENTS, UI_LANGUAGES
 
-WHEN = datetime(2026, 8, 7, 10, 27, tzinfo=timezone.utc)
+# A date that is always in the FUTURE, because half these messages are about access that
+# has not run out yet and `compose` branches on exactly that: a cancellation whose final
+# date has passed becomes "ended", deliberately, since telling someone they keep access
+# until a date that is behind them is worse than saying nothing.
+#
+# This was pinned to 2026-08-07 and the suite went green for as long as that was still
+# ahead. On 2026-08-09 four tests started failing with nothing having changed — the code was
+# right and the tests had expired. A fixed date in a test about "until when" is a fuse.
+WHEN = datetime.now(timezone.utc) + timedelta(days=7)
+# What the app renders that date as. Derived from WHEN rather than written out, so the two
+# cannot drift apart — writing the string by hand is what made these tests expire.
+WHEN_TEXT = WHEN.strftime("%d.%m.%Y")
 LANGS = ["ru", "en", "it", "uz"]
 
 
@@ -25,7 +36,7 @@ LANGS = ["ru", "en", "it", "uz"]
 
 @pytest.mark.parametrize("lang", LANGS)
 def test_the_trial_message_states_the_end_date(lang):
-    assert "07.08.2026" in notify.compose("trial", lang, WHEN, TIER_1M)
+    assert WHEN_TEXT in notify.compose("trial", lang, WHEN, TIER_1M)
 
 
 @pytest.mark.parametrize("lang", LANGS)
@@ -74,12 +85,12 @@ def test_the_trial_message_says_where_to_cancel(lang):
 def test_the_cancellation_message_says_access_continues(lang):
     """The whole reason to send it: silence after cancelling reads as "access gone",
     which is the opposite of what happens."""
-    assert "07.08.2026" in notify.compose("cancelled", lang, WHEN, TIER_1M)
+    assert WHEN_TEXT in notify.compose("cancelled", lang, WHEN, TIER_1M)
 
 
 @pytest.mark.parametrize("lang", LANGS)
 def test_the_paid_message_states_the_expiry(lang):
-    assert "07.08.2026" in notify.compose("paid", lang, WHEN, TIER_1M)
+    assert WHEN_TEXT in notify.compose("paid", lang, WHEN, TIER_1M)
 
 
 # --- the machinery ----------------------------------------------------------
@@ -116,7 +127,7 @@ def test_the_paid_message_needs_no_price_at_all():
     """Someone who has just paid knows what they paid. It confirms receipt and the
     expiry, which is the thing they cannot see for themselves."""
     text = notify.compose("paid", "en", WHEN, TIER_1M)
-    assert "07.08.2026" in text
+    assert WHEN_TEXT in text
     assert "€" not in text
 
 
