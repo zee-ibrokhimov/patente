@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -83,6 +84,9 @@ async def overview(
         .where(User.pass_expires_at > now, User.source.is_not(None)))
     paid = await session.scalar(
         select(func.count(Purchase.id)).where(Purchase.amount_cents > 0))
+    revenue = await session.scalar(
+        select(func.coalesce(func.sum(Purchase.amount_cents), 0))
+        .where(Purchase.amount_cents > 0, Purchase.refunded_at.is_(None)))
     active_today = await session.scalar(
         select(func.count(func.distinct(Event.chat_id)))
         .where(Event.created_at > now - timedelta(days=1)))
@@ -91,6 +95,7 @@ async def overview(
         "premium": premium or 0,
         "on_trial": trials or 0,
         "paid_purchases": paid or 0,
+        "revenue_cents": revenue or 0,
         "active_24h": active_today or 0,
         "sales_contact": __import__("shared.config", fromlist=["settings"]).settings.sales_handle,
     }
@@ -142,6 +147,19 @@ class GrantIn(BaseModel):
     # person and a bot message arriving on top of their own reply is noise.
     notify: bool = False
 
+    # What they actually paid, in cents. THIS IS NOT BOOKKEEPING GARNISH.
+    #
+    # A pass with no money behind it is how the app decides somebody is on a TRIAL: `plan()`
+    # branches on `purchased`, which is a Purchase row. Payment moved to hand-grants on
+    # 2026-08-09 and nothing wrote one, so every paying customer was shown "Free trial — 30
+    # days left. Nothing will be charged." after paying, and every revenue figure read zero
+    # for ever.
+    #
+    # 0 means genuinely free — a comp, a tester, an apology — and still produces the trial
+    # wording, which is correct for those.
+    amount_cents: int = Field(default=0, ge=0, le=100_000)
+    currency: str = Field(default="EUR", max_length=8)
+
 
 @router.post("/users/{chat_id}/grant")
 async def grant(
@@ -162,11 +180,37 @@ async def grant(
 
     now = datetime.now(timezone.utc)
     base = user.pass_expires_at if (user.pass_expires_at and user.pass_expires_at > now) else now
+    previous = user.pass_expires_at
     user.pass_expires_at = base + timedelta(days=body.days)
+
+    if body.amount_cents > 0:
+        # A real sale. The row is what makes `purchased` true — so the buyer is told their
+        # subscription is active rather than that they are on a free trial — and it is what
+        # every revenue figure counts.
+        #
+        # `tribute_purchase_id` is UNIQUE and NOT NULL, and there is no Tribute any more, so
+        # it carries a synthetic id instead. Keeping the column rather than renaming it: the
+        # refund matcher and the idempotency guarantee are both built on it, and a rename is
+        # a migration plus four call sites for a cosmetic gain.
+        session.add(Purchase(
+            chat_id=chat_id,
+            # Readable AND collision-free. A whole-second timestamp alone was neither:
+            # two sales to the same person in the same second — a double-tap, or selling a
+            # top-up right after a renewal — violated the UNIQUE constraint and failed the
+            # second sale. Caught by its own test.
+            tribute_purchase_id=(
+                f"manual:{chat_id}:{now:%Y%m%d%H%M%S}:{uuid4().hex[:8]}"),
+            tier=f"manual_{body.days}d",
+            amount_cents=body.amount_cents,
+            currency=body.currency.upper()[:8],
+            extended_from=previous,
+            extended_to=user.pass_expires_at,
+        ))
 
     await events.record(
         session, EV_PASS_GRANTED, chat_id=chat_id,
         days=body.days, reason=body.reason[:200], by=staff.chat_id,
+        amount_cents=body.amount_cents, currency=body.currency.upper()[:8],
         expires_at=user.pass_expires_at.isoformat(),
     )
     await session.commit()

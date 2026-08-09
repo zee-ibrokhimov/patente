@@ -148,10 +148,11 @@ export const admin = {
   overview: () => request<AdminOverview>("/admin/overview"),
   users: (q: string) =>
     request<{ users: AdminUser[] }>(`/admin/users?q=${encodeURIComponent(q)}`),
-  grant: (chatId: number, days: number, reason: string, notify: boolean) =>
+  grant: (chatId: number, days: number, reason: string, notify: boolean,
+          amountCents = 0) =>
     request<{ pass_expires_at: string }>(`/admin/users/${chatId}/grant`, {
       method: "POST",
-      body: JSON.stringify({ days, reason, notify }),
+      body: JSON.stringify({ days, reason, notify, amount_cents: amountCents }),
     }),
   links: () => request<{ links: AdminLink[] }>("/admin/links"),
   createLink: (body: { code: string; label: string; trial_days: number; max_uses: number | null }) =>

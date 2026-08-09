@@ -2183,9 +2183,16 @@ async function grantTo(u: AdminUser): Promise<void> {
   if (!days) return;
   const n = Number(days);
   if (!Number.isFinite(n) || n < 1) { toast("Not a number of days."); return; }
+  // What they paid, because a pass with no money behind it is how the app decides somebody
+  // is on a TRIAL. Without this the buyer is told "Free trial — nothing will be charged"
+  // immediately after paying, and revenue reads zero for ever.
+  const paid = window.prompt(
+    "How much did they pay, in EUR? (0 for a free comp)", "10.99") || "0";
+  const amount_cents = Math.round(Number(paid.replace(",", ".")) * 100);
+  if (!Number.isFinite(amount_cents) || amount_cents < 0) { toast("Not an amount."); return; }
   const reason = window.prompt("What was this for? (kept in the log)", "paid directly") || "";
   try {
-    const out = await admin.grant(u.chat_id, n, reason, false);
+    const out = await admin.grant(u.chat_id, n, reason, false, amount_cents);
     toast(`Access until ${out.pass_expires_at.slice(0, 10)}`);
     await refreshAdmin();
   } catch (err) { reportError(err); }
