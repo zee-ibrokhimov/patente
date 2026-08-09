@@ -18,6 +18,7 @@ import type {
   VocabAnswer,
   VocabList,
   AdminLink,
+  AdminButton,
   AdminOverview,
   AdminReport,
   AdminUser,
@@ -2402,6 +2403,28 @@ function adminUsers(users: AdminUser[]): HTMLElement {
     dm.onclick = () => void messageOne(u);
     row.append(dm);
 
+    // The only destructive control in the panel, so it is styled as one and it asks.
+    // `ask` prefers Telegram's own sheet: some Android clients suppress window.confirm
+    // inside the webview, and a suppressed confirm on a DELETE would mean either nothing
+    // happens or — worse, if the check were skipped — it happens without being asked.
+    const remove = el("button", "admin-btn danger", "Delete");
+    remove.type = "button";
+    remove.onclick = async () => {
+      const who = u.name || String(u.chat_id);
+      if (!(await ask(`Delete ${who}? Their progress is gone for good. Payments are kept.`))) {
+        return;
+      }
+      remove.disabled = true;
+      try {
+        const res = await admin.deleteUser(u.chat_id);
+        toast(res.purchases_kept
+          ? `Deleted. ${res.purchases_kept} payment record(s) kept.`
+          : "Deleted.");
+        await refreshAdmin();
+      } catch (err) { remove.disabled = false; reportError(err); }
+    };
+    row.append(remove);
+
     card.append(row);
   }
   if (!users.length) card.append(el("p", "caption", "Nobody matches."));
@@ -2464,8 +2487,6 @@ function adminLinks(links: AdminLink[]): HTMLElement {
     };
     row.append(copy);
 
-    // Switched off, never deleted — deleting would erase the attribution of everyone the
-    // link ever brought.
     const toggle = el("button", "admin-btn", link.active ? "Turn off" : "Turn on");
     toggle.type = "button";
     toggle.onclick = async () => {
@@ -2475,6 +2496,23 @@ function adminLinks(links: AdminLink[]): HTMLElement {
       } catch (err) { reportError(err); }
     };
     row.append(toggle);
+
+    // Deleting is offered only for a link NOBODY came through — the server refuses the
+    // rest with a 409, because the code is the only record of where those users came from.
+    // The button is shown regardless rather than hidden on `uses`, so the refusal explains
+    // the rule at the moment it applies instead of a control silently not being there.
+    const drop = el("button", "admin-btn danger", "Delete");
+    drop.type = "button";
+    drop.onclick = async () => {
+      if (!(await ask(`Delete link ${link.code}?`))) return;
+      drop.disabled = true;
+      try {
+        await admin.deleteLink(link.code);
+        toast("Link deleted.");
+        await refreshAdmin();
+      } catch (err) { drop.disabled = false; reportError(err); }
+    };
+    row.append(drop);
     card.append(row);
   }
 
@@ -2524,6 +2562,58 @@ function adminBroadcast(): HTMLElement {
   langRow.append(langSel);
   card.append(langRow);
 
+  const premium = el("label", "admin-check");
+  const premiumBox = el("input") as HTMLInputElement;
+  premiumBox.type = "checkbox";
+  premium.append(premiumBox, document.createTextNode(" Subscribers only"));
+  card.append(premium);
+
+  // An image. A URL rather than an upload: Telegram fetches it itself, so there is no file
+  // to store, serve or back up — and note the caption limit, which is why the hint says so
+  // rather than letting a long newsletter quietly lose its ending.
+  const photo = el("input", "admin-input") as HTMLInputElement;
+  photo.type = "url";
+  photo.placeholder = "Image URL (optional)";
+  card.append(photo);
+  card.append(el("p", "caption", "With an image the text is capped at 1024 characters; "
+                                 + "over that the image is dropped and the text goes whole."));
+
+  // Buttons. The Mini App one is the point of the whole feature: it puts an offer one tap
+  // from the paywall instead of sending someone to a browser, where they are simply gone.
+  card.append(el("div", "admin-sub-head", "Buttons (optional, max 3)"));
+
+  const openApp = el("label", "admin-check");
+  const openAppBox = el("input") as HTMLInputElement;
+  openAppBox.type = "checkbox";
+  openApp.append(openAppBox, document.createTextNode(" Open the app"));
+  card.append(openApp);
+
+  const openAppLabel = el("input", "admin-input") as HTMLInputElement;
+  openAppLabel.placeholder = "Its label — e.g. Открыть приложение";
+  card.append(openAppLabel);
+
+  const writeMe = el("label", "admin-check");
+  const writeMeBox = el("input") as HTMLInputElement;
+  writeMeBox.type = "checkbox";
+  writeMe.append(writeMeBox, document.createTextNode(" Message me (to pay)"));
+  card.append(writeMe);
+
+  const writeMeLabel = el("input", "admin-input") as HTMLInputElement;
+  writeMeLabel.placeholder = "Its label — e.g. Написать мне";
+  card.append(writeMeLabel);
+
+  function chosenButtons(): AdminButton[] {
+    const out: AdminButton[] = [];
+    if (openAppBox.checked) {
+      out.push({ text: openAppLabel.value.trim() || "Open", webapp: true });
+    }
+    if (writeMeBox.checked) {
+      const handle = state.me?.support_contact || state.me?.bot_username || "";
+      if (handle) out.push({ text: writeMeLabel.value.trim() || "Message me", chat: handle });
+    }
+    return out;
+  }
+
   const send = el("button", "btn", "Count, then send");
   send.type = "button";
   send.onclick = async () => {
@@ -2534,15 +2624,29 @@ function adminBroadcast(): HTMLElement {
       // Count FIRST and make the owner confirm the number. The server refuses a send whose
       // confirmed count does not match what it just reported, so this is not decoration —
       // it is the only chance to notice the filter is wrong.
+      // Same filter as the send below. If these disagree the confirmed number describes a
+      // different population, and the server rejects it — correctly, but confusingly.
       const { recipients } = await admin.previewBroadcast(
-        { text, lang, premium_only: false });
+        { text, lang, premium_only: premiumBox.checked });
       if (!recipients) { toast("Nobody matches that filter."); return; }
-      if (!window.confirm(`Send to ${recipients} people? This cannot be undone.`)) return;
+      const buttons = chosenButtons();
+      const extras = [
+        photo.value.trim() ? "an image" : "",
+        buttons.length ? `${buttons.length} button(s)` : "",
+      ].filter(Boolean).join(" and ");
+      const ok = await ask(
+        `Send to ${recipients} people${extras ? `, with ${extras}` : ""}? `
+        + "This cannot be undone.");
+      if (!ok) return;
       const out = await admin.broadcast({
-        text, lang, premium_only: false, label: "", confirm_recipients: recipients,
+        text, lang, premium_only: premiumBox.checked, label: "",
+        confirm_recipients: recipients,
+        photo_url: photo.value.trim() || null,
+        buttons,
       });
       toast(`Sending to ${out.queued}.`);
       box.value = "";
+      photo.value = "";
     } catch (err) { reportError(err); }
   };
   card.append(send);

@@ -1201,3 +1201,19 @@ html, body { overflow-x: hidden; }
 }
 .report-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sm); }
 .report-actions .btn { min-height: 40px; font-size: 15px; }
+
+/* --- admin: destructive controls and the newsletter composer --------------- */
+/* `danger` is the only red control in the app. Deleting a learner cannot be undone, so it
+   must not look like Grant or Message sitting beside it. */
+.admin-btn.danger { color: var(--bad); border-color: #fecaca; background: #fff5f5; }
+.admin-btn.danger:disabled { opacity: .5; }
+
+.admin-check {
+  display: flex; align-items: center; gap: var(--sm);
+  margin-top: var(--sm); font-size: 15px; color: var(--text);
+}
+.admin-check input { width: 18px; height: 18px; flex: none; accent-color: var(--accent); }
+.admin-sub-head {
+  margin-top: var(--lg); font-size: 12px; font-weight: 700;
+  letter-spacing: .14em; text-transform: uppercase; color: var(--text-2);
+}
