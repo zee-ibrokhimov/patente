@@ -49,6 +49,18 @@ const VOCAB_AUTHOR = { name: "Zukhriddin Kamolov", handle: "TTYMI_OKMK2" } as co
  *  labelled as quiet rather than presented as a competition. */
 const RATINGS_MIN_PLAYERS = 5;
 
+/** How many questions ahead to keep prepared, and how long the start screen will wait.
+ *
+ *  Five is the window; the learner is topped back up to five ahead every time they advance,
+ *  so the preparation stays in front of them for the whole sitting without ever fetching a
+ *  paper they might abandon at question three.
+ *
+ *  The wait is capped because a slow model must delay a quiz by a second, never hold it
+ *  hostage. Everything caches, and each card re-asks for its own translation regardless, so
+ *  a miss costs one spinner rather than an unreadable question. */
+const PREFETCH_WINDOW = 5;
+const PREFETCH_WAIT_MS = 2500;
+
 /** A sitting in flight.
  *
  *  `skew` is measured ONCE from the server's own clock at creation, and every countdown
@@ -66,6 +78,9 @@ interface Run {
   deadline: number | null;
   skew: number;
   busy: boolean;
+  /** The highest ordinal already asked for. Stops every answer re-requesting a window
+   *  that mostly overlaps the last one. */
+  prefetchedTo: number;
 }
 
 /** The vocabulary trainer's own state.
@@ -109,8 +124,11 @@ const state: {
    *  and everybody else would be paying for a request that 404s. */
   adminData: { overview: AdminOverview | null; users: AdminUser[]; links: AdminLink[];
                query: string; busy: boolean } | null;
+  /** A quiz being prepared. Non-null only between tapping Start and the first question. */
+  preparing: { mode: Mode; source: RepeatSource } | null;
 } = { me: null, screen: "home", run: null, results: null, stats: null, profile: null,
       resumable: null, reviewWrongOnly: true, ratings: null, adminData: null,
+      preparing: null,
       vocab: { view: "test", round: null, index: 0, current: null, right: 0, typed: "",
                busy: false, list: null, query: "", stats: null, locked: false } };
 
@@ -212,10 +230,29 @@ function tick(): void {
 // ---------------------------------------------------------------------------
 
 async function startRun(mode: Mode, source: RepeatSource = "smart"): Promise<void> {
+  // A loading screen, and it is not decoration.
+  //
+  // The first question of a cold paper needs a translation the learner cannot read without,
+  // and fetching it after the question is on screen means they stare at Italian they do not
+  // understand. A start screen is the one moment in a quiz where waiting is EXPECTED, so it
+  // is the cheapest place to put the wait — and it is where the first five get prepared.
+  state.preparing = { mode, source };
+  render();
   try {
     const session = await sessions.start(mode, source);
+    // Prepare the opening five and give them a moment to land. Bounded: a slow model must
+    // delay the quiz by a second or two, never hold it hostage — everything is cached and
+    // the client re-asks per question anyway, so a miss costs a spinner on one card.
+    try {
+      await Promise.race([
+        sessions.prefetch(session.id, 1, PREFETCH_WINDOW),
+        new Promise((resolve) => setTimeout(resolve, PREFETCH_WAIT_MS)),
+      ]);
+    } catch { /* a failed prefetch is a slower question, not a failed quiz */ }
+    state.preparing = null;
     enterRun(session);
   } catch (err) {
+    state.preparing = null;
     // "Nothing to repeat yet" is a normal state, not a failure — a learner who has never
     // got one wrong asking for their mistakes. The generic red error toast would read as
     // a broken app, so it gets its own sentence.
@@ -259,6 +296,28 @@ function dropLocalisedCaches(): void {
   };
 }
 
+/** Keep PREFETCH_WINDOW questions prepared in front of the learner.
+ *
+ *  Fire and forget, and deduplicated: without `prefetchedTo` every answer would re-request
+ *  a window that mostly overlaps the last one, which is a request per answer for work
+ *  already done. The server would cache its way out of it, but the round trips are pure
+ *  waste on a phone. */
+function keepAhead(): void {
+  const run = state.run;
+  if (!run) return;
+  const next = run.index + 2;                       // the ordinal after the one on screen
+  const wanted = next + PREFETCH_WINDOW - 1;
+  if (wanted <= run.prefetchedTo) return;
+  if (next > run.session.question_count) return;
+
+  const from = Math.max(next, run.prefetchedTo + 1);
+  run.prefetchedTo = Math.min(wanted, run.session.question_count);
+  void sessions.prefetch(run.session.id, from, PREFETCH_WINDOW).catch(() => {
+    // Let it be retried on the next answer rather than swallowing the window for good.
+    if (state.run) state.run.prefetchedTo = from - 1;
+  });
+}
+
 function enterRun(session: Session): void {
   const serverNow = Date.parse(session.server_now);
   // Seed from the server rather than starting empty. The app persists nothing across a
@@ -275,6 +334,8 @@ function enterRun(session: Session): void {
     deadline: session.expires_at ? Date.parse(session.expires_at) : null,
     skew: serverNow - Date.now(),
     busy: false,
+    // The opening window was prepared before this screen appeared.
+    prefetchedTo: Math.min(PREFETCH_WINDOW, session.question_count),
   };
   state.resumable = null;
   state.screen = "run";
@@ -295,6 +356,7 @@ async function submitAnswer(given: boolean): Promise<void> {
     haptic("success");
 
     if (run.session.mode === "practice") {
+      keepAhead();
       run.verdict = res as PracticeAnswer;
       haptic((res as PracticeAnswer).correct ? "success" : "error");
       if (state.me) state.me.free_explanations_left = (res as PracticeAnswer).free_explanations_left;
@@ -302,6 +364,7 @@ async function submitAnswer(given: boolean): Promise<void> {
       // Exam: the response carries no verdict at all, by design. Advance immediately.
       void (res as ExamAnswer);
       if (run.index < run.session.question_count - 1) run.index += 1;
+      keepAhead();
     }
   } catch (err) {
     // 409 means the SERVER already has this answer — the request landed and its response
@@ -2458,6 +2521,22 @@ function backTarget(): (() => void) | null {
   return null;
 }
 
+/** The start screen: what is being prepared, while it is prepared.
+ *
+ *  Names the mode so the wait is attached to something the learner just chose, and says
+ *  what is happening rather than spinning silently — "preparing your questions" is a
+ *  reason to wait, an unlabelled spinner is not. */
+function preparingScreen(): HTMLElement {
+  const wrap = el("section", "screen prep");
+  const box = el("div", "prep-box");
+  box.append(el("div", "prep-spinner"));
+  box.append(el("h2", "prep-title",
+    state.preparing?.mode === "exam" ? t("exam") : t("practice")));
+  box.append(el("p", "prep-sub", t("preparing_quiz")));
+  wrap.append(box);
+  return wrap;
+}
+
 function render(): void {
   root.replaceChildren();
   const back = backTarget();
@@ -2477,6 +2556,9 @@ function render(): void {
     case "admin": screen = adminScreen(); break;
     default: screen = homeScreen();
   }
+  // Preparing outranks every screen: the learner has tapped Start and nothing else is
+  // happening until the quiz opens.
+  if (state.preparing) screen = preparingScreen();
   if (back && !nativeBack) screen.prepend(fallbackBack(back));
   root.append(screen);
 

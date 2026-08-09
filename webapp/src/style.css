@@ -666,6 +666,22 @@ html, body { overflow-x: hidden; }
   margin: var(--sm) 0 0;
 }
 
+/* The start screen. Centred, quiet, and labelled — an unexplained spinner reads as a hang,
+   a named one reads as work. */
+.prep { display: grid; place-items: center; min-height: 60vh; }
+.prep-box { display: grid; justify-items: center; gap: var(--sm); text-align: center; }
+.prep-title { margin: var(--sm) 0 0; font-size: var(--t-title); font-weight: 800; }
+.prep-sub { color: var(--text-2); font-size: var(--t-caption); margin: 0; }
+.prep-spinner {
+  width: 34px; height: 34px; border-radius: 50%;
+  border: 3px solid var(--edge); border-top-color: var(--accent);
+  animation: prep-spin .9s linear infinite;
+}
+@keyframes prep-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .prep-spinner { animation: none; border-top-color: var(--edge); }
+}
+
 /* ======================================================================
    THE OWNER'S CONSOLE
    ======================================================================

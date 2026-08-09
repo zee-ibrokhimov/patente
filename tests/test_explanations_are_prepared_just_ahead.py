@@ -19,9 +19,8 @@ explanation is generated when someone asks for it and cached per CLUSTER for eve
 afterwards, so the cost is a one-time ~5s wait for the first person to ask about that rule,
 and the saving is never paying for the 3370 clusters nobody reaches.
 
-This file exists because the audit finding is still true — warming IS unreachable — and the
-next person to notice will want to "fix" it. It is not a bug. Revisit only when traffic makes
-the cache fill itself.
+This file existed because the audit finding was still true — warming WAS unreachable — and
+the next person to notice would want to "fix" it.
 """
 
 from __future__ import annotations
@@ -87,13 +86,52 @@ async def premium(api_db):
 
 # --- starting and working through a sitting costs nothing -------------------
 
-async def test_starting_practice_generates_no_explanations(
+async def test_starting_practice_generates_no_explanations_by_itself(
         client, registered, premium, generated):
-    """THE cost decision. Thirty questions must not become a batch of paid calls the
-    instant Start is tapped."""
+    """Creating a sitting still prepares nothing. The preparation is a SEPARATE request the
+    client makes behind its loading screen, so a session created by anything else — a
+    resume, a test, a script — costs nothing."""
     r = await client.post("/webapp/sessions", headers=auth(), json={"mode": MODE_PRACTICE})
     assert r.status_code == 200, r.text
-    assert generated == [], f"starting practice paid for {len(generated)} explanations"
+    assert generated == [], f"creating a sitting paid for {len(generated)} explanations"
+
+
+async def test_preparing_a_window_does_warm_them(client, registered, premium, generated):
+    """The reversal. Five questions ahead, on request, while the start screen is showing."""
+    started = (await client.post("/webapp/sessions", headers=auth(),
+                                 json={"mode": MODE_PRACTICE})).json()
+    r = await client.post(f"/webapp/sessions/{started['id']}/prefetch", headers=auth(),
+                          json={"from_ordinal": 1, "count": 5})
+    assert r.status_code == 200, r.text
+    assert r.json()["explanations"] >= 1, "the window prepared no explanations"
+
+
+async def test_an_exam_prepares_no_explanations(client, registered, premium, generated):
+    """MODE_OFFERS_EXPLANATION says an exam must not touch that path at all. Preparing
+    thirty would be paid calls for text nobody is ever shown."""
+    started = (await client.post("/webapp/sessions", headers=auth(),
+                                 json={"mode": MODE_EXAM})).json()
+    r = await client.post(f"/webapp/sessions/{started['id']}/prefetch", headers=auth(),
+                          json={"from_ordinal": 1, "count": 5})
+    assert r.status_code == 200, r.text
+    assert r.json()["explanations"] == 0
+
+
+async def test_the_window_is_bounded(client, registered, premium):
+    """A request for the whole paper would be the unbounded cost the first version had."""
+    started = (await client.post("/webapp/sessions", headers=auth(),
+                                 json={"mode": MODE_PRACTICE})).json()
+    r = await client.post(f"/webapp/sessions/{started['id']}/prefetch", headers=auth(),
+                          json={"from_ordinal": 1, "count": 500})
+    assert r.status_code == 422
+
+
+async def test_one_learner_cannot_prepare_anothers_sitting(client, registered, premium):
+    started = (await client.post("/webapp/sessions", headers=auth(),
+                                 json={"mode": MODE_PRACTICE})).json()
+    r = await client.post(f"/webapp/sessions/{started['id']}/prefetch", headers=auth(99),
+                          json={"from_ordinal": 1, "count": 5})
+    assert r.status_code == 404
 
 
 async def test_starting_an_exam_generates_no_explanations(
@@ -167,26 +205,23 @@ async def test_the_result_is_cached_for_everyone_after_the_first_ask(
 
 # --- the wiring that would silently reintroduce the cost --------------------
 
-def test_the_session_routes_do_not_call_warm():
-    """Pinned on the source, because this is a decision rather than a behaviour — and the
-    audit finding that prompted the original change is still true, so somebody will read it
-    and want to help.
+def test_only_the_prefetch_route_warms_explanations():
+    """The boundary that replaced "never warm". Preparation belongs to the one route the
+    client calls behind its loading screen; anywhere else and it is unbounded again.
 
-    Matches the CALL, not the name: the comment explaining the decision necessarily mentions
-    `explanations.warm`, and the first version of this test failed on its own explanation.
+    Matches the CALL, not the name — the comments necessarily mention `explanations.warm`,
+    and an earlier version of this test failed on its own explanation.
     """
     import re
 
     source = open(webapp_route.__file__, encoding="utf-8").read()
-    live = re.findall(r"^\s*(?!#).*add_task\(\s*explanations\.warm", source, re.M)
-    assert live == [], \
-        "explanation warming is back in the Mini App routes — see this module's docstring"
+    calls = [m.start() for m in re.finditer(r"add_task\(\s*explanations\.warm", source)]
+    assert len(calls) == 1, f"{len(calls)} places warm explanations; only prefetch may"
 
-
-def test_the_reason_is_written_down_next_to_the_code():
-    """A bare absence reads as an oversight and gets 'fixed'. The comment is the guard."""
-    source = open(webapp_route.__file__, encoding="utf-8").read()
-    assert "DELIBERATELY" in source and "8000 tokens" in source
+    prefetch_at = source.index("async def prefetch(")
+    next_route = source.index("@router.get(\"/sessions/{session_id}\"")
+    assert prefetch_at < calls[0] < next_route, \
+        "explanation warming is outside the prefetch route"
 
 
 def test_translations_are_still_warmed():

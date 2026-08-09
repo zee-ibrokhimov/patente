@@ -240,11 +240,18 @@ _index: dict | None = None
 # A third-party being slow would have become a total outage of a product that is mostly
 # not about that third party.
 #
-# 45s against measured cold-cache times of 4.9s for an explanation and 3.8s for a
-# translation (STATUS §16) — roughly ten times the real figure, so it only ever fires on
-# something genuinely wrong. With one retry the worst case a connection can be held is
-# about 90 seconds rather than half an hour.
-OPENAI_TIMEOUT = 45.0
+# Was 45s, against measured cold times of ~5s. Raised to 90s on 2026-08-09 when explanations
+# moved to gpt-5-mini at full reasoning: measured 23.7s average with one cluster at 42.8s,
+# because it emits ~5000 reasoning tokens the learner never sees. At 45s that cluster was
+# one bad run from timing out.
+#
+# Affordable now for the reason the model changed at all: explanations are PREPARED five
+# questions ahead, on their own session, while a start screen is showing. Nobody is watching
+# the clock, and the pool exhaustion this bound exists to prevent needs a request holding a
+# connection — which a background warm does not.
+#
+# It is still a bound. Without one a hung call holds a connection until the process dies.
+OPENAI_TIMEOUT = 90.0
 OPENAI_RETRIES = 1
 
 

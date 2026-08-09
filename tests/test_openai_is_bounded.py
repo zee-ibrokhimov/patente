@@ -17,7 +17,10 @@ def test_the_client_has_an_explicit_timeout():
     """Without one the SDK waits ten minutes, holding a connection the whole time."""
     client = openai_client()
     assert client.timeout is not None
-    assert float(client.timeout) <= 60, "long enough to be an outage"
+    # Was 60. Raised with the bound itself when explanations moved to gpt-5-mini at full
+    # reasoning — measured 23.7s average, one cluster at 42.8s, because it emits ~5000
+    # reasoning tokens nobody sees. The ceiling still has to be a number, not "eventually".
+    assert float(client.timeout) <= 120, "long enough to be an outage"
 
 
 def test_the_timeout_is_well_above_the_measured_call_time():
@@ -27,9 +30,16 @@ def test_the_timeout_is_well_above_the_measured_call_time():
 
 
 def test_retries_are_bounded_so_the_worst_case_is_knowable():
-    """timeout x (retries + 1) is how long a connection can be held. It should be a
-    number someone can reason about, not half an hour."""
-    assert OPENAI_TIMEOUT * (OPENAI_RETRIES + 1) <= 120
+    """timeout x (retries + 1) is how long a connection can be held. It should be a number
+    someone can reason about, not half an hour.
+
+    Three minutes rather than two since explanations moved to a reasoning model. Affordable
+    for the reason the model changed at all: explanations are PREPARED ahead on their own
+    session while a start screen shows, so the connection being held is a background one
+    and no learner is watching it. The bound still exists — without one a hung call holds a
+    connection until the process dies.
+    """
+    assert OPENAI_TIMEOUT * (OPENAI_RETRIES + 1) <= 180
 
 
 def test_translations_share_the_same_bounded_client():

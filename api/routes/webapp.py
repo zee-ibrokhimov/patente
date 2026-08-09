@@ -26,6 +26,7 @@ import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps import get_session
@@ -61,6 +62,7 @@ from api.schemas import (
 from api.services import (
     channel,
     content,
+    explanations,
     leaderboard,
     profile as profile_service,
     quiz_sessions,
@@ -72,7 +74,13 @@ from api.services import (
 )
 from api.services.entitlement import evaluate
 from api.services.telegram_auth import InitDataRejected
-from shared.constants import MODE_EXAM, QUIZ_MODES, REPEAT_SOURCES, UI_LANGUAGES
+from shared.constants import (
+    MODE_EXAM,
+    MODE_OFFERS_EXPLANATION,
+    QUIZ_MODES,
+    REPEAT_SOURCES,
+    UI_LANGUAGES,
+)
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/webapp", tags=["webapp"])
@@ -332,6 +340,73 @@ async def start_session(
     # to ask about that rule; the saving is never paying for the 3370 clusters nobody
     # reaches. Revisit only when traffic makes the cache fill itself.
     return _session_out(row, payloads, now)
+
+
+class PrefetchIn(BaseModel):
+    """Which slice of the paper to prepare."""
+
+    from_ordinal: int = Field(ge=1)
+    count: int = Field(default=5, ge=1, le=10)
+
+
+@router.post("/sessions/{session_id}/prefetch")
+async def prefetch(
+    session_id: int,
+    body: PrefetchIn,
+    background: BackgroundTasks,
+    user: User = Depends(webapp_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Prepare the next few questions: translations, and explanations for their clusters.
+
+    The learner is going to read every question in this paper — it is frozen at creation —
+    so fetching a few ahead is not speculative. It is the same work, done before they are
+    waiting for it rather than while.
+
+    That is what makes this different from the warming removed on 2026-08-09. That version
+    generated explanations for a window regardless of anything; this one is bounded by a
+    paper the learner has already committed to, and it exists because a loading screen at
+    the start of a quiz is a place where waiting is EXPECTED and therefore free.
+
+    Runs detached and answers immediately. The client shows its loading state for as long as
+    it chooses and never blocks on this returning — a prefetch that fails is a slower
+    question later, not a broken quiz.
+    """
+    now = datetime.now(timezone.utc)
+    try:
+        row = await quiz_sessions.load_owned(session, user, session_id, now)
+    except quiz_sessions.SessionError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+
+    entitlement = evaluate(user)
+    items = await quiz_sessions.window(
+        session, row, body.from_ordinal, body.count)
+
+    # Committed before scheduling, for the reason start_session documents: FastAPI runs a
+    # yield-dependency's exit code AFTER background tasks, so an open write transaction
+    # would be held while the warmers open their own connections to the same SQLite file.
+    await session.commit()
+
+    warmed_translations = warmed_explanations = 0
+    for question_id, cluster_id in items:
+        if entitlement.can_translate and user.translations_on:
+            background.add_task(translations.warm, question_id)
+            warmed_translations += 1
+        # Explanations only where they can be shown, and only in a mode that shows them —
+        # an exam never offers one, so preparing thirty would be paid calls for text nobody
+        # is ever given.
+        if (cluster_id is not None
+                and entitlement.can_explain
+                and MODE_OFFERS_EXPLANATION.get(row.mode)):
+            background.add_task(explanations.warm, cluster_id, user.lang)
+            warmed_explanations += 1
+
+    return {
+        "from_ordinal": body.from_ordinal,
+        "questions": len(items),
+        "translations": warmed_translations,
+        "explanations": warmed_explanations,
+    }
 
 
 @router.get("/sessions/{session_id}", response_model=SessionOut)

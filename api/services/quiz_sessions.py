@@ -274,6 +274,26 @@ async def extend(
     return more
 
 
+async def window(
+    session: AsyncSession, row: QuizSession, start: int, count: int
+) -> list[tuple[int, int | None]]:
+    """[(question_id, cluster_id)] for `count` items from `start`, in paper order.
+
+    Both ids in one query: the caller needs the question to warm a translation and the
+    cluster to warm an explanation, and fetching them separately would be two round trips
+    for the same rows.
+    """
+    rows = (await session.execute(
+        select(QuizSessionItem.question_id, Question.cluster_id)
+        .join(Question, Question.id == QuizSessionItem.question_id)
+        .where(QuizSessionItem.session_id == row.id,
+               QuizSessionItem.ordinal >= start,
+               QuizSessionItem.ordinal < start + count)
+        .order_by(QuizSessionItem.ordinal)
+    )).all()
+    return [(qid, cid) for qid, cid in rows]
+
+
 async def cluster_at(
     session: AsyncSession, row: QuizSession, ordinal: int
 ) -> int | None:

@@ -198,6 +198,14 @@ export const sessions = {
       body: JSON.stringify({ mode, source }),
     }),
 
+  /** Prepare the next few questions before the learner reaches them. Answers immediately;
+   *  the work happens server-side in the background. */
+  prefetch: (id: number, fromOrdinal: number, count = 5) =>
+    request<{ questions: number }>(`/sessions/${id}/prefetch`, {
+      method: "POST",
+      body: JSON.stringify({ from_ordinal: fromOrdinal, count }),
+    }),
+
   /** Resume. The app persists nothing across a reopen, so this is how a backgrounded
    *  exam comes back — with the server's deadline, not a remembered one. */
   read: (id: number) => request<Session>(`/sessions/${id}`),
