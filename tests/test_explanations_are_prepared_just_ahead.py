@@ -285,3 +285,41 @@ def test_the_waited_prefetch_is_concurrency_bounded():
     assert "_detach(bounded(" in source, "the warms are launched past the semaphore"
     assert "Semaphore(PREFETCH_CONCURRENCY)" in source, \
         "PREFETCH_CONCURRENCY is defined but nothing gates on it"
+
+
+def test_the_loading_screen_waits_for_translations_but_not_explanations():
+    """Different moments, different urgency.
+
+    A translation is how the question is READ, so it must be there before the question
+    appears. An explanation is wanted only after answering, if "Why?" is tapped — by which
+    point it has had all the time the learner spent reading and deciding.
+
+    Waiting on both made the screen unusable. Measured cold on five questions: ten jobs,
+    three at a time, hit the 75-second deadline with FOUR unfinished, explanations at ~28s
+    each being most of it. Reported from the outside as "in question 4 there was no
+    translation and i waited again".
+    """
+    source = open(webapp_route.__file__, encoding="utf-8").read()
+    start = source.index("if body.wait:")
+    end = source.index("return {", start)
+    block = source[start:end]
+
+    assert 'if kind == "translation"' in block, \
+        "the waited set is not restricted to translations"
+    assert 'if kind != "translation"' in block, \
+        "explanations are no longer started alongside — they would never be prepared"
+    # The awaited list must be the filtered one, not every job.
+    assert "asyncio.wait(blocking" in block, \
+        "something other than the translation-only list is being awaited"
+
+
+def test_translations_do_not_pay_for_reasoning():
+    """Twelve seconds of thinking about a sentence with no ambiguity in it was most of the
+    loading screen. Measured on gpt-5-mini: default 4.2-6.9s, low 2.8-4.2s, same text."""
+    from api.services import translations
+
+    assert translations.REASONING_EFFORT in ("low", "minimal"), \
+        f"translations are back on full reasoning: {translations.REASONING_EFFORT}"
+    source = open(translations.__file__, encoding="utf-8").read()
+    assert "reasoning_effort=REASONING_EFFORT" in source, \
+        "the constant is set but never passed to the model"

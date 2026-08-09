@@ -455,15 +455,34 @@ async def prefetch(
         # RUNNING, not cancelled. Each warm() owns its session and swallows its own errors,
         # so a straggler finishing after the response simply populates the cache early for
         # whoever reads that question next.
+        # WAIT FOR TRANSLATIONS ONLY. Explanations start now and are not waited on.
+        #
+        # They are needed at different moments. The translation is how the question is READ,
+        # so it has to be there before the question appears. The explanation is only wanted
+        # after answering, if the learner taps "Why?" — by which point it has had the whole
+        # time they spent reading and deciding.
+        #
+        # Waiting on both is what made the loading screen unusable. Measured cold on a
+        # five-question window: ten jobs, three at a time, hit the 75-second deadline with
+        # FOUR unfinished — explanations at 28s each were most of it. The user's report was
+        # "in question 4 there was no translation and i waited again", which is precisely
+        # what the last two unfinished jobs look like from the outside.
+        #
+        # Explanations still get their head start; they are simply not something to make
+        # somebody watch a spinner for.
         gate = asyncio.Semaphore(PREFETCH_CONCURRENCY)
 
         async def bounded(run):
             async with gate:
                 await run()
 
-        started = [_detach(bounded(run)) for _kind, run in jobs]
-        if started:
-            finished, unfinished = await asyncio.wait(started, timeout=PREFETCH_DEADLINE)
+        blocking = [_detach(bounded(run)) for kind, run in jobs if kind == "translation"]
+        for kind, run in jobs:
+            if kind != "translation":
+                _detach(bounded(run))
+
+        if blocking:
+            finished, unfinished = await asyncio.wait(blocking, timeout=PREFETCH_DEADLINE)
             ready, pending = len(finished), len(unfinished)
     else:
         for _kind, run in jobs:

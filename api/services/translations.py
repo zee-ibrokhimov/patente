@@ -57,6 +57,25 @@ from shared.db import async_session_factory
 
 log = logging.getLogger(__name__)
 
+# How hard the model should THINK about a translation. Measured on gpt-5-mini, five real
+# ministerial statements, Italian to Russian:
+#
+#     default   4.2 - 6.9s
+#     low       2.8 - 4.2s      same text, or better
+#     minimal   1.7s            terser, and starts to paraphrase
+#
+# On "veicoli a trazione animale" the low-effort answer was the more precise one — it used
+# "гужевого транспорта", the actual term, where the default produced a generic phrase. On
+# "il segnale raffigurato", the phrase this project's notes warn was once mangled by a
+# cheaper setting, low and default were IDENTICAL across three statements. That warning was
+# written against a different model and no longer describes this one.
+#
+# It matters because it is the whole loading screen. A cold five-question window was
+# measured at the 75-second deadline with four of ten jobs unfinished — which is what
+# "in question 4 there was no translation and i waited again" looks like from the outside.
+# Twelve seconds of reasoning about a sentence with no ambiguity in it was most of that.
+REASONING_EFFORT = "low"
+
 SYSTEM_PROMPT = """\
 Traduci una domanda del listato ufficiale dei quiz per la patente di guida italiana.
 
@@ -188,9 +207,12 @@ async def generate(session: AsyncSession, question: Question, model: str | None 
     )
     try:
         try:
-            response = await client.chat.completions.create(temperature=0, **kwargs)
+            response = await client.chat.completions.create(
+                temperature=0, reasoning_effort=REASONING_EFFORT, **kwargs)
         except Exception as exc:  # noqa: BLE001
-            if "temperature" not in str(exc):
+            # An older model takes neither parameter. Drop both rather than fail: a slower
+            # translation is worth having, an exception is not.
+            if "temperature" not in str(exc) and "reasoning_effort" not in str(exc):
                 raise
             response = await client.chat.completions.create(**kwargs)
         parsed = json.loads(response.choices[0].message.content)
