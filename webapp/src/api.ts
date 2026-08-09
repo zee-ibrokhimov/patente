@@ -15,7 +15,10 @@ import type {
   AdminLink,
   AdminButton,
   AdminOverview,
+  AdminPayments,
+  AdminPerson,
   AdminReport,
+  AdminSpend,
   AdminUser,
   BroadcastSent,
   Leaderboard,
@@ -202,6 +205,17 @@ export const admin = {
     request<{ deleted: number; purchases_kept: number }>(`/admin/users/${chatId}`, {
       method: "DELETE",
     }),
+
+  /** Everything about one person, for the moment they message "I paid". */
+  person: (chatId: number) => request<AdminPerson>(`/admin/users/${chatId}`),
+  /** What has been paid, and by whom. Individual payments were visible nowhere. */
+  payments: () => request<AdminPayments>("/admin/payments"),
+  /** Write explanations for the clusters covering the most questions. */
+  generateContent: (count: number) =>
+    request<{ started: number; covers_questions: number }>(
+      `/admin/content/generate?count=${count}`, { method: "POST" }),
+  /** Tokens, not euros — prices change and are per-model. */
+  spend: () => request<AdminSpend>("/admin/spend"),
 
   /** End or shorten somebody's access — the only way down that does not delete them. */
   revoke: (chatId: number, body: { mode: "end" | "shorten"; days?: number }) =>

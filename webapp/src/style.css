@@ -1261,3 +1261,21 @@ html, body { overflow-x: hidden; }
   font-family: inherit; font-size: 14px; font-weight: 600;
 }
 .chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* --- admin: payments ------------------------------------------------------- */
+.pay {
+  display: flex; justify-content: space-between; gap: var(--md);
+  padding: var(--sm) 0; border-top: 1px solid var(--edge);
+}
+.pay-who { font-size: 15px; font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.pay-sum {
+  font-size: var(--t-caption); color: var(--text-2);
+  font-variant-numeric: tabular-nums; flex: none;
+}
+
+/* The name is the way into the person sheet, so it has to look like a control. */
+.admin-name-btn {
+  appearance: none; border: 0; background: none; padding: 0; cursor: pointer;
+  font-family: inherit; font-size: 15px; font-weight: 600; color: var(--accent);
+  text-align: left; overflow-wrap: anywhere;
+}

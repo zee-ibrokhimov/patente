@@ -20,6 +20,7 @@ import type {
   AdminLink,
   AdminButton,
   AdminOverview,
+  AdminPerson,
   AdminReport,
   AdminUser,
   Leaderboard,
@@ -2319,6 +2320,32 @@ function adminScreen(): HTMLElement {
         card.append(line);
       }
 
+      // The number that matters. "100 of 3,382 rules · 3.0%" was true and misleading:
+      // clusters are uneven, so those 100 already answer 1,157 questions.
+      if (c.questions_covered) {
+        card.append(el("p", "caption",
+          `Those rules answer ${c.questions_covered.toLocaleString()} of `
+          + `${c.questions_total.toLocaleString()} questions — `
+          + `${((c.questions_covered / c.questions_total) * 100).toFixed(0)}% of what a `
+          + `learner actually meets.`));
+      }
+
+      // Writing on purpose. The bank filled up by accident: whatever a handful of people
+      // happened to open. Biggest clusters first, because that is where the coverage is.
+      const more = el("button", "btn secondary", "Write 20 more");
+      more.type = "button";
+      more.style.marginTop = "var(--md)";
+      more.onclick = async () => {
+        if (!(await ask("Write explanations for the 20 biggest gaps? "
+                        + "This spends model calls and takes a few minutes."))) return;
+        more.disabled = true;
+        try {
+          const out = await admin.generateContent(20);
+          toast(`Writing ${out.started}, covering ${out.covers_questions} questions.`);
+        } catch (err) { reportError(err); } finally { more.disabled = false; }
+      };
+      card.append(more);
+
       if (c.explanations_withheld || c.explanations_disputed) {
         card.append(el("p", "caption",
           `${c.explanations_withheld} rule(s) written but withheld by a quality gate · `
@@ -2330,6 +2357,7 @@ function adminScreen(): HTMLElement {
 
   // Reports first. It is the only section that represents somebody waiting for an answer,
   // and a queue placed below three other cards is a queue that gets read once.
+  wrap.append(adminMoney());
   wrap.append(adminReports(data.reports, data.openReports));
   wrap.append(adminUsers(data.users));
   wrap.append(adminGrantMany());
@@ -2451,6 +2479,139 @@ function adminGrantMany(): HTMLElement {
 }
 
 
+/** One learner, full screen, for the moment they message "I paid" or "it's broken".
+ *
+ *  The row gave one line — `123456 · ru · PREMIUM` — so "did Aziz's 10.99 ever arrive"
+ *  was answerable from memory or by asking the customer, which is the question you least
+ *  want to put to the person who just paid you.
+ *
+ *  Everything here was already recorded. None of it was reachable.
+ */
+async function openPerson(chatId: number): Promise<void> {
+  const sheet = el("div", "sheet");
+  const card = el("div", "sheet-card");
+  card.append(el("p", "caption", t("loading")));
+  sheet.append(card);
+  sheet.onclick = (ev) => { if (ev.target === sheet) sheet.remove(); };
+  document.body.append(sheet);
+
+  let p: AdminPerson;
+  try {
+    p = await admin.person(chatId);
+  } catch (err) { sheet.remove(); reportError(err); return; }
+
+  card.replaceChildren();
+  card.append(el("div", "row-title", p.name || String(p.chat_id)));
+
+  const why: Record<string, string> = {
+    pass: "Premium — paid or granted pass", channel: "Premium — via the channel",
+    staff: "Staff", none: "No access",
+  };
+  const left = daysLeft(p.pass_expires_at);
+  card.append(el("p", "caption",
+    `${why[p.premium_via] || p.premium_via}`
+    + (left !== null ? ` · ${left >= 0 ? `${left}d left` : `expired ${-left}d ago`}` : "")));
+
+  const facts = el("div", "admin-stats");
+  for (const [label, value] of [
+    ["Paid", `€${(p.paid_cents / 100).toFixed(2)}`],
+    ["Answers", String(p.answers)],
+    ["Exams", String(p.exams)],
+    ["Last seen", p.last_seen ? `${-(daysLeft(p.last_seen) ?? 0)}d ago` : "never"],
+  ] as const) {
+    const cell = el("div", "admin-stat");
+    cell.append(el("div", "admin-stat-n", value), el("div", "admin-stat-l", label));
+    facts.append(cell);
+  }
+  card.append(facts);
+
+  if (p.source) card.append(el("p", "caption", `Arrived via ${p.source}`));
+  if (p.reports) card.append(el("p", "caption", `${p.reports} report(s) filed`));
+
+  if (p.payments.length) {
+    card.append(el("div", "admin-sub-head", "Payments"));
+    for (const pay of p.payments) {
+      const row = el("div", "pay");
+      row.append(el("div", "pay-who",
+        `${pay.manual ? "by hand" : "Tribute"} · ${pay.tier}`));
+      row.append(el("div", "pay-sum",
+        `${pay.refunded_at ? "refunded " : ""}€${(pay.amount_cents / 100).toFixed(2)} · `
+        + `${pay.created_at.slice(0, 10)}`));
+      card.append(row);
+    }
+  } else {
+    card.append(el("p", "caption", "No payment has ever been recorded for them."));
+  }
+
+  const close = el("button", "btn", "Close");
+  close.type = "button";
+  close.style.marginTop = "var(--md)";
+  close.onclick = () => sheet.remove();
+  card.append(close);
+}
+
+
+/** Money in, and what the model cost. Loaded on demand — the overview is already four
+ *  queries and neither of these is needed to answer "who do I talk to".
+ *
+ *  Individual payments were visible nowhere: all-time totals existed only by leaving the
+ *  Mini App and typing /admin to the bot, and a single payment could not be seen at all.
+ */
+function adminMoney(): HTMLElement {
+  const card = el("div", "card");
+  card.style.marginTop = "var(--md)";
+  card.append(el("div", "row-title", "Money"));
+
+  const body = el("div");
+  card.append(body);
+  body.append(el("p", "caption", t("loading")));
+
+  void (async () => {
+    try {
+      const [money, spend] = await Promise.all([admin.payments(), admin.spend()]);
+      body.replaceChildren();
+
+      const eur = (cents: number) => `€${(cents / 100).toFixed(2)}`;
+      const head = el("div", "admin-stats");
+      for (const [label, value] of [
+        ["This month", eur(money.this_month_cents)],
+        ["All time", eur(money.all_time_cents)],
+      ] as const) {
+        const cell = el("div", "admin-stat");
+        cell.append(el("div", "admin-stat-n", value), el("div", "admin-stat-l", label));
+        head.append(cell);
+      }
+      body.append(head);
+
+      for (const p of money.payments.slice(0, 8)) {
+        const row = el("div", "pay");
+        row.append(el("div", "pay-who", p.name || String(p.chat_id)));
+        row.append(el("div", "pay-sum",
+          `${p.refunded_at ? "refunded " : ""}${eur(p.amount_cents)} · `
+          + `${p.created_at.slice(0, 10)}`));
+        body.append(row);
+      }
+      if (!money.payments.length) {
+        body.append(el("p", "caption", "No payments recorded yet."));
+      }
+
+      // Tokens, not euros. Prices change and are per-model, so a figure computed here from
+      // a hardcoded rate would be quietly wrong the first time the model does.
+      body.append(el("p", "caption",
+        `Model: ${spend.this_month.calls} call(s) this month · `
+        + `${(spend.this_month.tokens_in / 1000).toFixed(0)}k in, `
+        + `${(spend.this_month.tokens_out / 1000).toFixed(0)}k out. `
+        + `All time ${spend.all_time.calls} call(s).`));
+    } catch (err) {
+      body.replaceChildren(el("p", "caption", "Could not load."));
+      reportError(err);
+    }
+  })();
+
+  return card;
+}
+
+
 /** What learners have told you is wrong.
  *
  *  The report button has shipped since launch and nothing ever read the table, so the
@@ -2557,7 +2718,10 @@ function adminUsers(users: AdminUser[]): HTMLElement {
   for (const u of users.slice(0, 25)) {
     const row = el("div", "admin-row");
     const who = el("div", "admin-who");
-    who.append(el("div", "admin-name", u.name || String(u.chat_id)));
+    const name = el("button", "admin-name-btn", u.name || String(u.chat_id));
+    name.type = "button";
+    name.onclick = () => void openPerson(u.chat_id);
+    who.append(name);
     const bits = [String(u.chat_id), u.lang];
     if (u.source) bits.push(`via ${u.source}`);
     // The expiry, in days, on the row. The endpoint has always returned pass_expires_at and

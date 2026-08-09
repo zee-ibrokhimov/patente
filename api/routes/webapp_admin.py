@@ -41,14 +41,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps import get_session
 from api.models import (
-    Cluster, Event, Explanation, Purchase, Question, ReferralLink, Report,
-    Translation, User,
+    Cluster, Event, Explanation, Purchase, Question, QuizSession, ReferralLink,
+    Report, Translation, User,
 )
 from api.routes.webapp import webapp_user
 from api.services import broadcast, events, explanations, lapse, notify, referrals
 from api.services.entitlement import evaluate
 from api.services.users import _clean_source
 from shared.constants import (
+    EV_ANSWER_GIVEN,
     EV_BROADCAST_SENT,
     EV_LINK_CHANGED,
     EV_PASS_ENDING,
@@ -57,7 +58,9 @@ from shared.constants import (
     EV_PASS_REVOKED,
     EV_REPORT_RESOLVED,
     EV_USER_DELETED,
+    EV_MODEL_CALL,
     MANUAL_PURCHASE_PREFIX,
+    MODE_EXAM,
     SERVABLE_STATUSES,
     STATUS_FLAGGED,
     UI_LANGUAGES,
@@ -131,12 +134,26 @@ async def overview(
         select(func.count(Explanation.id))
         .where(Explanation.disputed.is_not(None), Explanation.disputed != ""))
 
+    # How many QUESTIONS those explanations actually cover.
+    #
+    # "100 of 3,382 rules · 3.0%" was true and misleading. An explanation is per CLUSTER,
+    # clusters are wildly uneven — the biggest covers 34 questions, the median two — so 100
+    # of them already answer 1,157 questions, 16% of the bank rather than 3%. Reporting only
+    # the rule count understates the real position by five times and makes deliberate
+    # generation look pointless.
+    covered = await session.scalar(
+        select(func.count(Question.id)).where(
+            Question.cluster_id.in_(
+                select(Explanation.cluster_id)
+                .where(Explanation.status.in_(SERVABLE_STATUSES)))))
+
     return {
         "content": {
             "questions_total": questions_total or 0,
             "translated": translated or 0,
             "clusters_total": clusters_total or 0,
             "explained": explained or 0,
+            "questions_covered": covered or 0,
             "explanations_withheld": withheld or 0,
             "explanations_disputed": disputed or 0,
         },
@@ -946,3 +963,225 @@ async def revoke(
         "pass_expires_at": user.pass_expires_at,
         "previous": previous,
     }
+
+
+# --- one learner, in full ----------------------------------------------------
+
+@router.get("/users/{chat_id}")
+async def one_user(
+    chat_id: int,
+    _staff: User = Depends(staff_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Everything about one person, for the moment they message "I paid" or "it's broken".
+
+    The list gave one line — `123456 · ru · PREMIUM` — so the answer to "did Aziz's 10.99
+    ever arrive" was either memory or asking the customer, which is the question you least
+    want to ask the person who just paid you.
+
+    Nothing here is new data. It is all recorded already and none of it was reachable.
+    """
+    user = await session.get(User, chat_id)
+    if user is None:
+        raise HTTPException(404, "no such user")
+
+    now = datetime.now(timezone.utc)
+    ent = evaluate(user)
+
+    payments = [
+        {
+            "id": p.id,
+            "amount_cents": p.amount_cents,
+            "currency": p.currency,
+            "tier": p.tier,
+            "created_at": p.created_at,
+            "refunded_at": p.refunded_at,
+            # Which of the two kinds. A hand sale and a Tribute subscription behave
+            # differently at renewal, and only the id says which this was.
+            "manual": (p.tribute_purchase_id or "").startswith(MANUAL_PURCHASE_PREFIX),
+        }
+        for p in await session.scalars(
+            select(Purchase).where(Purchase.chat_id == chat_id)
+            .order_by(Purchase.created_at.desc()).limit(20))
+    ]
+
+    last_seen = await session.scalar(
+        select(func.max(Event.created_at)).where(Event.chat_id == chat_id))
+    answers = await session.scalar(
+        select(func.count(Event.id))
+        .where(Event.chat_id == chat_id, Event.type == EV_ANSWER_GIVEN))
+    exams = await session.scalar(
+        select(func.count(QuizSession.id))
+        .where(QuizSession.chat_id == chat_id, QuizSession.mode == MODE_EXAM))
+    reports = await session.scalar(
+        select(func.count(Report.id)).where(Report.chat_id == chat_id))
+
+    return {
+        "chat_id": user.chat_id,
+        "name": user.display_name,
+        "lang": user.lang,
+        "created_at": user.created_at,
+        "source": user.source,
+        "last_seen": last_seen,
+        "pass_expires_at": user.pass_expires_at,
+        "premium": ent.premium,
+        # WHY they have it. Three routes, and "they say the app locked them out" has a
+        # different answer for each — a lapsed pass, a channel they left, or staff.
+        "premium_via": ("staff" if ent.is_staff else "pass" if ent.has_pass
+                        else "channel" if ent.via_channel else "none"),
+        "paid_cents": sum(p["amount_cents"] for p in payments if not p["refunded_at"]),
+        "payments": payments,
+        "answers": answers or 0,
+        "exams": exams or 0,
+        "reports": reports or 0,
+    }
+
+
+# --- money -------------------------------------------------------------------
+
+@router.get("/payments")
+async def payments(
+    limit: int = Query(default=20, ge=1, le=100),
+    _staff: User = Depends(staff_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """What has been paid, and by whom. Individual payments were visible nowhere.
+
+    All-time totals existed only by leaving the Mini App and typing /admin to the bot, and
+    a single payment could not be seen at all — so "who paid me this month" and "did I ever
+    record that 10.99" were both unanswerable from the panel actually being used.
+    """
+    now = datetime.now(timezone.utc)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    def total(*where):
+        return select(func.coalesce(func.sum(Purchase.amount_cents), 0)).where(
+            Purchase.amount_cents > 0, Purchase.refunded_at.is_(None), *where)
+
+    rows = list(await session.scalars(
+        select(Purchase).where(Purchase.amount_cents > 0)
+        .order_by(Purchase.created_at.desc()).limit(limit)))
+    names = {
+        u.chat_id: u.display_name
+        for u in await session.scalars(
+            select(User).where(User.chat_id.in_([p.chat_id for p in rows] or [0])))
+    }
+
+    return {
+        "this_month_cents": await session.scalar(
+            total(Purchase.created_at >= month_start)) or 0,
+        "all_time_cents": await session.scalar(total()) or 0,
+        "payments": [
+            {
+                "chat_id": p.chat_id,
+                "name": names.get(p.chat_id),
+                "amount_cents": p.amount_cents,
+                "currency": p.currency,
+                "tier": p.tier,
+                "created_at": p.created_at,
+                "refunded_at": p.refunded_at,
+            }
+            for p in rows
+        ],
+    }
+
+
+# --- writing content on purpose ----------------------------------------------
+
+# How many clusters one tap may write. Each is a paid model call taking 10-30 seconds, so
+# this is bounded by patience as much as by money: twenty is roughly ten minutes of
+# background work and about the most that can finish before anyone wonders if it worked.
+MAX_BATCH = 20
+
+
+@router.post("/content/generate")
+async def generate_content(
+    count: int = Query(default=10, ge=1, le=MAX_BATCH),
+    background: BackgroundTasks = None,
+    staff: User = Depends(staff_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Write explanations for the clusters that cover the MOST questions.
+
+    Until now the bank filled up by accident: `warm` fires when a question happens to be
+    served, so what got written was whatever six people wandered into. The only deliberate
+    alternative was a CLI script over SSH on a laptop the owner does not use.
+
+    Ordered by cluster SIZE, biggest first, because clusters are wildly uneven — the
+    largest covers 34 questions and the median covers two. Writing the big ones first buys
+    several times the coverage per euro, and coverage is what a learner actually meets.
+
+    Runs detached and answers at once. Twenty clusters is ten minutes of model calls; there
+    is nothing to watch and the result is visible in the coverage numbers afterwards.
+    """
+    done = select(Explanation.cluster_id).where(
+        Explanation.status.in_(SERVABLE_STATUSES))
+    targets = list(await session.execute(
+        select(Question.cluster_id, func.count(Question.id).label("n"))
+        .where(Question.cluster_id.is_not(None), Question.cluster_id.not_in(done))
+        .group_by(Question.cluster_id)
+        .order_by(func.count(Question.id).desc())
+        .limit(count)
+    ))
+    if not targets:
+        raise HTTPException(409, "every cluster already has an explanation")
+
+    covers = sum(n for _cid, n in targets)
+    await events.record(session, EV_MODEL_CALL,
+                        chat_id=staff.chat_id, kind="batch_requested",
+                        clusters=len(targets), covers_questions=covers,
+                        tokens_in=0, tokens_out=0)
+    await session.commit()
+
+    for cluster_id, _n in targets:
+        _detach_admin(explanations.warm(cluster_id, staff.lang))
+
+    return {"started": len(targets), "covers_questions": covers}
+
+
+# Same reason as the prefetch route's: asyncio keeps only weak references to running tasks,
+# so without a strong one the garbage collector may destroy a generation mid-flight.
+_batch: set[asyncio.Task] = set()
+
+
+def _detach_admin(coro) -> asyncio.Task:
+    task = asyncio.create_task(coro)
+    _batch.add(task)
+    task.add_done_callback(_batch.discard)
+    return task
+
+
+@router.get("/spend")
+async def spend(
+    _staff: User = Depends(staff_user), session: AsyncSession = Depends(get_session)
+):
+    """What the model has cost, this month and in total.
+
+    Every call computed its token counts and every caller threw them away, so the running
+    cost of the product was unknowable from inside it — the only figure was whatever the
+    OpenAI dashboard said days later, with nothing to attribute it to.
+
+    Tokens, not euros. Prices change and are per-model; a number this panel computed from a
+    hardcoded rate would be quietly wrong the first time the model does. The dashboard
+    converts; this says how much work was done and on what.
+    """
+    now = datetime.now(timezone.utc)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    rows = list(await session.scalars(
+        select(Event).where(Event.type == EV_MODEL_CALL)))
+
+    def tally(since=None):
+        calls = tokens_in = tokens_out = 0
+        for e in rows:
+            if since and e.created_at < since:
+                continue
+            payload = e.payload or {}
+            if payload.get("kind") == "batch_requested":
+                continue                      # a request, not a call
+            calls += 1
+            tokens_in += payload.get("tokens_in") or 0
+            tokens_out += payload.get("tokens_out") or 0
+        return {"calls": calls, "tokens_in": tokens_in, "tokens_out": tokens_out}
+
+    return {"this_month": tally(month_start), "all_time": tally()}

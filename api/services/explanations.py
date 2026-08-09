@@ -98,6 +98,7 @@ from api.services.articles import (
 from api.services.entitlement import Access, Entitlement
 from shared.config import CONTENT_OUT, settings
 from shared.constants import (
+    EV_MODEL_CALL,
     DEFAULT_LANG,
     EV_EXPLANATION_VIEWED,
     EV_PAYWALL_HIT,
@@ -957,6 +958,11 @@ async def generate(
     await session.commit()
     log.info("cluster %s -> %s in %s%s", cluster_id, status, ",".join(sorted(stored)),
              f" ({'; '.join(reasons)})" if reasons else "")
+    # What that cost. See EV_MODEL_CALL — the numbers were computed on every call and
+    # discarded by every caller, so nothing in the product could say what it spends.
+    await events.record(session, EV_MODEL_CALL, kind="explanation",
+                        cluster_id=cluster_id, model=model or settings.openai_model,
+                        tokens_in=tokens[0], tokens_out=tokens[1])
     return Outcome("stored", row=stored.get(LANG_IT), tokens_in=tokens[0],
                    tokens_out=tokens[1], detail="; ".join(reasons),
                    langs=tuple(sorted(stored)))

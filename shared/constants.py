@@ -312,6 +312,13 @@ EV_PASS_REVOKED = "pass_revoked"
 # because lapse.py READS it to tell a manual sale from a real subscription — and when those
 # two disagree, paying customers stop being warned that their access is ending.
 MANUAL_PURCHASE_PREFIX = "manual:"
+
+# One paid model call, with its token counts. Every call already COMPUTED these and every
+# caller threw them away, so the running cost of the product was unknowable from inside it —
+# the only figure available was whatever OpenAI's dashboard said a week later, with no way
+# to attribute it. Recorded as an event rather than a table: it is append-only, it is
+# already backed up, and spend is a question asked once a month, not a hot path.
+EV_MODEL_CALL = "model_call"
 # Quiz sessions. EV_SESSION_START/END already existed for the study session; these name
 # the bounded, gradeable kind so an exam is separable in the funnel.
 EV_EXAM_STARTED = "exam_started"

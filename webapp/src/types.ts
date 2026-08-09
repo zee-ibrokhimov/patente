@@ -324,6 +324,9 @@ export interface AdminContent {
   translated: number;
   clusters_total: number;
   explained: number;
+  /** How many QUESTIONS those rules answer. Reporting only the rule count understates the
+   *  real position five-fold, because clusters are wildly uneven. */
+  questions_covered: number;
   /** Written, then withheld by a gate: an ungroundable number, or the model arguing with
    *  the answer key. The only visible measure of how often generation misfires. */
   explanations_withheld: number;
@@ -397,4 +400,46 @@ export interface AdminReport {
   explanation: string | null;
   created_at: string;
   resolved_at: string | null;
+}
+
+
+/** One learner, in full. Nothing here is new data — it was all recorded already and none
+ *  of it was reachable from the panel. */
+export interface AdminPerson {
+  chat_id: number;
+  name: string | null;
+  lang: string;
+  created_at: string;
+  source: string | null;
+  last_seen: string | null;
+  pass_expires_at: string | null;
+  premium: boolean;
+  /** WHY they have it. "The app locked me out" has a different answer for each. */
+  premium_via: "pass" | "channel" | "staff" | "none";
+  paid_cents: number;
+  payments: {
+    id: number; amount_cents: number; currency: string; tier: string;
+    created_at: string; refunded_at: string | null;
+    /** A hand sale rather than a Tribute subscription. They renew differently. */
+    manual: boolean;
+  }[];
+  answers: number;
+  exams: number;
+  reports: number;
+}
+
+export interface AdminPayments {
+  this_month_cents: number;
+  all_time_cents: number;
+  payments: {
+    chat_id: number; name: string | null; amount_cents: number; currency: string;
+    tier: string; created_at: string; refunded_at: string | null;
+  }[];
+}
+
+/** Tokens rather than euros: prices change and are per-model, so a figure computed here
+ *  from a hardcoded rate would be quietly wrong the first time the model does. */
+export interface AdminSpend {
+  this_month: { calls: number; tokens_in: number; tokens_out: number };
+  all_time: { calls: number; tokens_in: number; tokens_out: number };
 }
