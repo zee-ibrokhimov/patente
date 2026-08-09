@@ -3,11 +3,20 @@
  * Tokens live in tokens.css and are semantic (--exam, --practice) rather than literal
  * (--red, --green), so a screen inherits the meaning instead of re-picking a colour.
  *
- * Golos Text throughout: chosen for COVERAGE. It carries Cyrillic, plus Latin and
- * Latin-ext for Italian and for Uzbek, which is written in Latin script. The previous
- * pairing was picked for its look without checking subsets and covered no Cyrillic at
- * all, so for a Russian reader every character fell back to the system font. Check
- * `unicode-range` before choosing a typeface, not after.
+ * One typeface, named ONCE, in --font (tokens.css). Inter: chosen for COVERAGE. It carries
+ * Cyrillic, plus Latin and Latin-ext for Italian and for Uzbek, and U+02BB for oʻ and gʻ.
+ * An earlier pairing was picked for its look without checking subsets and covered no
+ * Cyrillic at all, so for a Russian reader every character fell back to the system font.
+ *
+ * This header used to say "Golos Text throughout", and the two font-family rules below
+ * said so too — while public/fonts has only ever held Inter and fonts.css has only ever
+ * declared @font-face for 'Inter'. The name matched nothing, so the WHOLE app fell back to
+ * the system font: the same defect the paragraph above was written to warn about, arrived
+ * at from the other direction. A font that is named but not shipped fails exactly as
+ * silently as a font that is shipped but does not cover the script.
+ *
+ * So: check `unicode-range` before choosing a typeface — and then check that the family
+ * you named is the family you actually ship.
  */
 
 @import url('/fonts/fonts.css');
@@ -26,7 +35,16 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: 'Golos Text', ui-sans-serif, system-ui, sans-serif;
+  /* var(--font), not a literal. This asked for 'Golos Text' — a family that exists nowhere
+     in the project: public/fonts ships seven Inter woff2 files and fonts.css declares
+     @font-face for 'Inter' alone. The name never matched, so the entire app fell through to
+     whatever the device calls system-ui, and the self-hosted Inter was never requested by
+     anything at all.
+     Not cosmetic: tokens.css chose Inter specifically because it was VERIFIED to cover
+     Latin-ext (Italian), Cyrillic (Russian) and U+02BB — the modifier apostrophe Uzbek
+     needs for oʻ and gʻ. Whatever an Android phone substitutes has made no such promise,
+     and this app's readers use all three scripts. */
+  font-family: var(--font);
   font-size: 16px;
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
@@ -45,7 +63,7 @@ body {
 /* --- type ------------------------------------------------------------ */
 
 .display {
-  font-family: 'Golos Text', sans-serif;
+  font-family: var(--font);   /* see the note on body — 'Golos Text' was never shipped */
   font-weight: 700;
   letter-spacing: .02em;
   font-variant-numeric: tabular-nums;
@@ -57,7 +75,9 @@ body {
   font-weight: 700;
   letter-spacing: .14em;
   text-transform: uppercase;
-  color: var(--hint);
+  /* was var(--hint), a token defined nowhere — so this caption inherited --text and drew
+     11px all-caps in near-black, exactly as loud as the number it labels. */
+  color: var(--text-2);
 }
 
 h2 { font-size: 17px; font-weight: 700; margin: 26px 0 10px; letter-spacing: -.01em; }
@@ -254,6 +274,12 @@ html, body { overflow-x: hidden; }
   color: var(--exam); letter-spacing: -.02em; font-variant-numeric: tabular-nums;
 }
 .timer-label { color: var(--exam); font-size: var(--t-caption); margin-top: -2px; }
+/* The five-minute warning. tick() has always toggled `.warn` on this node, and no rule
+   ever matched it — so the state existed in the code and was invisible on screen, and the
+   countdown went straight from calm to the final-minute pulse with no step between.
+   Only the digits change: the dial and its label stay --exam so the thing being watched is
+   the thing that moves. */
+.timer-value.warn { color: var(--warn); }
 .timer-value.crit { animation: pulse 1s steps(2, jump-none) infinite; }
 @keyframes pulse { 50% { opacity: .5; } }
 
@@ -290,7 +316,15 @@ html, body { overflow-x: hidden; }
 
 .q-index { text-align: center; color: var(--text-2); font-size: var(--t-caption); margin-bottom: var(--md); }
 
-.plate { display: grid; place-items: center; margin: 0 auto var(--lg); max-width: 300px; }
+/* min-height reserves the figure's box BEFORE the image loads. Without it the plate is
+   zero-high until the sign arrives over mobile data, so the statement and the Vero/Falso
+   buttons render high up the screen and then jump down — under a thumb already on its way
+   to tap. Mis-taps on a timed exam are the cost. 32vh matches the img's max-height, so a
+   loaded figure sits in exactly the space that was held for it. */
+.plate {
+  display: grid; place-items: center; margin: 0 auto var(--lg); max-width: 300px;
+  min-height: min(32vh, 220px);
+}
 .plate img { display: block; max-width: 100%; max-height: 32vh; object-fit: contain; }
 
 .statement {
@@ -304,6 +338,14 @@ html, body { overflow-x: hidden; }
   text-align: center; margin: 0 0 var(--lg);
 }
 .translation p { margin: 0; }
+/* "Translating…" sits in the same slot as the translation it is waiting for, and had no
+   rule at all — so the placeholder rendered as a default <p>: left-aligned, full body
+   size, with browser margins, and then swapped for centred muted grey when the text
+   arrived. The wait jumped, and it looked like an error rather than a placeholder. */
+.hint {
+  font-size: var(--t-caption); color: var(--text-2);
+  text-align: center; margin: 0 0 var(--lg);
+}
 
 .answers { display: grid; gap: var(--md); margin-top: var(--xl); }
 .btn.vero, .btn.falso {
@@ -321,6 +363,11 @@ html, body { overflow-x: hidden; }
   appearance: none; border: 0; background: none; cursor: pointer;
   color: var(--text-2); font-family: inherit; font-size: 16px; font-weight: 500;
   display: inline-flex; align-items: center; gap: var(--sm);
+  /* The control that ENDS a run was a 25px-tall target — the text box and nothing else.
+     44px is the floor every platform's guidance agrees on, and .run-foot centres this in a
+     grid so the taller box costs no layout. Missing it mid-exam and hitting the answer
+     buttons underneath is the failure this prevents. */
+  min-height: 44px; padding: 10px var(--lg);
 }
 
 /* --- practice verdict -------------------------------------------------- */
@@ -419,7 +466,11 @@ html, body { overflow-x: hidden; }
 }
 
 .toast {
-  position: fixed; left: 50%; translate: -50% 0; bottom: 84px; z-index: 40;
+  /* Clear of the tab bar AND of the gesture bar under it. At a flat 84px the error toast
+     landed on top of the navigation on any phone with a home indicator — the one message
+     that matters, half-hidden by the one control you need. */
+  position: fixed; left: 50%; translate: -50% 0; z-index: 40;
+  bottom: calc(84px + env(safe-area-inset-bottom, 0px));
   max-width: 92%; background: var(--bad); color: #fff;
   padding: 12px 18px; border-radius: 999px; font-size: 15px; font-weight: 600;
   box-shadow: 0 8px 24px -8px rgba(220,38,38,.6);

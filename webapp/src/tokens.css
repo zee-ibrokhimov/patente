@@ -27,6 +27,12 @@
   --card: #ffffff;
   --text: #0f172a;
   --text-2: #64748b;
+  /* A third, lighter step for furniture that must be visible but never read: the chevrons
+     on link rows, and the settings globe. Both already asked for `var(--text-3)` while no
+     such token existed. An undefined custom property is invalid at computed-value time, so
+     `color` fell back to INHERIT rather than to anything grey — every one of those chevrons
+     rendered at full --text near-black, as loud as the label beside it. */
+  --text-3: #94a3b8;
 
   --accent: #2563eb;          /* actions and navigation, nothing else */
   --ok: #16a34a;              /* success and progress */
@@ -103,7 +109,13 @@
      these are the three numbers the whole product exists to deliver, and the three most
      likely to overflow a narrow phone. */
   --t-display: clamp(42px, 18.46vw, 72px);    --lh-display: 1;    --w-display: 800;
-  --t-verdict: clamp(38px, 16.41vw, 64px);    --w-verdict: 800;
+  /* The verdict is the one display value that is a WORD, not a number, and words do not
+     wrap when they are a single token. At 16.41vw the Italian "BOCCIATO" — eight caps at
+     weight 800 — needed roughly 293px inside a 286px card on a 360px phone, so the app's
+     single most important word overflowed its own card on the most common screen size in
+     its market. The numbers above can stay enormous because "28/30" is five narrow glyphs;
+     this one cannot. Only .esito-verdict consumes it, so nothing else moves. */
+  --t-verdict: clamp(38px, 11.5vw, 64px);     --w-verdict: 800;
 
   /* Card padding and the screen gutter tighten on a small phone: 24px each side of a
      320px screen spends 15% of the width on nothing. */

@@ -55,7 +55,14 @@ def test_practice_results_do_not_report_unanswered():
     not questions the learner skipped. Labelling it "unanswered" reports slack in the
     fetching as though it were a failure."""
     main = source("src/main.ts")
-    block = main[main.index("const tally = el(\"div\", \"tally\")"):][:900]
+    # Sliced between the two ends of the tally block rather than by a fixed 900 characters.
+    # The byte window was measuring comment length as much as code: adding an explanatory
+    # comment inside the block pushed the branch past the cutoff and failed this test while
+    # the branch itself was untouched, which is a false alarm the next person has to
+    # re-derive. The markers below are the real boundaries of the thing being asserted.
+    start = main.index('const tally = el("div", "tally")')
+    end = main.index("esito.append(tally)", start)
+    block = main[start:end]
     assert 'r.mode === "exam"' in block
     assert 't("unanswered")' in block
     assert 't("correct")' in block

@@ -31,6 +31,14 @@ interface WebApp {
     notificationOccurred(type: "error" | "success" | "warning"): void;
     impactOccurred(style: "light" | "medium" | "heavy"): void;
   };
+  /** Stops a downward swipe from minimising the Mini App. Bot API 7.7; undefined below it.
+   *  Without it, a scroll gesture that begins near the top of a running exam collapses the
+   *  app — with the twenty-minute clock still running. */
+  disableVerticalSwipes?(): void;
+  /** Telegram's own confirm sheet. Bot API 6.2. `window.confirm` inside the webview is a
+   *  bare browser dialog that some Android clients style badly or suppress outright, and a
+   *  suppressed confirm means the user cannot leave a running exam at all. */
+  showConfirm?(message: string, callback: (ok: boolean) => void): void;
 }
 
 declare global {
@@ -73,9 +81,32 @@ export function initTelegram(): void {
   try {
     tg.setBackgroundColor?.(CHROME_BG);
     tg.setHeaderColor?.(CHROME_BG);
+    // A timed exam is the one screen where losing the app costs something irreversible,
+    // and the default gesture minimises it on a downward swipe. Same optional-call guard
+    // as the colours above: absent below Bot API 7.7, where the behaviour is unchanged.
+    tg.disableVerticalSwipes?.();
   } catch {
     /* an old client that has the method but rejects the value is not worth failing over */
   }
+}
+
+/** Ask a yes/no question, preferring Telegram's sheet over the browser dialog.
+ *
+ *  `window.confirm` blocks the webview's single thread and some Android Telegram builds
+ *  suppress it entirely. When that happens the callback never fires and the user is stuck
+ *  in a running exam with no way out — so the fallback is the thing to avoid, not the
+ *  thing to rely on. */
+export function ask(message: string): Promise<boolean> {
+  if (tg?.showConfirm) {
+    return new Promise((resolve) => {
+      try {
+        tg.showConfirm!(message, (ok) => resolve(ok));
+      } catch {
+        resolve(window.confirm(message));
+      }
+    });
+  }
+  return Promise.resolve(window.confirm(message));
 }
 
 export function haptic(kind: "success" | "error"): void {

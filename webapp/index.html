@@ -9,6 +9,17 @@
     <meta name="theme-color" content="#f8fafc" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Quiz Patente</title>
+    <!-- The app shipped with no icon of any kind, so a browser tab, a bookmark and an
+         add-to-home-screen all fell back to a blank-page glyph. The mark is a steering
+         wheel with a gold check. It is quantised to 48 colours because it only uses
+         three — the anti-aliasing was otherwise seven eighths of the file (210 KB -> 29 KB
+         at 512px). Declared "maskable" in the manifest so Android crops its round icon out
+         of the full-bleed square instead of shrinking the whole square into a circle. -->
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/icon-32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/icon-16.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
     <!-- Telegram's bridge. It must come from telegram.org and be loaded before the app:
          window.Telegram.WebApp.initData is the only way to know who is asking. -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>

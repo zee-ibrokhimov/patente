@@ -2,7 +2,7 @@ import { admin, api, ApiError, leaderboard, sessions, vocab } from "./api";
 import { readinessGauge } from "./gauge";
 import { art, icons } from "./icons";
 import { TRANSLATION_LANGUAGES, lang, setLang, t } from "./i18n";
-import { haptic, inTelegram, initTelegram, openChat, setBackButton, tg } from "./telegram";
+import { ask, haptic, inTelegram, initTelegram, openChat, setBackButton, tg } from "./telegram";
 import type {
   AnswerResult,
   ExamAnswer,
@@ -350,6 +350,13 @@ async function submitAnswer(given: boolean): Promise<void> {
   if (run.answered.has(ordinal)) return;
 
   run.busy = true;
+  // Show the tap landed. `run.busy` guarded against double-submits but changed nothing on
+  // screen, so between tapping Vero and the answer coming back — a real wait on mobile
+  // data — the button looked untouched and the natural response was to tap it again.
+  // Disabling in place rather than calling render(): a re-render reassigns the figure's
+  // src and makes the browser reload the image. The `finally` render() restores these.
+  document.querySelectorAll<HTMLButtonElement>(".answers .btn")
+    .forEach((b) => { b.disabled = true; });
   try {
     const res = await sessions.answer(run.session.id, ordinal, given);
     run.answered.add(ordinal);
@@ -428,7 +435,16 @@ async function hydrateTranslation(): Promise<void> {
     const slot = document.getElementById("tr-slot");
     if (slot) slot.replaceWith(translationSlot(now));
   } catch {
-    /* a missing translation is never worth interrupting a sitting for */
+    // A missing translation is never worth interrupting a sitting for — but it IS worth
+    // clearing. The slot renders "Translating…" for translation_state === "available", so
+    // leaving that state untouched on failure left the word sitting under the question for
+    // the rest of the sitting, promising something that was never going to arrive.
+    // Marking it unavailable collapses the slot instead.
+    const now = state.run && currentQuestion(state.run);
+    if (!now || now.id !== wanted) return;
+    now.translation_state = "unavailable";
+    const slot = document.getElementById("tr-slot");
+    if (slot) slot.replaceWith(translationSlot(now));
   }
 }
 
@@ -913,13 +929,19 @@ function runScreen(): HTMLElement {
     wrap.append(next);
   }
 
+  // The practice verdict box carries its own "End test" beside Next, where the decision is
+  // actually being made. Rendering the footer as well put two identical controls one above
+  // the other, a few pixels apart — which reads as a mistake and makes the user wonder
+  // whether the two do different things.
+  const duplicated = run.session.mode === "practice" && !!run.verdict && answeredHere;
+
   const foot = el("div", "run-foot");
   const finish = el("button", "link-btn");
   finish.append(icons.flag(18),
     document.createTextNode(run.session.mode === "exam" ? t("submit_short") : t("end_test")));
   finish.onclick = confirmFinish;
   foot.append(finish);
-  wrap.append(foot);
+  if (!duplicated) wrap.append(foot);
   return wrap;
 }
 
@@ -933,10 +955,13 @@ function runScreen(): HTMLElement {
  *
  *  For PRACTICE there is nothing to lose, so it just goes back.
  */
-function leaveRun(): void {
+async function leaveRun(): Promise<void> {
   const run = state.run;
   if (!run) { goHome(); return; }
-  if (run.session.mode === "exam" && !confirm(t("confirm_leave"))) return;
+  // `ask`, not `confirm`: some Android Telegram builds suppress the browser dialog inside
+  // the webview, and a suppressed confirm here means a learner cannot get out of a running
+  // exam at all. It falls back to confirm() where Telegram's own sheet is unavailable.
+  if (run.session.mode === "exam" && !(await ask(t("confirm_leave")))) return;
   stopTicking();
   state.resumable = run.session;
   state.run = null;
@@ -948,10 +973,10 @@ function goHome(): void {
   render();
 }
 
-function confirmFinish(): void {
+async function confirmFinish(): Promise<void> {
   const run = state.run;
   if (!run) return;
-  if (run.session.mode === "exam" && !confirm(t("confirm_submit"))) return;
+  if (run.session.mode === "exam" && !(await ask(t("confirm_submit")))) return;
   void finishRun();
 }
 
@@ -1213,6 +1238,12 @@ function reviewList(): HTMLElement {
 /** Fetch one explanation from the review screen, in place. */
 async function explainFromReview(questionId: number, button: HTMLButtonElement): Promise<void> {
   button.disabled = true;
+  // Say what is happening, as askWhy already does for the identical control inside a
+  // practice run. An explanation can take seconds to generate; a button that only fades
+  // out gives no reason to keep waiting, and the review screen is where a learner reads
+  // several in a row.
+  const label = button.textContent;
+  button.textContent = t("preparing");
   try {
     const res = await api.explanation(questionId);
     const box = el("div", "rev-why-text");
@@ -1226,7 +1257,11 @@ async function explainFromReview(questionId: number, button: HTMLButtonElement):
       button.replaceWith(box);
     }
   } catch (err) {
+    // Put the label back with the button. Re-enabling a button still reading "Preparing…"
+    // leaves a control that looks busy but is not, and cannot be told apart from one that
+    // is still working.
     button.disabled = false;
+    button.textContent = label;
     reportError(err);
   }
 }
@@ -1237,20 +1272,38 @@ function resultsScreen(): HTMLElement {
 
   const passed = r.passed === true;
   const esito = el("div", `esito ${passed ? "pass" : "fail"}`);
+
+  // The medallion. `.esito-mark` and its pass/fail tints have been in style.css from the
+  // start and NO .ts file ever emitted the class, so the end of an exam — the moment this
+  // product exists to deliver — was a coloured word and nothing else. Both icons default
+  // to size 44, a size used nowhere else in the app: they were drawn for this 72-96px
+  // circle and then never wired to it.
+  const mark = el("div", "esito-mark");
+  mark.append(passed ? icons.tick(44) : icons.cross(44));
+  esito.append(mark);
+
+  // `esito-sub` below, not `esito-line`. style.css styles the former; the latter has no
+  // rule anywhere in the project, so this sentence rendered at browser-default <p> size
+  // and margins instead of the 600-weight body copy it was drawn as.
   if (r.mode === "exam") {
     esito.append(el("p", "esito-verdict", passed ? t("passed") : t("failed")));
-    esito.append(el("p", "esito-line",
+    esito.append(el("p", "esito-sub",
       `${r.wrong} ${t("errors").toLowerCase()} / ${r.max_errors} ${t("allowed").toLowerCase()}`));
   } else {
     esito.append(el("p", "esito-verdict display",
       `${r.answered - r.wrong}/${r.answered}`));
-    esito.append(el("p", "esito-line", t("answers_given")));
+    esito.append(el("p", "esito-sub", t("answers_given")));
   }
 
   const tally = el("div", "tally");
+  // `tally-n` / `tally-label`, the classes style.css actually defines. This emitted
+  // "n display" and "label": there is no `.n` rule at all and `.display` sets weight and
+  // tabular figures but NO font-size, so the three numbers a finished exam exists to
+  // report — answered, errors, unanswered — came out at 16px body size instead of the
+  // 30-40px they were drawn at, under captions rendered in near-black.
   const stat = (n: string | number, label: string) => {
     const d = el("div");
-    d.append(el("div", "n display", String(n)), el("div", "label", label));
+    d.append(el("div", "tally-n display", String(n)), el("div", "tally-label", label));
     return d;
   };
   tally.append(
@@ -1272,7 +1325,10 @@ function resultsScreen(): HTMLElement {
   again.onclick = () => void startRun(r.mode);
   wrap.append(again);
 
-  const home = el("button", "btn ghost", t("back_home"));
+  // `secondary`, the variant that exists. `ghost` was emitted here and defined nowhere —
+  // the only such class in the file — so "back home" rendered as a bare .btn: no border,
+  // no background, indistinguishable from the primary button stacked directly above it.
+  const home = el("button", "btn secondary", t("back_home"));
   home.onclick = () => { state.screen = "home"; render(); };
   wrap.append(home);
   return wrap;
@@ -2612,7 +2668,16 @@ async function recoverOpenSitting(): Promise<void> {
 async function boot(): Promise<void> {
   initTelegram();
   if (!inTelegram) {
-    root.replaceChildren(el("p", "error", "Open this page from the bot in Telegram."));
+    // Wrapped in .screen and routed through i18n, like every other message in the app.
+    // This was a bare <p> against the page edge, in English only — and English is the one
+    // language this app's audience is least likely to read. The failure branch below has
+    // always used .screen; only this one was left behind.
+    const wrap = el("section", "screen");
+    // `outside_telegram` already carries this exact sentence in all four languages and is
+    // used by the catch branch below for the 401 case. Reused rather than adding a second
+    // key saying the same thing in four places.
+    wrap.append(el("p", "error", t("outside_telegram")));
+    root.replaceChildren(wrap);
     return;
   }
   try {
