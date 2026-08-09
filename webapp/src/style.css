@@ -625,6 +625,23 @@ html, body { overflow-x: hidden; }
 
 .row { display: flex; align-items: center; gap: var(--md); }
 .row-main { min-width: 0; flex: 1; }
+
+/* A .btn dropped into a .row must stop being a full-width block.
+ *
+ * `.btn` is `width: 100%` because it is designed as the big control at the bottom of a
+ * screen. Inside a flex row that width resolves against the whole row, so the button claims
+ * everything and `.row-main` — which is `flex: 1; min-width: 0`, i.e. allowed to shrink to
+ * nothing — collapses to a few characters per line. The Admin card rendered as "Grant / ac
+ * / tri / links, / newsletter" in a sliver on the left with Open sitting across it.
+ *
+ * The other rows escaped because they pair with `.switch`, which sets `flex: none`. So the
+ * rule belongs here, on the row, rather than on each button: any control put beside text is
+ * furniture and must size to its own label. */
+.row > .btn {
+  width: auto; flex: none;
+  padding: 0 var(--lg);
+  height: 44px; font-size: 16px;
+}
 .row-title { font-size: 18px; font-weight: 700; }
 .row-sub { color: var(--text-2); font-size: var(--t-caption); margin-top: 2px; }
 
