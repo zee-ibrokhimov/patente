@@ -296,6 +296,11 @@ EV_STREAK_FROZEN = "streak_frozen"
 EV_BROADCAST_SENT = "broadcast_sent"
 # A referral link was created or switched off. Who gave away access, and when.
 EV_LINK_CHANGED = "link_changed"
+# A learner's "this explanation is wrong" was dealt with, and how — read and dismissed, or
+# the cluster rewritten. Recorded because the share of reports that turn out to be RIGHT is
+# the only honest measure of explanation quality this product has: no human reviewed a draft
+# before its first reader did, so the readers ARE the review.
+EV_REPORT_RESOLVED = "report_resolved"
 # Quiz sessions. EV_SESSION_START/END already existed for the study session; these name
 # the bounded, gradeable kind so an exam is separable in the funnel.
 EV_EXAM_STARTED = "exam_started"
@@ -304,6 +309,7 @@ EVENT_TYPES = (
     EV_QUESTION_SERVED, EV_ANSWER_GIVEN, EV_TRANSLATION_TOGGLED, EV_EXPLANATION_VIEWED,
     EV_PAYWALL_HIT, EV_PAYWALL_DISMISSED, EV_PURCHASE_STARTED, EV_PURCHASE_COMPLETED,
     EV_PURCHASE_REFUNDED, EV_SESSION_START, EV_SESSION_END, EV_REPORT_SUBMITTED,
+    EV_REPORT_RESOLVED,
     EV_USER_DELETED,
     EV_PASS_GRANTED,
     EV_EXAM_STARTED, EV_EXAM_FINISHED,

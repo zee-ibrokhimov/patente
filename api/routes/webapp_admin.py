@@ -34,19 +34,22 @@ from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
+from sqlalchemy import delete as sa_delete
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps import get_session
-from api.models import Event, Purchase, ReferralLink, User
+from api.models import Event, Explanation, Purchase, Question, ReferralLink, Report, User
 from api.routes.webapp import webapp_user
-from api.services import broadcast, events, notify, referrals
+from api.services import broadcast, events, explanations, notify, referrals
 from api.services.entitlement import evaluate
 from api.services.users import _clean_source
 from shared.constants import (
     EV_BROADCAST_SENT,
     EV_LINK_CHANGED,
     EV_PASS_GRANTED,
+    EV_REPORT_RESOLVED,
+    EV_USER_DELETED,
     UI_LANGUAGES,
 )
 
@@ -352,6 +355,18 @@ class BroadcastIn(BaseModel):
     # and the number of people it is about to reach is the one fact worth confirming.
     confirm_recipients: int | None = None
 
+    # An image at the top of the newsletter. A URL rather than an upload: Telegram fetches
+    # it itself, so there is no file to store, serve or back up, and the ad artwork already
+    # lives somewhere public. Note that a photo caption is capped at 1024 characters — over
+    # that, send_rich drops the image and sends the full text.
+    photo_url: str | None = None
+
+    # Up to three inline buttons under the message. The interesting one is
+    # {"text": "...", "webapp": true}, which opens the Mini App in place — that is what
+    # turns "special offer" into one tap onto the paywall rather than a trip to a browser.
+    # Validated by broadcast.buttons_for, not trusted.
+    buttons: list[dict] | None = None
+
 
 @router.post("/broadcast/preview")
 async def preview_broadcast(
@@ -393,9 +408,17 @@ async def send_broadcast(
             f"confirm {len(ids)} recipients — you sent {body.confirm_recipients}",
         )
 
+    # Validated BEFORE queueing, so a bad button is a 422 the sender sees rather than a
+    # silent failure discovered after the newsletter has already gone to everyone.
+    try:
+        buttons = broadcast.buttons_for(body.buttons)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
     background.add_task(broadcast.send_many, ids, body.text,
-                        sent_by=staff.chat_id, label=body.label)
-    return {"queued": len(ids)}
+                        sent_by=staff.chat_id, label=body.label,
+                        photo_url=body.photo_url, buttons=buttons)
+    return {"queued": len(ids), "buttons": len(buttons), "photo": bool(body.photo_url)}
 
 
 @router.get("/broadcast/history")
@@ -403,3 +426,202 @@ async def broadcast_history(
     _staff: User = Depends(staff_user), session: AsyncSession = Depends(get_session)
 ):
     return {"sent": await broadcast.history(session)}
+
+
+# --- what learners are telling you ------------------------------------------
+
+@router.get("/reports")
+async def list_reports(
+    unresolved: bool = Query(default=True),
+    limit: int = Query(default=50, ge=1, le=200),
+    _staff: User = Depends(staff_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """"This explanation is wrong", with enough context to judge it without leaving the page.
+
+    The button that files these has shipped for a long time and NOTHING read the table, so
+    the complaints accumulated where no one could see them. That is the worst possible state
+    for this particular feature: it invites a learner to tell you the app is wrong, and then
+    discards what they said. Every report here is a person who cared enough to tap.
+
+    The explanation text is joined in deliberately. A report is only actionable next to the
+    sentence being reported, and having to look the cluster up by hand is exactly the
+    friction that leaves a queue unread.
+    """
+    stmt = (
+        select(Report, Question.statement_it, Question.cluster_id)
+        .join(Question, Question.id == Report.question_id)
+        .order_by(Report.created_at.desc())
+        .limit(limit)
+    )
+    if unresolved:
+        stmt = stmt.where(Report.resolved_at.is_(None))
+
+    rows = (await session.execute(stmt)).all()
+
+    out = []
+    for report, statement, cluster_id in rows:
+        text = None
+        if cluster_id is not None:
+            explanation = await session.scalar(
+                select(Explanation).where(
+                    Explanation.cluster_id == cluster_id,
+                    Explanation.lang == report.lang,
+                )
+            )
+            text = explanation.text if explanation else None
+        out.append({
+            "id": report.id,
+            "chat_id": report.chat_id,
+            "question_id": report.question_id,
+            "cluster_id": cluster_id,
+            "lang": report.lang,
+            "statement": statement,
+            "explanation": text,
+            "created_at": report.created_at,
+            "resolved_at": report.resolved_at,
+        })
+
+    open_count = await session.scalar(
+        select(func.count(Report.id)).where(Report.resolved_at.is_(None))
+    )
+    return {"reports": out, "open": open_count or 0}
+
+
+@router.post("/reports/{report_id}/resolve")
+async def resolve_report(
+    report_id: int,
+    staff: User = Depends(staff_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Mark one report as dealt with. Idempotent: resolving twice is not an error, because
+    the realistic way this is used is two taps on a slow connection."""
+    report = await session.get(Report, report_id)
+    if report is None:
+        raise HTTPException(404, "no such report")
+    if report.resolved_at is None:
+        report.resolved_at = datetime.now(timezone.utc)
+        await events.record(session, EV_REPORT_RESOLVED, chat_id=staff.chat_id,
+                            report_id=report_id, question_id=report.question_id)
+        await session.commit()
+    return {"id": report_id, "resolved_at": report.resolved_at}
+
+
+@router.post("/reports/{report_id}/regenerate")
+async def regenerate_reported(
+    report_id: int,
+    staff: User = Depends(staff_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Rewrite the explanation a learner reported, and resolve the report.
+
+    The whole point of reading the queue is being able to act on it in the same place. This
+    deletes the stored rows for the cluster and regenerates them, so the next reader gets a
+    fresh answer rather than the one that was just complained about.
+
+    Runs in the FOREGROUND, unlike the prefetch: staff tapped it and are waiting to see
+    whether the new text is better, and a background rewrite would leave them looking at
+    the old one with no way to tell if anything happened.
+    """
+    report = await session.get(Report, report_id)
+    if report is None:
+        raise HTTPException(404, "no such report")
+    if report.cluster_id is None:
+        raise HTTPException(409, "that report is not attached to a cluster")
+
+    await session.execute(
+        sa_delete(Explanation).where(Explanation.cluster_id == report.cluster_id)
+    )
+    await session.commit()
+
+    outcome = await explanations.generate(session, report.cluster_id)
+    if report.resolved_at is None:
+        report.resolved_at = datetime.now(timezone.utc)
+    await events.record(session, EV_REPORT_RESOLVED, chat_id=staff.chat_id,
+                        report_id=report_id, action="regenerated",
+                        outcome=outcome.outcome)
+    await session.commit()
+
+    fresh = await session.scalar(
+        select(Explanation).where(
+            Explanation.cluster_id == report.cluster_id,
+            Explanation.lang == report.lang,
+        )
+    )
+    return {
+        "id": report_id,
+        "outcome": outcome.outcome,
+        "explanation": fresh.text if fresh else None,
+        "status": fresh.status if fresh else None,
+    }
+
+
+# --- removing things ---------------------------------------------------------
+
+@router.delete("/users/{chat_id}")
+async def delete_user(
+    chat_id: int,
+    staff: User = Depends(staff_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Remove a learner and everything of theirs.
+
+    Irreversible, and the only destructive operation in this panel. Two guards:
+
+      · Staff cannot delete themselves. Deleting the only staff account locks the panel
+        for good, and there is no second way in — `staff_user` is the only gate.
+      · The PURCHASES are kept, orphaned, on purpose. They are the record of money that
+        changed hands; a refund request or a tax question outlives the account, and
+        deleting the row does not undo the payment. Everything else — progress, sessions,
+        answers, vocabulary, reports — belongs to the person and goes.
+
+    The event line survives too, so "where did this account go" is answerable afterwards.
+    """
+    if chat_id == staff.chat_id:
+        raise HTTPException(409, "you cannot delete your own staff account")
+
+    user = await session.get(User, chat_id)
+    if user is None:
+        raise HTTPException(404, "no such user")
+
+    kept = await session.scalar(
+        select(func.count(Purchase.id)).where(Purchase.chat_id == chat_id)
+    )
+    await events.record(session, EV_USER_DELETED, chat_id=staff.chat_id,
+                        deleted=chat_id, purchases_kept=kept or 0)
+    await session.delete(user)
+    await session.commit()
+    return {"deleted": chat_id, "purchases_kept": kept or 0}
+
+
+@router.delete("/links/{code}")
+async def delete_link(
+    code: str,
+    staff: User = Depends(staff_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Delete a referral link outright.
+
+    `PATCH active=false` remains the right tool almost always, and the reason the delete did
+    not exist is still true: the code is how every user it brought is attributed, and
+    removing it makes that history unreadable. So this refuses once the link has been USED,
+    and points at deactivating instead. An unused link is just a typo, and having to live
+    with a typo for ever is its own kind of bad.
+    """
+    link = await session.get(ReferralLink, code)
+    if link is None:
+        raise HTTPException(404, "no such link")
+
+    used = await referrals.uses(session, code)
+    if used:
+        raise HTTPException(
+            409,
+            f"{used} user(s) came from this link — deactivate it instead of deleting, "
+            f"or their attribution is lost",
+        )
+
+    await events.record(session, EV_LINK_CHANGED, chat_id=staff.chat_id,
+                        code=code, action="deleted")
+    await session.delete(link)
+    await session.commit()
+    return {"deleted": code}

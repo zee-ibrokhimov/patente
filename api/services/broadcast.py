@@ -37,6 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.models import Event, User
 from api.services import events, notify
+from shared.config import settings
 from shared.constants import EV_BROADCAST_SENT
 from shared.db import async_session_factory
 
@@ -68,8 +69,59 @@ async def recipients(
     return list(await session.scalars(stmt))
 
 
+MAX_BUTTONS = 3
+
+
+def buttons_for(specs: list[dict] | None) -> list[dict]:
+    """Validate newsletter buttons into Telegram's shape, or refuse them.
+
+    Three kinds and nothing else:
+
+      · {"text": ..., "webapp": true}  — opens the Mini App INSIDE Telegram. This is the
+        one that matters for an offer: it lands on the app in a single tap instead of
+        bouncing the reader into a browser, where they are simply gone.
+      · {"text": ..., "url": "https://..."}
+      · {"text": ..., "chat": "@handle"} — a t.me link, for "message me to pay".
+
+    An inline button is a place thousands of people are being sent at once, so the URL is
+    checked rather than trusted: https only. `javascript:` and `tg://` are both rendered
+    happily by Telegram, and the second can act on the reader's own account.
+    """
+    if not specs:
+        return []
+    if len(specs) > MAX_BUTTONS:
+        raise ValueError(f"at most {MAX_BUTTONS} buttons")
+
+    out: list[dict] = []
+    for spec in specs:
+        label = (spec.get("text") or "").strip()
+        if not label:
+            raise ValueError("every button needs a label")
+        if len(label) > 64:
+            raise ValueError(f"button label too long: {label[:32]}…")
+
+        if spec.get("webapp"):
+            if not settings.webapp_url:
+                raise ValueError(
+                    "WEBAPP_URL is not configured, so a Mini App button would open nothing")
+            out.append({"text": label, "web_app": {"url": settings.webapp_url}})
+            continue
+
+        handle = (spec.get("chat") or "").lstrip("@").strip()
+        if handle:
+            out.append({"text": label, "url": f"https://t.me/{handle}"})
+            continue
+
+        url = (spec.get("url") or "").strip()
+        if not url.startswith("https://"):
+            raise ValueError(f"button {label!r} needs an https:// url, a chat, or webapp")
+        out.append({"text": label, "url": url})
+    return out
+
+
 async def send_many(chat_ids: list[int], text: str, *, sent_by: int,
-                    label: str = "") -> dict:
+                    label: str = "", photo_url: str | None = None,
+                    buttons: list[dict] | None = None) -> dict:
     """Send `text` to each id at a fixed pace. Never raises.
 
     Returns counts. A failure is normal rather than exceptional — someone who blocked the
@@ -79,7 +131,8 @@ async def send_many(chat_ids: list[int], text: str, *, sent_by: int,
     delivered = failed = 0
     for chat_id in chat_ids[:MAX_RECIPIENTS]:
         try:
-            ok = await notify.send(chat_id, text)
+            ok = await notify.send_rich(chat_id, text,
+                                        photo_url=photo_url, buttons=buttons)
         except Exception:                                             # noqa: BLE001
             # notify.send already swallows the normal failures; this is the belt for
             # anything it does not, because one bad id must not end the newsletter.

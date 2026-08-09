@@ -13,7 +13,9 @@ import type {
   Profile,
   Question,
   AdminLink,
+  AdminButton,
   AdminOverview,
+  AdminReport,
   AdminUser,
   BroadcastSent,
   Leaderboard,
@@ -177,11 +179,35 @@ export const admin = {
   broadcast: (body: {
     text: string; lang: string | null; premium_only: boolean;
     label: string; confirm_recipients: number;
+    photo_url?: string | null;
+    /** Up to three. `{text, webapp: true}` opens the Mini App in place, which is what makes
+     *  an offer one tap from the paywall instead of a trip through a browser. */
+    buttons?: AdminButton[];
   }) => request<{ queued: number }>("/admin/broadcast", {
     method: "POST",
     body: JSON.stringify(body),
   }),
   history: () => request<{ sent: BroadcastSent[] }>("/admin/broadcast/history"),
+
+  deleteLink: (code: string) =>
+    request<{ deleted: string }>(`/admin/links/${encodeURIComponent(code)}`, {
+      method: "DELETE",
+    }),
+  deleteUser: (chatId: number) =>
+    request<{ deleted: number; purchases_kept: number }>(`/admin/users/${chatId}`, {
+      method: "DELETE",
+    }),
+
+  /** What learners have told you is wrong. Collected since launch and, until now, read by
+   *  nothing. */
+  reports: (unresolved = true) =>
+    request<{ reports: AdminReport[]; open: number }>(
+      `/admin/reports?unresolved=${unresolved}`),
+  resolveReport: (id: number) =>
+    request<{ id: number }>(`/admin/reports/${id}/resolve`, { method: "POST" }),
+  regenerateReported: (id: number) =>
+    request<{ id: number; outcome: string; explanation: string | null }>(
+      `/admin/reports/${id}/regenerate`, { method: "POST" }),
 };
 
 export const leaderboard = {

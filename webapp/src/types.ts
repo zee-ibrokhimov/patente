@@ -354,3 +354,29 @@ export interface BroadcastSent {
   label: string;
   preview: string;
 }
+
+/** One inline button under a newsletter. Exactly one of the three shapes is meaningful:
+ *  `webapp` opens the Mini App in place, `chat` becomes a t.me link, `url` must be https. */
+export interface AdminButton {
+  text: string;
+  webapp?: boolean;
+  chat?: string;
+  url?: string;
+}
+
+/** A learner's "this explanation is wrong", with the text it is about.
+ *
+ *  `statement` and `explanation` are joined in server-side on purpose: a report is only
+ *  actionable next to the sentence being reported, and looking the cluster up by hand is
+ *  the friction that leaves a queue unread. */
+export interface AdminReport {
+  id: number;
+  chat_id: number;
+  question_id: number;
+  cluster_id: number | null;
+  lang: string;
+  statement: string;
+  explanation: string | null;
+  created_at: string;
+  resolved_at: string | null;
+}

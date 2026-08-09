@@ -19,6 +19,7 @@ import type {
   VocabList,
   AdminLink,
   AdminOverview,
+  AdminReport,
   AdminUser,
   Leaderboard,
   RepeatSource,
@@ -125,6 +126,7 @@ const state: {
   /** The owner's console. Loaded on entry and never at boot — it is one person's screen
    *  and everybody else would be paying for a request that 404s. */
   adminData: { overview: AdminOverview | null; users: AdminUser[]; links: AdminLink[];
+               reports: AdminReport[]; openReports: number;
                query: string; busy: boolean } | null;
   /** A quiz being prepared. Non-null only between tapping Start and the first question. */
   preparing: { mode: Mode; source: RepeatSource } | null;
@@ -1043,6 +1045,14 @@ function explanationLangNote(explanationLang: string | null): HTMLElement {
  *  is the quality metric for a feature whose whole pitch is quality.
  */
 function reportLink(questionId: number): HTMLElement {
+  // The disclosure sits WITH the report button, not in a settings page or a privacy policy.
+  // Someone doubting an explanation should learn where it came from at the moment of
+  // doubting, beside the control for saying so. And it is a plain description rather than a
+  // disclaimer: no explanation in this database has been read by a person before its first
+  // reader, so the readers are the review, and they should be told they are.
+  const wrap = el("div", "expl-foot");
+  wrap.append(el("p", "ai-note", t("ai_note")));
+
   const link = el("button", "expl-report", t("report_wrong"));
   link.type = "button";
   link.onclick = async () => {
@@ -1055,7 +1065,8 @@ function reportLink(questionId: number): HTMLElement {
       reportError(err);
     }
   };
-  return link;
+  wrap.append(link);
+  return wrap;
 }
 
 function verdictBox(a: AnswerResult): HTMLElement {
@@ -2220,7 +2231,8 @@ function isStaff(): boolean {
 
 async function openAdmin(): Promise<void> {
   state.screen = "admin";
-  state.adminData = { overview: null, users: [], links: [], query: "", busy: true };
+  state.adminData = { overview: null, users: [], links: [], reports: [], openReports: 0,
+                      query: "", busy: true };
   render();
   await refreshAdmin();
 }
@@ -2228,16 +2240,19 @@ async function openAdmin(): Promise<void> {
 async function refreshAdmin(): Promise<void> {
   if (!state.adminData) return;
   try {
-    const [overview, users, links] = await Promise.all([
+    const [overview, users, links, reports] = await Promise.all([
       admin.overview(),
       admin.users(state.adminData.query),
       admin.links(),
+      admin.reports(),
     ]);
     state.adminData = {
       ...state.adminData,
       overview,
       users: users.users,
       links: links.links,
+      reports: reports.reports,
+      openReports: reports.open,
       busy: false,
     };
   } catch (err) {
@@ -2275,11 +2290,81 @@ function adminScreen(): HTMLElement {
     wrap.append(grid);
   }
 
+  // Reports first. It is the only section that represents somebody waiting for an answer,
+  // and a queue placed below three other cards is a queue that gets read once.
+  wrap.append(adminReports(data.reports, data.openReports));
   wrap.append(adminUsers(data.users));
   wrap.append(adminLinks(data.links));
   wrap.append(adminBroadcast());
   return wrap;
 }
+
+/** What learners have told you is wrong.
+ *
+ *  The report button has shipped since launch and nothing ever read the table, so the
+ *  complaints piled up where nobody could see them. That is the worst state for this
+ *  particular feature: it asks somebody to tell you the app is wrong and then throws away
+ *  what they said. Every row here is a person who cared enough to tap.
+ *
+ *  Each carries the statement AND the explanation, because a report is only judgeable next
+ *  to the text being reported — and "Rewrite" is beside it, because a queue you cannot act
+ *  on from the same screen is a queue that gets read once and abandoned.
+ */
+function adminReports(reports: AdminReport[], open: number): HTMLElement {
+  const card = el("div", "card");
+  card.style.marginTop = "var(--md)";
+
+  card.append(el("div", "row-title", `Reports${open ? ` · ${open} open` : ""}`));
+
+  if (!reports.length) {
+    card.append(el("p", "caption", "Nothing reported. This is the good state."));
+    return card;
+  }
+
+  for (const report of reports) {
+    const item = el("div", "report");
+    item.append(el("div", "report-meta",
+      `#${report.question_id} · ${report.lang} · ${report.created_at.slice(0, 10)}`));
+    item.append(el("p", "report-statement", report.statement));
+    item.append(el("p", "report-explanation",
+      report.explanation || "— no explanation stored for this cluster —"));
+
+    const actions = el("div", "report-actions");
+
+    const done = el("button", "btn secondary", "Mark read");
+    done.type = "button";
+    done.onclick = async () => {
+      done.disabled = true;
+      try {
+        await admin.resolveReport(report.id);
+        await refreshAdmin();
+      } catch (err) { done.disabled = false; reportError(err); }
+    };
+
+    const again = el("button", "btn primary", "Rewrite");
+    again.type = "button";
+    again.disabled = report.cluster_id === null;
+    again.onclick = async () => {
+      again.disabled = true;
+      again.textContent = "Rewriting…";
+      try {
+        const res = await admin.regenerateReported(report.id);
+        toast(res.outcome === "stored" ? "Rewritten" : `Model said: ${res.outcome}`);
+        await refreshAdmin();
+      } catch (err) {
+        again.disabled = false;
+        again.textContent = "Rewrite";
+        reportError(err);
+      }
+    };
+
+    actions.append(again, done);
+    item.append(actions);
+    card.append(item);
+  }
+  return card;
+}
+
 
 /** Find somebody and give them access. This is how the product is sold now. */
 function adminUsers(users: AdminUser[]): HTMLElement {

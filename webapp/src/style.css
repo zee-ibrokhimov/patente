@@ -1150,6 +1150,14 @@ html, body { overflow-x: hidden; }
   display: block; margin-top: var(--sm);
   font-size: 12px; color: var(--text-2); font-style: italic;
 }
+/* Provenance, then the control for disputing it. Quiet on purpose: it must be readable by
+   anyone who wonders where the text came from, and must not compete with the explanation
+   itself, which is the thing they are paying for. */
+.expl-foot { margin-top: var(--md); }
+.ai-note {
+  margin: 0; color: var(--text-2); font-size: 12px; line-height: 1.4;
+}
+
 .expl-report {
   display: block; margin-top: var(--sm); padding: 0;
   border: 0; background: none; color: var(--text-2);
@@ -1157,3 +1165,22 @@ html, body { overflow-x: hidden; }
   cursor: pointer;
 }
 .expl-report:disabled { text-decoration: none; opacity: .8; cursor: default; }
+
+/* --- admin: the report queue ---------------------------------------------- */
+/* Statement, then the explanation being complained about, then the two actions. The
+   explanation is indented and quieter than the statement because the statement is what
+   identifies the report and the explanation is the evidence. */
+.report { padding: var(--md) 0; border-top: 1px solid var(--edge); }
+.report:first-of-type { border-top: 0; }
+.report-meta {
+  color: var(--text-3); font-size: 12px; font-variant-numeric: tabular-nums;
+  margin-bottom: 4px;
+}
+.report-statement { margin: 0 0 var(--sm); font-size: 15px; font-weight: 600; }
+.report-explanation {
+  margin: 0 0 var(--md); padding-left: var(--md);
+  border-left: 2px solid var(--edge);
+  color: var(--text-2); font-size: 14px; line-height: 1.45;
+}
+.report-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sm); }
+.report-actions .btn { min-height: 40px; font-size: 15px; }

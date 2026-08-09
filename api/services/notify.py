@@ -37,6 +37,10 @@ log = logging.getLogger(__name__)
 
 TIMEOUT = 10.0
 
+# Telegram's caption limit. A message is 4096; a photo caption is 1024, and the API does not
+# wrap or warn — it rejects, or the client shows a cut-off caption. See send_rich.
+PHOTO_CAPTION_LIMIT = 1024
+
 
 def _money(cents: int) -> str:
     """Formatted without locale rules, deliberately: the same number must appear in the
@@ -241,6 +245,58 @@ async def send(chat_id: int, text: str) -> bool:
         return False
     except Exception as exc:  # noqa: BLE001 — a webhook must never fail on this
         log.warning("could not message %s about their payment: %s", chat_id, exc)
+        return False
+
+
+async def send_rich(
+    chat_id: int,
+    text: str,
+    *,
+    photo_url: str | None = None,
+    buttons: list[dict] | None = None,
+) -> bool:
+    """One newsletter message: optional photo, optional inline keyboard. Never raises.
+
+    Two Telegram methods rather than one, because a photo CAPTION is capped at 1024
+    characters against 4096 for a plain message — so a long newsletter sent as a caption
+    silently loses its ending. Over the cap the photo is dropped and the text goes whole:
+    the words are the point, and a truncated last paragraph is worse than no picture.
+
+    `buttons` arrive already validated into Telegram's shape. A web_app button opens the
+    Mini App INSIDE Telegram, which is what makes "here is an offer" land on the paywall in
+    one tap instead of bouncing someone into a browser and losing them.
+    """
+    token = settings.bot_token
+    if not token:
+        log.warning("no bot token configured — cannot reach %s", chat_id)
+        return False
+
+    markup = {"inline_keyboard": [[b] for b in buttons]} if buttons else None
+    use_photo = bool(photo_url) and len(text) <= PHOTO_CAPTION_LIMIT
+
+    if use_photo:
+        method = "sendPhoto"
+        payload: dict = {"chat_id": chat_id, "photo": photo_url, "caption": text,
+                         "parse_mode": "HTML"}
+    else:
+        method = "sendMessage"
+        payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML",
+                   "disable_web_page_preview": False}
+    if markup:
+        payload["reply_markup"] = markup
+
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            r = await client.post(f"https://api.telegram.org/bot{token}/{method}",
+                                  json=payload)
+        if r.status_code == 200:
+            return True
+        level = log.info if r.status_code in (400, 403) else log.warning
+        level("could not send newsletter to %s: %s %s",
+              chat_id, r.status_code, r.text[:200])
+        return False
+    except Exception as exc:  # noqa: BLE001 — one recipient must not end a newsletter
+        log.warning("could not send newsletter to %s: %s", chat_id, exc)
         return False
 
 

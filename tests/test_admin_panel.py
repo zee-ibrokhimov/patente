@@ -226,8 +226,7 @@ async def test_a_link_cannot_be_created_beyond_the_bound(client, registered):
     assert r.status_code == 422
 
 
-async def test_a_link_can_be_switched_off_but_not_deleted(client, registered, api_db):
-    """Deleting one would erase the attribution of every user it ever brought."""
+async def test_a_link_can_be_switched_off(client, registered, api_db):
     await client.post("/webapp/admin/links", headers=auth(),
                       json={"code": "campaign", "trial_days": 7})
     r = await client.patch("/webapp/admin/links/campaign", headers=auth(),
@@ -237,8 +236,39 @@ async def test_a_link_can_be_switched_off_but_not_deleted(client, registered, ap
         row = await s.get(ReferralLink, "campaign")
     assert row is not None and row.active is False
 
-    assert not any(route.methods & {"DELETE"} for route in webapp_admin.router.routes), \
-        "a delete route would let attribution be erased"
+
+async def test_a_used_link_cannot_be_deleted(client, registered, api_db):
+    """The invariant, restated as behaviour.
+
+    This used to assert that NO delete route existed anywhere on the router, which is a
+    proxy for the real rule and a brittle one — it broke the moment an unrelated delete was
+    added, and it would have kept passing if a delete had been written that erased
+    attribution by some other name. What must hold is narrower and more useful: a code that
+    somebody actually came through cannot be removed, because that code is the only record
+    of where they came from.
+    """
+    await client.post("/webapp/admin/links", headers=auth(),
+                      json={"code": "brought-someone", "trial_days": 7})
+    async with api_db() as s:
+        s.add(User(chat_id=7100, lang="ru", source="brought-someone"))
+        await s.commit()
+
+    r = await client.delete("/webapp/admin/links/brought-someone", headers=auth())
+    assert r.status_code == 409, "a link with attribution behind it was deleted"
+    assert "deactivate" in r.json()["detail"], "the refusal should say what to do instead"
+
+    async with api_db() as s:
+        assert await s.get(ReferralLink, "brought-someone") is not None
+
+
+async def test_an_unused_link_can_be_deleted(client, registered, api_db):
+    """A link nobody used is a typo, and living with a typo for ever is its own defect."""
+    await client.post("/webapp/admin/links", headers=auth(),
+                      json={"code": "typpo", "trial_days": 7})
+    r = await client.delete("/webapp/admin/links/typpo", headers=auth())
+    assert r.status_code == 200
+    async with api_db() as s:
+        assert await s.get(ReferralLink, "typpo") is None
 
 
 async def test_uses_are_reported(client, registered, api_db):
