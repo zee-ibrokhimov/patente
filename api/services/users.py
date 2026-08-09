@@ -114,6 +114,7 @@ async def update_settings(
     translations_on: bool | None = None,
     onboarded: bool | None = None,
     leaderboard_opt_out: bool | None = None,
+    reminders_off: bool | None = None,
 ) -> User:
     if lang is not None:
         if lang not in UI_LANGUAGES:
@@ -128,6 +129,8 @@ async def update_settings(
         # it runs, so opting out removes them from the CURRENT week as well as future ones.
         # An opt-out that only applied from next Monday would not be one.
         user.leaderboard_opt_out = leaderboard_opt_out
+    if reminders_off is not None:
+        user.reminders_off = reminders_off
     await session.flush()
     return user
 

@@ -300,6 +300,47 @@ async def send_rich(
         return False
 
 
+async def reminder(chat_id: int, lang: str) -> bool:
+    """A come-back nudge, with a way in and a way out.
+
+    Both buttons matter. Open is the point — a reminder that makes somebody hunt for the
+    app has spent its one chance on friction. Stop is what makes the whole feature
+    defensible: without it the only way to end an unwanted message is to block the bot,
+    which also ends the payment notices and the renewal warning.
+
+    The text lives in the BOT's locale files, which the API does not load, so it is passed
+    through the same tiny reader the bot uses rather than duplicated here.
+    """
+    buttons: list[dict] = []
+    if settings.webapp_url.startswith("https://"):
+        buttons.append({"text": _bot_text(lang, "open_app"),
+                        "web_app": {"url": settings.webapp_url}})
+    buttons.append({"text": _bot_text(lang, "reminder_stop"),
+                    "callback_data": "r:stop"})
+    return await send_rich(chat_id, _bot_text(lang, "reminder"), buttons=buttons)
+
+
+def _bot_text(lang: str, key: str) -> str:
+    """One string from the bot's locale files.
+
+    The API deliberately does not import from `bot/` — they are separate processes with
+    separate deployments — so this reads the JSON directly. Falls back to Russian, then to
+    the key, which is exactly what the bot's own reader does: a missing string must never
+    render as "None" at a user.
+    """
+    import json
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2] / "bot" / "locales"
+    for candidate in (lang, "ru"):
+        path = root / f"{candidate}.json"
+        if path.exists():
+            value = json.loads(path.read_text(encoding="utf-8")).get(key)
+            if value:
+                return value
+    return key
+
+
 async def payment(chat_id: int, lang: str, kind: str, expires_at: datetime | None,
                   tier: str, days: int = 0) -> bool:
     """Tell someone what just happened to their subscription."""

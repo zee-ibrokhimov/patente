@@ -2920,7 +2920,26 @@ function adminLinks(links: AdminLink[]): HTMLElement {
     const drop = el("button", "admin-btn danger", "Delete");
     drop.type = "button";
     drop.onclick = async () => {
-      if (!(await ask(`Delete link ${link.code}?`))) return;
+      // Explain the refusal BEFORE the round trip, and offer the thing that does work.
+      //
+      // The server refuses to delete a code somebody arrived through — that code is the
+      // only record of where they came from — and it says so in the 409. But the message
+      // landed in a pill-shaped toast, so the button read as simply broken: reported as
+      // "deleting a referral link is not working". An action offered and then always
+      // refused is worse than one that is not offered.
+      if (link.uses > 0) {
+        const off = await ask(
+          `${link.uses} user(s) came through ${link.code}, so it cannot be deleted — `
+          + `the code is the only record of where they came from. Turn it off instead?`);
+        if (!off) return;
+        try {
+          await admin.updateLink(link.code, { active: false });
+          toast("Link turned off. It grants nothing now.");
+          await refreshAdmin();
+        } catch (err) { reportError(err); }
+        return;
+      }
+      if (!(await ask(`Delete link ${link.code}? Nobody has used it.`))) return;
       drop.disabled = true;
       try {
         await admin.deleteLink(link.code);

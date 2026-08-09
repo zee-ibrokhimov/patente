@@ -63,6 +63,7 @@ from shared.constants import (
     MODE_EXAM,
     SERVABLE_STATUSES,
     STATUS_FLAGGED,
+    USER_ACTIVITY_EVENTS,
     UI_LANGUAGES,
 )
 
@@ -103,9 +104,14 @@ async def overview(
     revenue = await session.scalar(
         select(func.coalesce(func.sum(Purchase.amount_cents), 0))
         .where(Purchase.amount_cents > 0, Purchase.refunded_at.is_(None)))
+    # USER_ACTIVITY_EVENTS, not every row with a chat_id on it. This counted all event
+    # types, so the owner sending a newsletter or granting a pass registered as active
+    # users — the one number here meant to say "is anybody still here" was inflated by the
+    # system's own writes. Same defect that made the reminder gap unreachable.
     active_today = await session.scalar(
         select(func.count(func.distinct(Event.chat_id)))
-        .where(Event.created_at > now - timedelta(days=1)))
+        .where(Event.created_at > now - timedelta(days=1),
+               Event.type.in_(USER_ACTIVITY_EVENTS)))
 
     # How much of the bank is actually written.
     #
@@ -784,7 +790,8 @@ async def _segment_ids(session: AsyncSession, segment: str, within_days: int) ->
 
     if segment == "active":
         stmt = (select(func.distinct(Event.chat_id))
-                .where(Event.created_at > since))
+                .where(Event.created_at > since,
+                       Event.type.in_(USER_ACTIVITY_EVENTS)))
     elif segment == "expiring":
         # Still paid up, but not for long. This is the renewal conversation.
         stmt = (select(User.chat_id)
@@ -797,7 +804,8 @@ async def _segment_ids(session: AsyncSession, segment: str, within_days: int) ->
         # Nobody has heard from them. The mirror image of `active`, and the segment
         # retention starts from — measured the same way, from the event log, so the two
         # can never disagree about what "using the app" means.
-        seen = select(func.distinct(Event.chat_id)).where(Event.created_at > since)
+        seen = select(func.distinct(Event.chat_id)).where(
+            Event.created_at > since, Event.type.in_(USER_ACTIVITY_EVENTS))
         stmt = select(User.chat_id).where(User.chat_id.not_in(seen))
     elif segment == "trial":
         # Access with no money behind it: a referral trial or a previous gift. `purchased`

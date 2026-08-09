@@ -63,5 +63,8 @@
   "menu_plan": "⭐ Premium",
   "menu_settings": "⚙️ Impostazioni",
   "menu_help": "❓ Aiuto",
-  "open_app_short": "Apri"
+  "open_app_short": "Apri",
+  "reminder": "👋 Non ti vediamo da un po'.\n\nL'esame non aspetta — dieci minuti al giorno alzano parecchio la tua preparazione. Riprendiamo?",
+  "reminder_stop": "Non ricordarmelo",
+  "reminder_stopped": "Non te lo ricorderemo più."
 }

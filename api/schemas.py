@@ -38,6 +38,9 @@ class UserSettingsIn(BaseModel):
     # Hide me from the weekly league. The switch that makes showing real first names to
     # other learners defensible: one tap, immediate, and retroactive.
     leaderboard_opt_out: bool | None = None
+    # Stop the come-back nudges. Separate from the leaderboard switch: one is about being
+    # SEEN, the other about being CONTACTED.
+    reminders_off: bool | None = None
 
 
 class UserOut(BaseModel):
@@ -80,6 +83,7 @@ class UserOut(BaseModel):
     # Hidden from the weekly league. The client renders the Settings switch from this, and
     # a switch that cannot read its own state would show everyone as visible.
     leaderboard_opt_out: bool = False
+    reminders_off: bool = False
     # How many terms the glossary actually holds, counted rather than remembered.
     #
     # The Vocabulary screen showed "1090 exam words" directly above "0 of 1104 learned" —

@@ -36,6 +36,22 @@ async def whois(chat_id: int, session: AsyncSession = Depends(get_session)):
     return found
 
 
+@router.post("/notify-quiet")
+async def notify_quiet(session: AsyncSession = Depends(get_session)):
+    """Nudge learners who have stopped opening the app.
+
+    Same trigger as notify-lapses — the hourly cron — and for the same reasons: one process
+    per role, no queue, and a background loop inside the API is a long-lived task that has
+    to be reasoned about on every deploy.
+
+    Safe to run hourly. The limits live in api/services/reminders.py and are counted from
+    the event log, so a run that finds nobody due does nothing and costs one query.
+    """
+    from api.services import reminders
+
+    return await reminders.run(session)
+
+
 @router.post("/notify-lapses")
 async def notify_lapses(session: AsyncSession = Depends(get_session)):
     """Send "your Premium is ending / has ended" to whoever is due.

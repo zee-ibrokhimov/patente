@@ -88,6 +88,15 @@ class User(Base):
     # so in one tap and never appear again — including retroactively.
     leaderboard_opt_out: Mapped[bool] = mapped_column(default=False)
 
+    # Stop the come-back nudges. Separate from the leaderboard switch on purpose: one is
+    # about being SEEN by other learners, the other about being CONTACTED, and somebody who
+    # wants their name off a scoreboard has not asked to stop hearing from the product.
+    #
+    # Without it the only way to stop a reminder was to block the bot — which also stops
+    # the payment notices and the "your access ends Friday" warning, so the cost of one
+    # unwanted message was every wanted one.
+    reminders_off: Mapped[bool] = mapped_column(default=False, server_default="0")
+
     # Streak freezes held. A freeze covers ONE missed day, so an evening that got away from
     # someone does not erase a month of work — which is the single most demoralising thing a
     # streak can do, and why people abandon them rather than start again.

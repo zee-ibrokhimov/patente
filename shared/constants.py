@@ -319,6 +319,12 @@ MANUAL_PURCHASE_PREFIX = "manual:"
 # to attribute it. Recorded as an event rather than a table: it is append-only, it is
 # already backed up, and spend is a question asked once a month, not a hot path.
 EV_MODEL_CALL = "model_call"
+
+# A come-back nudge was attempted. Recorded whether or not it was delivered: a blocked bot
+# fails every time, and the limits in api/services/reminders.py count ATTEMPTS, so a record
+# only of successes would keep a blocked user permanently at the front of the queue.
+EV_REMINDER_SENT = "reminder_sent"
+
 # Quiz sessions. EV_SESSION_START/END already existed for the study session; these name
 # the bounded, gradeable kind so an exam is separable in the funnel.
 EV_EXAM_STARTED = "exam_started"
@@ -340,6 +346,21 @@ EVENT_TYPES = (
     EV_STREAK_FROZEN,
     EV_BROADCAST_SENT,
     EV_LINK_CHANGED,
+)
+# What counts as the USER doing something, as opposed to something being done TO them.
+#
+# The event log holds both. `reminder_sent`, `pass_granted` and `broadcast_sent` are the
+# system writing about a person, and counting those as activity is circular: a reminder
+# makes its own recipient look active for the next ten days, so they are never eligible
+# again — which is exactly how the reminder gap silently stopped mattering. The same defect
+# already inflates `active_24h` on the admin overview, where the owner sending a newsletter
+# registers as active users.
+USER_ACTIVITY_EVENTS = (
+    EV_QUESTION_SERVED,
+    EV_ANSWER_GIVEN,
+    EV_EXPLANATION_VIEWED,
+    EV_SESSION_START,
+    EV_EXAM_STARTED,
 )
 
 # --- vocabulary trainer -----------------------------------------------------

@@ -63,5 +63,8 @@
   "menu_plan": "⭐ Premium",
   "menu_settings": "⚙️ Sozlamalar",
   "open_app_short": "Ochish",
-  "menu_help": "❓ Yordam"
+  "menu_help": "❓ Yordam",
+  "reminder": "👋 Ancha vaqtdan beri ko'rinmadingiz.\n\nImtihon kutmaydi — kuniga o'n daqiqa tayyorgarligingizni sezilarli oshiradi. Davom etamizmi?",
+  "reminder_stop": "Eslatmalarni to'xtatish",
+  "reminder_stopped": "Boshqa eslatmaymiz."
 }

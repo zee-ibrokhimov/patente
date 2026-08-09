@@ -304,3 +304,19 @@ async def receive_asset_document(message: Message, lang: str):
         await message.answer(f"could not save {name}: {exc}")
         return
     await message.answer(f"saved <code>{path}</code> ({path.stat().st_size // 1024} KB)")
+
+
+@router.callback_query(F.data == "r:stop")
+async def stop_reminders(query: CallbackQuery, lang: str, api: ApiClient):
+    """The way out of the come-back nudges.
+
+    On the message itself, not buried in settings: somebody who does not want these is
+    holding the unwanted message right now, and asking them to go and find a switch is how
+    an opt-out becomes a block instead.
+    """
+    await api.update_user(query.from_user.id, reminders_off=True)
+    await query.answer(t(lang, "reminder_stopped"), show_alert=False)
+    try:
+        await query.message.edit_reply_markup(reply_markup=None)
+    except Exception:                                                 # noqa: BLE001
+        pass                      # an old message that can no longer be edited is fine

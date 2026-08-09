@@ -28,3 +28,13 @@ MAILTO=root
 
 0  * * * * root /usr/local/sbin/patente-backup >> /var/log/patente-backup.log 2>&1
 40 * * * * root /usr/local/sbin/patente-backup-watchdog >> /var/log/patente-backup.log 2>&1
+
+# "Your Premium ends in 3 days" / "has ended". Was installed on the host and MISSING
+# from this file, so a reinstall from the repo would have silently dropped it — the
+# renewal warning is the one message this business runs on.
+17 * * * * root docker exec $(docker ps -q --filter name=api-rboj5u2xk5dj4o4yto89ablh | head -1) python -c "import urllib.request;print(urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8000/admin/notify-lapses',method='POST'),timeout=60).read().decode())" >> /var/log/patente-janitor.log 2>&1
+
+# Come-back nudges for learners who have gone quiet. Same shape as the lapse job and
+# offset from it, so two docker execs do not start in the same second. Idempotent by
+# event, so hourly is harmless — see api/services/reminders.py for the limits.
+37 * * * * root docker exec $(docker ps -q --filter name=api-rboj5u2xk5dj4o4yto89ablh | head -1) python -c "import urllib.request;print(urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8000/admin/notify-quiet',method='POST'),timeout=60).read().decode())" >> /var/log/patente-janitor.log 2>&1
