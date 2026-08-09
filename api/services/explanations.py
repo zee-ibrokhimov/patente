@@ -75,6 +75,7 @@ import asyncio
 import base64
 import json
 import logging
+import math
 import mimetypes
 import re
 import time
@@ -300,6 +301,107 @@ def sample_statements(members: list[dict], cap: int = MAX_STATEMENTS) -> list[di
     return sorted(out, key=lambda m: m["id"])
 
 
+WORD_RE = re.compile(r"[a-zà-ú]{4,}")
+
+# How hard to penalise a long article, as BM25's `b`. SWEPT, not chosen by taste, against
+# the two clusters whose failure prompted this — measured rank of the article that actually
+# answers each:
+#
+#     b      reg.139 vs cds.41 (dashed line)     cds.57 (macchine agricole)
+#     0.00   FAILS — 139 second                  rank 2
+#     0.15   139 first, 41 second                rank 3
+#     0.25   139 first, 41 third                 rank 5     <- chosen
+#     0.50   139 second, 41 sixth                rank 30
+#     0.75   139 second, 41 fourteenth           rank 44
+#
+# 0 leaves the length bias unchecked and a 9,944-character article about traffic lights wins
+# a road-markings cluster. Past ~0.35 it over-corrects the other way, and 200-character
+# stubs — "Dispositivo retrovisore delle macchine agricole" — beat the governing article.
+# 0.25 clears both with margin. Two clusters is a thin basis; widen the sample before
+# trusting a smaller change to this number.
+LENGTH_B = 0.25
+
+# Words that appear in nearly every article of the Codice and so identify nothing. Kept
+# deliberately short: the IDF weighting below already suppresses common terms, and a long
+# hand-written list is a way to accidentally discard the word that mattered.
+STOPWORDS = frozenset("""
+alla alle allo agli anche articolo caso casi come consentito dalla dalle dallo degli deve
+devono essere fine fini deve nonche oppure ovvero parte parti possono presente quale quali
+quando quanto quello questa queste questi questo sono sull sulla sulle sullo tale tali
+tutti tutte essere avere altri altro altre nella nelle nello negli
+""".split())
+
+
+def rank_for(references, statements: list[str], corpus: dict) -> list[tuple[str, str]]:
+    """Order a topic's articles by how much they look like THIS cluster.
+
+    A topic's articles arrive in the order somebody mapped them, which is a property of the
+    topic and identical for all of its clusters. With 17 of 25 topics larger than the prompt
+    budget, that meant a fixed prefix of the statute answered every question in the topic —
+    and a cluster whose rule lived further down was shown law that could not settle it.
+
+    Scored by rare-word overlap rather than raw overlap. Weighting every shared word equally
+    ranks by article LENGTH, because a long article shares more of everything: "veicolo" and
+    "strada" appear in most of the Codice and separate nothing, while "inversione" or
+    "cunetta" appear in one or two articles and are close to an identification. The inverse
+    document frequency here is computed over the topic's own articles, which is the set the
+    ranking has to discriminate between.
+
+    Deliberately lexical. A vector store would rank better and would be a new dependency, a
+    new failure mode and an index to keep in step with the corpus, for a corpus of a few
+    hundred articles that changes when the ministry reissues it. Stable, offline, and
+    explainable is worth more here than the last few points of recall.
+
+    Ties keep the hand-mapped order, so the previous behaviour is what happens when nothing
+    in the statements discriminates at all.
+    """
+    candidates = [(source, number) for source, number in references
+                  if corpus[source].get(number) is not None]
+    if len(candidates) < 2:
+        return list(references)
+
+    texts = {ref: corpus[ref[0]][ref[1]]["text"].lower() for ref in candidates}
+    rubrics = {ref: (corpus[ref[0]][ref[1]].get("rubric") or "").lower() for ref in candidates}
+
+    terms = {w for w in WORD_RE.findall(" ".join(statements).lower()) if w not in STOPWORDS}
+    if not terms:
+        return list(references)
+
+    total = len(candidates)
+    # Document frequencies once, not once per (article, term). The inner loop used to
+    # rescan every candidate for every term of every article — fine for a topic's dozen
+    # articles, quadratic and unusable over the whole corpus, which is what the
+    # widened search below needs.
+    holders = {term: sum(1 for ref in candidates if term in texts[ref]) for term in terms}
+    weights = {term: math.log(total / n)
+               for term, n in holders.items() if n and n != total}
+
+    # Length normalisation, as BM25 does it. Presence-scoring still favours long articles,
+    # because a longer text simply contains more distinct words: for the dashed-line cluster,
+    # `cds.41 "Segnali luminosi"` scored top on 9,944 characters of incidental overlap and
+    # ate 9,944 of a 12,000-character reservation, pushing out `reg.139 "Strisce di
+    # separazione dei sensi di marcia"` — which ranked SECOND and needed only 3,500. Getting
+    # the order right is not enough when first place can spend the whole budget.
+    average = sum(len(texts[ref]) for ref in candidates) / total
+
+    scores: dict[tuple[str, str], float] = {}
+    for ref in candidates:
+        body, rubric = texts[ref], rubrics[ref]
+        score = 0.0
+        for term, weight in weights.items():
+            if term in body:
+                score += weight
+            # The rubric is the article's own title — "Strisce di separazione dei sensi di
+            # marcia". A hit there is worth far more than a hit in the body, where the word
+            # may appear once in a subordinate clause.
+            if term in rubric:
+                score += weight * 3
+        scores[ref] = score / (1 - LENGTH_B + LENGTH_B * len(texts[ref]) / average)
+
+    order = {ref: i for i, ref in enumerate(references)}
+    return sorted(candidates, key=lambda ref: (-scores[ref], order[ref]))
+
+
 def select_articles(
     topic_name: str,
     statements: list[str],
@@ -361,12 +463,46 @@ def select_articles(
     chosen: list[dict] = []
     seen: set[tuple[str, str]] = set()
 
-    # The floor first, inside its reservation.
-    used = take(mapped, budget * FLOOR_SHARE, chosen, seen, 0)
+    # The floor first, inside its reservation — RANKED, not in mapping order.
+    #
+    # Order was the whole problem. `articles_for` returns a topic's articles in the order
+    # they were hand-mapped, and 17 of the 25 topics hold more statute than the budget:
+    # "Segnali di indicazione" is 100,844 characters against 24,000. So the floor was always
+    # filled by whichever articles were listed first, and EVERY cluster in a large topic got
+    # the same opening slice regardless of what it was about.
+    #
+    # When the article carrying the rule was not in that slice the model refused — correctly:
+    # it is told to explain from the statute it is given, not from memory. Clusters 2823 and
+    # 233 both declined twice with "articles insufficient", and only 43 of 3,382 clusters had
+    # an explanation at all. Ranking by what the cluster actually says is the fix; the budget
+    # is deliberately unchanged so the improvement is attributable to this and not to volume,
+    # and because a bigger prompt runs into the account's 30,000 TPM ceiling.
+    ranked = rank_for(mapped, statements, corpus)
+    used = take(ranked, budget * FLOOR_SHARE, chosen, seen, 0)
     # Then the sign matches, against the full budget.
     used = take(matched, budget, chosen, seen, used)
-    # Then anything of the floor that the reservation could not fit.
-    take(mapped, budget, chosen, seen, used)
+
+    # Then the best of the WHOLE CORPUS — before the topic's leftovers, not after.
+    #
+    # The topic mappings are hand-written and necessarily incomplete. Cluster 233 asks
+    # whether macchine agricole may drive on the road; `cds.57 "Macchine agricole"`,
+    # cds.104 and cds.114 all sit in the corpus and NONE of them is mapped to "Definizioni
+    # stradali e di traffico". The model was asked about agricultural machinery while being
+    # shown the definitions article, and declined — correctly.
+    #
+    # Ordering is the entire point of this being here rather than last. Ranked corpus-wide,
+    # cds.57 comes SECOND for that cluster and the top ten are all machinery-registration
+    # law. Run after the topic's leftovers it still lost, because eight mapped articles had
+    # already spent the budget and only 295- and 2302-character scraps still fitted. The
+    # floor keeps its reservation, so a topic never loses its own statute; what changes is
+    # that the remainder goes to the best-matching law rather than to whatever the topic
+    # listed next.
+    everywhere = [(source, number) for source in corpus for number in corpus[source]]
+    used = take(rank_for(everywhere, statements, corpus), budget, chosen, seen, used)
+
+    # Anything of the floor still unplaced, last, as the guarantee that a topic is never
+    # sent bare.
+    take(ranked, budget, chosen, seen, used)
     return chosen
 
 
