@@ -51,6 +51,29 @@ def open_app(lang: str) -> InlineKeyboardMarkup | None:
     return kb.as_markup()
 
 
+def main_menu(lang: str) -> InlineKeyboardMarkup:
+    """Everything the bot can do, as buttons.
+
+    Nobody types slash-commands. They are registered and they work, but a learner who has
+    just been handed a chat window does not think "I wonder if /stats exists" — so the
+    features behind them were, for practical purposes, invisible. The commands stay for
+    people who like them; this is the surface for everyone else.
+
+    Open the app comes first and alone, because it is what the product IS. The rest are two
+    to a row: they are errands, not the point.
+    """
+    kb = InlineKeyboardBuilder()
+    if settings.webapp_url.startswith("https://"):
+        kb.button(text=t(lang, "open_app"), web_app=WebAppInfo(url=settings.webapp_url))
+    kb.button(text=t(lang, "menu_stats"), callback_data="m:stats")
+    kb.button(text=t(lang, "menu_plan"), callback_data="m:plan")
+    kb.button(text=t(lang, "menu_settings"), callback_data="m:settings")
+    kb.button(text=t(lang, "menu_help"), callback_data="m:help")
+    # 1 across for the app, then 2+2 — the web_app button is the only one worth a full row.
+    kb.adjust(1, 2, 2) if settings.webapp_url.startswith("https://") else kb.adjust(2, 2)
+    return kb.as_markup()
+
+
 def plan_actions(lang: str, *, can_subscribe: bool) -> InlineKeyboardMarkup | None:
     """One button: open a chat with the person who takes the money.
 

@@ -58,5 +58,10 @@
   "delete_paid_warning": "⚠️ Sizda faol obuna bor. Ma'lumotlarni o'chirsangiz, obuna ham yo'qoladi va uni tiklab bo'lmaydi — pulni qaytarish @tribute orqali.\n\nAgar faqat natijalarni tozalamoqchi bo'lsangiz, ilova sozlamalaridagi <b>Boshidan boshlash</b> dan foydalaning.",
   "plan_active_channel": "🔓 <b>Premium faol</b> — kanal obunasi orqali",
   "plan_active_staff": "🔓 <b>Premium faol</b> — administrator huquqi",
-  "plan_how_to_pay": "To'lov to'g'ridan-to'g'ri: {handle} ga yozing va sizga ruxsat ochiladi."
+  "plan_how_to_pay": "To'lov to'g'ridan-to'g'ri: {handle} ga yozing va sizga ruxsat ochiladi.",
+  "menu_stats": "📊 Statistika",
+  "menu_plan": "⭐ Premium",
+  "menu_settings": "⚙️ Sozlamalar",
+  "open_app_short": "Ochish",
+  "menu_help": "❓ Yordam"
 }
