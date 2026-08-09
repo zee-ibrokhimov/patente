@@ -40,7 +40,7 @@
   "plan_perks": "Tarkibida: savolning o'z tilingizdagi tarjimasi va Italiya yo'l harakati kodeksiga asoslangan izoh.",
   "btn_subscribe": "Obunani faollashtirish",
   "plan_trial": "🎁 <b>Bepul sinov</b> — {n} kun qoldi",
-  "plan_trial_note": "Sinov tugagach, obuna siz tanlagan reja narxida avtomatik uzaytiriladi. Shu sanagacha @tribute orqali bekor qilsangiz, hech narsa yechilmaydi.",
+  "plan_trial_note": "Hech narsa yechilmaydi — karta biriktirilmagan. Sinov tugagach, davom ettirish uchun bizga yozing.",
   "plan_free_title": "⚪ Bepul reja",
   "plan_free_body": "Sizda barcha 7106 savol, imtihon va mashq bor. Tarjima va izohlar — Premium tarkibida.",
   "plan_premium_h": "<b>Premium tarkibida</b>",
@@ -57,5 +57,6 @@
   "plan_granted_note": "Shu sanagacha to'liq kirish. Hech qanday to'lov olinmaydi.",
   "delete_paid_warning": "⚠️ Sizda faol obuna bor. Ma'lumotlarni o'chirsangiz, obuna ham yo'qoladi va uni tiklab bo'lmaydi — pulni qaytarish @tribute orqali.\n\nAgar faqat natijalarni tozalamoqchi bo'lsangiz, ilova sozlamalaridagi <b>Boshidan boshlash</b> dan foydalaning.",
   "plan_active_channel": "🔓 <b>Premium faol</b> — kanal obunasi orqali",
-  "plan_active_staff": "🔓 <b>Premium faol</b> — administrator huquqi"
+  "plan_active_staff": "🔓 <b>Premium faol</b> — administrator huquqi",
+  "plan_how_to_pay": "To'lov to'g'ridan-to'g'ri: {handle} ga yozing va sizga ruxsat ochiladi."
 }

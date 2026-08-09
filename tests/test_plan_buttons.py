@@ -1,227 +1,159 @@
-"""The Buy buttons: what makes them appear, and what they open.
+"""The Buy button, now that there is nothing to buy from.
 
-The gate used to be `tribute_webhook_secret and tribute_product_1m`. A product id belongs
-to a one-off DIGITAL PRODUCT; a subscription payload carries none at all, because the tier
-comes from `period`. So a subscription-based setup — the model the owner asked for, with a
-trial that auto-converts — could never have opened the gate, and /plan would have gone on
-saying "payments are not connected" with Tribute fully configured behind it.
+Payment moved off Tribute on 2026-08-09 to a direct arrangement: a learner messages the
+owner, they agree terms, and access is granted by hand. There is no hosted page, no card
+form and no webhook.
 
-The right test is the checkout link, since that is exactly what a button needs in order to
-lead somewhere.
+So the button's job changed from "open a checkout" to "start the conversation", and the two
+fail in very different ways. A broken checkout takes money and delivers nothing; a broken
+handle simply does not open a chat. That is why the old gate — a webhook secret AND a
+checkout link — is gone, and the only question left is whether anybody is configured to be
+messaged.
+
+WHAT SURVIVED FROM THE OLD DESIGN, because it was right:
+
+  · a Subscribe button that opens nothing is worse than no button, since it reads as a
+    broken product rather than an unfinished one;
+  · the message and the keyboard make ONE decision, so they cannot contradict each other —
+    that is `render.selling`, and it is still what decides whether to sell at all.
 """
 
 from __future__ import annotations
 
+import json
+import pathlib
+
 import pytest
 
-from bot import keyboards
+from bot import keyboards, render
 from bot.handlers.progress import _can_subscribe
 from shared.config import settings
-from shared.constants import TIER_FEATURED, TIER_PRICE_CENTS
+from shared.constants import TIER_FEATURED, TIER_PRICE_CENTS, UI_LANGUAGES
 
-LINKS = {
-    "tribute_link_1m": "https://t.me/tribute/app?startapp=one",
-    "tribute_link_3m": "https://t.me/tribute/app?startapp=three",
-    "tribute_link_6m": "https://t.me/tribute/app?startapp=six",
-}
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+FREE = {"premium": False, "premium_via": "none", "has_pass": False, "purchased": False,
+        "pass_expires_at": None}
 
 
 @pytest.fixture
-def configured(monkeypatch):
-    monkeypatch.setattr(settings, "tribute_webhook_secret", "secret")
-    for field, url in LINKS.items():
-        monkeypatch.setattr(settings, field, url)
+def selling(monkeypatch):
+    """A deployment that can take money: somebody to message."""
+    monkeypatch.setattr(settings, "sales_contact", "@iambrock")
+    monkeypatch.setattr(settings, "support_contact", "@help")
 
 
-def buttons(markup):
-    return [b for row in markup.inline_keyboard for b in row]
+# --- what opens the gate now -------------------------------------------------
+
+def test_a_handle_is_all_it_takes(selling):
+    assert _can_subscribe() is True
 
 
-# --- the gate ---------------------------------------------------------------
-
-def test_no_links_means_no_buttons(monkeypatch):
-    """A Buy button that opens nothing reads as a broken product rather than an
-    unfinished one."""
-    monkeypatch.setattr(settings, "tribute_webhook_secret", "secret")
-    for field in LINKS:
-        monkeypatch.setattr(settings, field, "")
-    assert not _can_subscribe()
-    assert keyboards.plan_actions("ru", can_subscribe=True) is None
+def test_no_handle_means_no_selling(monkeypatch):
+    """The only way this can be false now. A button with nowhere to go is the one thing
+    the old design got right and this keeps."""
+    monkeypatch.setattr(settings, "sales_contact", "")
+    monkeypatch.setattr(settings, "support_contact", "")
+    assert _can_subscribe() is False
+    assert keyboards.plan_actions("en", can_subscribe=False) is None
 
 
-def test_links_without_a_webhook_secret_are_not_enough(monkeypatch):
-    """Selling before the webhook can be verified means taking money and granting
-    nothing — verify() fails closed without the secret, so every delivery would 400."""
-    monkeypatch.setattr(settings, "tribute_webhook_secret", "")
-    for field, url in LINKS.items():
-        monkeypatch.setattr(settings, field, url)
-    assert not _can_subscribe()
+def test_a_stale_tribute_link_cannot_start_selling_again(monkeypatch):
+    """`can_sell` is hard-wired False. An old .env left over from Tribute must not quietly
+    reopen a checkout that no longer has a webhook behind it — that would be taking money
+    and recording nothing."""
+    monkeypatch.setattr(settings, "tribute_link", "https://t.me/tribute/app?startapp=old")
+    monkeypatch.setattr(settings, "tribute_webhook_secret", "still-here")
+    assert settings.can_sell is False
 
 
-def test_a_product_id_is_no_longer_required(monkeypatch):
-    """The regression this file exists for. A subscription has no product id."""
-    monkeypatch.setattr(settings, "tribute_webhook_secret", "secret")
-    monkeypatch.setattr(settings, "tribute_product_1m", "")
-    for field, url in LINKS.items():
-        monkeypatch.setattr(settings, field, url)
-    assert _can_subscribe(), "a subscription-only setup must be able to sell"
+def test_support_is_the_fallback_but_sales_wins(monkeypatch):
+    """Two different jobs, even when one person does both today. Someone who wants to BUY
+    should not land in a support queue."""
+    monkeypatch.setattr(settings, "support_contact", "@help")
+    monkeypatch.setattr(settings, "sales_contact", "")
+    assert settings.sales_handle == "help"
+    monkeypatch.setattr(settings, "sales_contact", "@money")
+    assert settings.sales_handle == "money"
 
 
-def test_one_configured_tier_is_enough(monkeypatch):
-    """Selling only the 3-month plan is a legitimate choice — it is how the owner would
-    restrict the trial to that tier."""
-    monkeypatch.setattr(settings, "tribute_webhook_secret", "secret")
-    monkeypatch.setattr(settings, "tribute_link_1m", "")
-    monkeypatch.setattr(settings, "tribute_link_6m", "")
-    monkeypatch.setattr(settings, "tribute_link_3m", LINKS["tribute_link_3m"])
-    assert _can_subscribe()
-    assert len(buttons(keyboards.plan_actions("ru", can_subscribe=True))) == 1
+def test_the_at_sign_is_stripped_once(monkeypatch):
+    """It goes into a t.me URL, where a second @ produces a link to nobody."""
+    monkeypatch.setattr(settings, "sales_contact", "@iambrock")
+    assert settings.sales_handle == "iambrock"
+    monkeypatch.setattr(settings, "sales_contact", "iambrock")
+    assert settings.sales_handle == "iambrock"
 
 
-# --- what the buttons say and do -------------------------------------------
+# --- the button --------------------------------------------------------------
 
-def test_one_button_per_configured_tier(configured):
-    assert len(buttons(keyboards.plan_actions("ru", can_subscribe=True))) == 3
-
-
-def test_every_button_opens_its_own_checkout(configured):
-    urls = [b.url for b in buttons(keyboards.plan_actions("ru", can_subscribe=True))]
-    assert urls == list(LINKS.values())
-    assert all(u for u in urls), "a button with no url would do nothing when tapped"
+def test_the_button_opens_a_chat_not_a_checkout(selling):
+    markup = keyboards.plan_actions("en", can_subscribe=True)
+    assert markup is not None
+    urls = [b.url for row in markup.inline_keyboard for b in row]
+    assert urls == ["https://t.me/iambrock"]
+    assert not any("tribute" in (u or "").lower() for u in urls)
 
 
-def test_buttons_run_shortest_to_longest(configured):
-    """The same order as the price list in the message. Two different orders would make
-    the reader check each one against the other."""
-    texts = [b.text for b in buttons(keyboards.plan_actions("ru", can_subscribe=True))]
-    assert "1" in texts[0] and "3" in texts[1] and "6" in texts[2]
+def test_there_is_exactly_one_button(selling):
+    """Three tier buttons made sense when each opened a different checkout. They would now
+    be three ways to open the same chat, which reads as a mistake."""
+    markup = keyboards.plan_actions("ru", can_subscribe=True)
+    assert sum(len(row) for row in markup.inline_keyboard) == 1
 
 
-def test_the_featured_tier_is_marked(configured):
-    texts = [b.text for b in buttons(keyboards.plan_actions("ru", can_subscribe=True))]
-    starred = [t for t in texts if "⭐" in t]
-    assert len(starred) == 1
-    price = TIER_PRICE_CENTS[TIER_FEATURED]
-    assert f"{price // 100}.{price % 100:02d}" in starred[0]
+@pytest.mark.parametrize("lang", UI_LANGUAGES)
+def test_the_button_is_translated(selling, lang):
+    markup = keyboards.plan_actions(lang, can_subscribe=True)
+    labels = [b.text for row in markup.inline_keyboard for b in row]
+    assert labels and labels[0].strip()
 
 
-@pytest.mark.parametrize("lang", ["it", "ru", "en", "uz"])
-def test_the_buttons_are_translated(configured, lang):
-    texts = [b.text for b in buttons(keyboards.plan_actions(lang, can_subscribe=True))]
-    assert all(t.strip() for t in texts)
-    # A missing key renders as the key itself, which is how a locale silently ships raw
-    # identifiers to users.
-    assert not any("plan_" in t for t in texts)
+def test_nobody_who_already_has_premium_is_shown_it(selling):
+    """`render.selling` is the one decision, and the keyboard obeys it — this is what
+    stopped a channel subscriber being sold what they already had."""
+    premium = {**FREE, "premium": True, "premium_via": "channel"}
+    assert render.selling(premium, can_subscribe=_can_subscribe()) is False
+    assert keyboards.plan_actions("en", can_subscribe=False) is None
 
 
-def test_the_price_on_the_button_matches_the_constant(configured):
-    """The button and the message must never disagree about the price — that reads as a
-    trick, and it is the one number nobody forgives being wrong."""
-    texts = [b.text for b in buttons(keyboards.plan_actions("en", can_subscribe=True))]
-    for tier, cents in TIER_PRICE_CENTS.items():
-        wanted = f"{cents // 100}.{cents % 100:02d}"
-        assert any(wanted in t for t in texts), f"no button shows {wanted}"
+# --- the message has to explain what the button does -------------------------
+
+@pytest.mark.parametrize("lang", UI_LANGUAGES)
+def test_the_message_names_the_handle(selling, lang):
+    """A checkout explained itself; a chat window does not. Somebody who has just read
+    three prices and taps Subscribe expects a payment form, and the message is the only
+    place that can say otherwise first.
+
+    In the TEXT as well as the button, because a button cannot be copied or forwarded.
+    """
+    text = render.plan(FREE, lang, can_subscribe=True)
+    assert "@iambrock" in text
 
 
-# --- the shape Tribute actually produces ------------------------------------
-#
-# One subscription carrying every period, so ONE link. The buyer chooses the period on
-# Tribute's own page. The per-tier settings above cover the other shape — separate
-# products, each with its own URL — and are unused when this one is set.
+@pytest.mark.parametrize("lang", UI_LANGUAGES)
+def test_the_prices_are_still_listed(selling, lang):
+    """Direct payment changes how you pay, not what it costs."""
+    text = render.plan(FREE, lang, can_subscribe=True)
+    cents = TIER_PRICE_CENTS[TIER_FEATURED]
+    assert f"{cents // 100}" in text
 
 
-@pytest.fixture
-def single_link(monkeypatch):
-    monkeypatch.setattr(settings, "tribute_webhook_secret", "secret")
-    monkeypatch.setattr(settings, "tribute_link", "https://t.me/tribute/app?startapp=s12aI")
-    for field in LINKS:
-        monkeypatch.setattr(settings, field, "")
+def test_no_handle_means_no_instruction(monkeypatch):
+    monkeypatch.setattr(settings, "sales_contact", "")
+    monkeypatch.setattr(settings, "support_contact", "")
+    text = render.plan(FREE, "en", can_subscribe=False)
+    assert "@" not in text.split("Premium")[0] or "message" not in text.lower()
 
 
-def test_one_link_gives_exactly_one_button(single_link):
-    """Three buttons pointing at the same page would be three ways to reach one screen,
-    which reads as a mistake rather than a choice — and /plan has already listed the
-    prices immediately above."""
-    b = buttons(keyboards.plan_actions("ru", can_subscribe=True))
-    assert len(b) == 1
-    assert b[0].url == "https://t.me/tribute/app?startapp=s12aI"
+# --- nothing still tells anyone to cancel a subscription they do not have ----
 
-
-def test_the_single_link_opens_the_gate(single_link):
-    assert _can_subscribe()
-
-
-def test_the_single_link_wins_over_per_tier_links(monkeypatch, single_link):
-    """Both configured is a misconfiguration, not a feature. One button is the safe
-    reading: it can only ever send someone to the subscription Tribute really has."""
-    for field, url in LINKS.items():
-        monkeypatch.setattr(settings, field, url)
-    assert len(buttons(keyboards.plan_actions("ru", can_subscribe=True))) == 1
-
-
-def test_a_link_without_a_secret_still_cannot_sell(monkeypatch, single_link):
-    monkeypatch.setattr(settings, "tribute_webhook_secret", "")
-    assert not _can_subscribe()
-
-
-@pytest.mark.parametrize("lang", ["it", "ru", "en", "uz"])
-def test_the_single_button_is_translated(single_link, lang):
-    text = buttons(keyboards.plan_actions(lang, can_subscribe=True))[0].text
-    assert text.strip() and "btn_" not in text
-
-
-# --- one subscription per language ------------------------------------------
-#
-# A Tribute subscription carries its own name and description, so selling to a Russian
-# speaker and an Italian one from the same object means one of them reads the pitch in a
-# language they did not choose, at the moment they are deciding whether to pay.
-#
-# The owner is creating them one language at a time, so the missing ones have to degrade
-# to something that still sells rather than to no button at all.
-
-
-@pytest.fixture
-def russian_only(monkeypatch):
-    """Today: the Russian subscription exists and the others do not."""
-    monkeypatch.setattr(settings, "tribute_webhook_secret", "secret")
-    monkeypatch.setattr(settings, "tribute_link", "https://t.me/tribute/app?startapp=s12aI")
-    for lang in ("ru", "it", "en", "uz"):
-        monkeypatch.setattr(settings, f"tribute_link_{lang}", "")
-    for field in LINKS:
-        monkeypatch.setattr(settings, field, "")
-
-
-@pytest.mark.parametrize("lang", ["ru", "it", "en", "uz"])
-def test_a_missing_language_still_gets_a_working_button(russian_only, lang):
-    """Falling back to the default is right and falling back to NOTHING is not: an
-    Italian speaker seeing no way to pay is a lost sale, while an Italian speaker seeing
-    a Russian checkout page is merely an awkward one."""
-    b = buttons(keyboards.plan_actions(lang, can_subscribe=True))
-    assert len(b) == 1
-    assert b[0].url == "https://t.me/tribute/app?startapp=s12aI"
-
-
-def test_a_language_link_overrides_the_default(monkeypatch, russian_only):
-    """Adding the Italian subscription later must route Italian users to it, without a
-    code change."""
-    monkeypatch.setattr(settings, "tribute_link_it", "https://t.me/tribute/app?startapp=sIT")
-    assert settings.checkout_url("it") == "https://t.me/tribute/app?startapp=sIT"
-    assert settings.checkout_url("ru") == "https://t.me/tribute/app?startapp=s12aI"
-
-
-def test_a_language_link_alone_is_enough_to_sell(monkeypatch):
-    """No default configured, only per-language ones. The gate must still open."""
-    monkeypatch.setattr(settings, "tribute_webhook_secret", "secret")
-    monkeypatch.setattr(settings, "tribute_link", "")
-    for lang in ("it", "en", "uz"):
-        monkeypatch.setattr(settings, f"tribute_link_{lang}", "")
-    monkeypatch.setattr(settings, "tribute_link_ru", "https://t.me/tribute/app?startapp=sRU")
-    assert _can_subscribe()
-    assert buttons(keyboards.plan_actions("ru", can_subscribe=True))[0].url.endswith("sRU")
-
-
-def test_whitespace_is_not_a_link(monkeypatch, russian_only):
-    """A variable set to a blank string in Coolify is easy to do and would otherwise
-    route every Italian user to a button that opens nothing."""
-    monkeypatch.setattr(settings, "tribute_link_it", "   ")
-    assert settings.checkout_url("it") == "https://t.me/tribute/app?startapp=s12aI"
+@pytest.mark.parametrize("lang", UI_LANGUAGES)
+def test_the_trial_note_no_longer_promises_a_charge(lang):
+    """It said the subscription renews automatically and to cancel in @tribute. A referral
+    trial has no card behind it, so that was a false statement about somebody's money —
+    and "go and cancel" pointed at a product that is being switched off."""
+    data = json.loads((ROOT / f"bot/locales/{lang}.json").read_text(encoding="utf-8"))
+    note = data["plan_trial_note"].lower()
+    assert "tribute" not in note
+    for promise in ("автоматически", "automatically", "automaticamente", "avtomatik"):
+        assert promise not in note, f"{lang} still promises an automatic renewal: {note}"

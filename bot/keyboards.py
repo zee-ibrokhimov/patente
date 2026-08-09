@@ -52,49 +52,33 @@ def open_app(lang: str) -> InlineKeyboardMarkup | None:
 
 
 def plan_actions(lang: str, *, can_subscribe: bool) -> InlineKeyboardMarkup | None:
-    """One button per tier, each a direct link to that tier's Tribute checkout.
+    """One button: open a chat with the person who takes the money.
 
-    `can_subscribe` is False until at least one link is configured. A Buy button that
-    leads nowhere is worse than no button — it reads as a broken product rather than an
-    unfinished one.
+    THERE IS NO CHECKOUT ANY MORE. Payment moved off Tribute on 2026-08-09 to a direct
+    arrangement — the learner messages the owner, they agree terms, and access is granted by
+    hand. So the button's job changed from "open a payment page" to "start the conversation",
+    and the two fail in very different ways: a broken checkout takes money and delivers
+    nothing, a broken handle simply does not open a chat.
 
-    Three buttons rather than one "Subscribe" that then asks which: /plan has just
-    listed the three prices, so asking again is a step that exists only because the
-    keyboard could not be bothered. Ordered shortest to longest, matching the message
-    above it, with the featured tier marked — the same order in both, so the eye does
-    not have to re-read.
+    `can_subscribe` still means "should this person be sold to at all" and is still
+    respected — it is `render.selling`, which is False for anyone who already has Premium and
+    for a trialist whose card is about to be charged. Its OTHER old meaning, "a checkout link
+    exists", is gone with the checkout.
+
+    Returns None when there is nobody to message, because a Subscribe button that opens
+    nothing reads as a broken product rather than an unfinished one — which was true of the
+    version that pointed at an unconfigured Tribute link, and is the one property of that
+    design worth keeping.
     """
-    from shared.constants import TIER_DAYS, TIER_FEATURED, TIER_PRICE_CENTS
-
     if not can_subscribe:
         return None
 
-    # The shape Tribute actually produces: ONE subscription carrying every period, so
-    # one link and one button. Three buttons pointing at the same page would be three
-    # ways to reach one screen, which reads as a mistake rather than a choice — and the
-    # prices are already listed in the message above.
-    url = settings.checkout_url(lang)
-    if url:
-        kb = InlineKeyboardBuilder()
-        kb.button(text=t(lang, "btn_subscribe"), url=url)
-        kb.adjust(1)
-        return kb.as_markup()
-
-    links = settings.tribute_links
-    if not links:
+    handle = settings.sales_handle
+    if not handle:
         return None
 
     kb = InlineKeyboardBuilder()
-    for tier in sorted(TIER_DAYS, key=lambda x: TIER_DAYS[x]):
-        url = links.get(tier)
-        if not url:
-            continue
-        # The same key render.plan() uses for the price line, so a button can never
-        # disagree with the message immediately above it.
-        label = t(lang, f"plan_{tier.replace('pass_', '')}")
-        price = f"{TIER_PRICE_CENTS[tier] // 100}.{TIER_PRICE_CENTS[tier] % 100:02d}"
-        star = " ⭐" if tier == TIER_FEATURED else ""
-        kb.button(text=f"{label} — €{price}{star}", url=url)
+    kb.button(text=t(lang, "btn_subscribe"), url=f"https://t.me/{handle}")
     kb.adjust(1)
     return kb.as_markup()
 

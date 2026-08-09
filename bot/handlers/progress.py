@@ -22,15 +22,17 @@ router = Router(name="progress")
 
 
 def _can_subscribe() -> bool:
-    """Payments are live only once Tribute is actually configured.
+    """Is there anywhere to send someone who wants to pay?
 
-    The check is the webhook secret AND at least one checkout link. It used to require
-    `tribute_product_1m`, a DIGITAL PRODUCT id — but a subscription payload carries no
-    product id at all (the tier comes from `period`), so a subscription-based setup
-    could never have opened this gate. The link is the right test: it is exactly what
-    the button needs in order to lead somewhere.
+    It used to mean "Tribute is configured": a webhook secret and a checkout link. Payment
+    moved to a direct arrangement on 2026-08-09, so the only thing a would-be buyer needs is
+    a handle to message — and the only way this can be False now is nobody having set one.
+
+    `settings.can_sell` is hard-wired False and is deliberately NOT consulted here: it
+    guards the dead checkout path, and reading it would mean /plan could never offer
+    anything again.
     """
-    return settings.can_sell
+    return bool(settings.sales_handle)
 
 
 @router.message(Command("stats"))

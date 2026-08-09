@@ -127,6 +127,45 @@ class Progress(Base):
     user: Mapped[User] = relationship(back_populates="progress")
 
 
+class ReferralLink(Base):
+    """A `t.me/bot?start=<code>` link that grants a free trial, and nothing else does.
+
+    Payment moved off Tribute to direct arrangement — someone messages the owner and is
+    granted access by hand. That leaves the trial with no delivery mechanism, and handing
+    one to everybody who taps /start gives the product away to anyone who finds the bot.
+
+    So the trial rides on the LINK. A code posted to a specific channel, with its own
+    length, is a trial the owner chose to give to a specific audience; a bare /start is
+    not. `users.source` has recorded the /start payload since before this existed, so the
+    attribution and the entitlement are the same fact and cannot disagree.
+
+    `trial_days` is per link on purpose: an influencer's audience can be worth fourteen
+    days where a cold channel is worth three, and that is a judgement about the audience
+    rather than about the product.
+    """
+
+    __tablename__ = "referral_links"
+
+    # The /start payload. Telegram allows 64 chars of [A-Za-z0-9_-]; `_clean_source` in
+    # api/services/users.py enforces the same set on the way in, so a code that cannot be
+    # typed into a link cannot be created here either.
+    code: Mapped[str] = mapped_column(Text, primary_key=True)
+    label: Mapped[str] = mapped_column(Text, default="")
+    trial_days: Mapped[int] = mapped_column(default=7)
+
+    # Switched off rather than deleted. A dead link must stop granting trials while the
+    # users it already brought keep their `source` — deleting the row would erase the
+    # attribution of everyone who arrived through it.
+    active: Mapped[bool] = mapped_column(default=True)
+
+    # Optional cap. None means unlimited; a number is what makes a link safe to post
+    # somewhere public.
+    max_uses: Mapped[int | None] = mapped_column(default=None)
+
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    created_by: Mapped[int | None] = mapped_column(BigInteger, default=None)
+
+
 class Purchase(Base):
     __tablename__ = "purchases"
 

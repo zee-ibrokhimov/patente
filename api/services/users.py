@@ -25,13 +25,12 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.models import Event, Progress, Report, User
-from api.services import events
+from api.services import events, referrals
 from shared.constants import (
     DEFAULT_LANG,
     EV_SESSION_START,
     EV_TRIAL_STARTED,
     EV_USER_DELETED,
-    TRIAL_DAYS,
     UI_LANGUAGES,
 )
 
@@ -63,11 +62,18 @@ async def get_or_create(
             user.source = _clean_source(source)
         return user, False
 
-    # The 7-day trial, granted at first contact and to first contact only.
+    # The trial, granted at first contact, to first contact only, and ONLY through a
+    # referral link.
     #
-    # Deliberately here rather than in a route: /start, opening the Mini App and a Tribute
-    # webhook arriving before either all land in this one function, and a trial granted in
-    # two of the three would be a trial some users never got.
+    # Payment moved off Tribute on 2026-08-09 to a direct arrangement, which left the trial
+    # with no delivery mechanism. Handing one to everybody who taps /start would give the
+    # product away to anyone who finds the bot in search, so a bare /start now grants
+    # nothing and `t.me/<bot>?start=<code>` grants whatever that code is worth. See
+    # api/services/referrals.py.
+    #
+    # Deliberately here rather than in a route: /start and opening the Mini App both land in
+    # this one function, and a trial granted in one but not the other would be a trial some
+    # users never got.
     #
     # It is NOT a Purchase row. Purchases are money — they drive revenue reporting and are
     # what a refund is matched against (plan §4.1) — so inventing one for a trial would
@@ -76,19 +82,27 @@ async def get_or_create(
     # trial is the number that matters, and it is only separable if the two are distinct
     # events from the start. Events cannot be backfilled.
     now = datetime.now(timezone.utc)
+    code = _clean_source(source)
+    link = await referrals.redeemable(session, code)
+    days = referrals.trial_days_for(link)
+
     user = User(
-        source=_clean_source(source),
+        source=code,
         chat_id=chat_id,
         lang=lang if lang in UI_LANGUAGES else DEFAULT_LANG,
-        pass_expires_at=now + timedelta(days=TRIAL_DAYS) if TRIAL_DAYS else None,
+        pass_expires_at=now + timedelta(days=days) if days else None,
     )
     session.add(user)
     await session.flush()
     await events.record(session, EV_SESSION_START, chat_id=chat_id, first_seen=True)
-    if TRIAL_DAYS:
+    if days:
         await events.record(
             session, EV_TRIAL_STARTED, chat_id=chat_id,
-            days=TRIAL_DAYS, expires_at=user.pass_expires_at.isoformat(),
+            days=days, expires_at=user.pass_expires_at.isoformat(),
+            # Which link paid for it. The conversion question worth answering is not "do
+            # trials work" but "which audience converts", and that is only separable if the
+            # code is on the event from the first one.
+            code=code,
         )
     return user, True
 

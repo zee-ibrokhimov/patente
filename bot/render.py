@@ -14,6 +14,7 @@ import html
 import math
 
 from bot.i18n import t
+from shared.config import settings as config
 from shared.constants import (
     TIER_DAYS,
     TIER_FEATURED,
@@ -182,6 +183,16 @@ def plan(user: dict, lang: str, *, can_subscribe: bool) -> str:
             per_month=_money(round(cents / months)),
         ))
 
+    # HOW to pay, which is no longer self-evident.
+    #
+    # A hosted checkout explained itself: tap, card, done. A direct arrangement does not.
+    # Someone who has just read three prices and sees a Subscribe button expects a payment
+    # form, and getting a chat window instead reads as a broken link unless the message said
+    # so first. The handle is named in the TEXT as well as behind the button, because a
+    # button cannot be copied, forwarded, or read by somebody who taps nothing.
+    handle = config.sales_handle
+    if can_subscribe and handle:
+        lines += ["", t(lang, "plan_how_to_pay", handle=f"@{handle}")]
     if not can_subscribe:
         lines += ["", t(lang, "payments_not_live")]
     return _clip("\n".join(lines), MESSAGE_LIMIT)

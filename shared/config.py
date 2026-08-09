@@ -109,8 +109,30 @@ class Settings(BaseSettings):
     premium_channel_id: str = ""
     support_contact: str = ""
 
+    # Where someone goes to buy, now that there is no checkout.
+    #
+    # Payment moved off Tribute on 2026-08-09: there is no hosted page, no card form and no
+    # webhook. Someone messages the owner, they agree terms, and access is granted by hand.
+    # This is the Telegram handle that conversation happens in, and it is the ONLY thing
+    # standing between a learner deciding to pay and being able to.
+    #
+    # Distinct from `support_contact`, which is help rather than sales, even when the two
+    # are the same person today — they will not always be, and a learner who wants to buy
+    # should not land in a support queue.
+    sales_contact: str = ""
+
+    @property
+    def sales_handle(self) -> str:
+        """The handle to message, without its @. Falls back to support, then to nothing."""
+        raw = (self.sales_contact or self.support_contact or "").strip()
+        return raw.lstrip("@")
+
     def checkout_url(self, lang: str) -> str:
         """Where to send this user to pay. Their language if it exists, else the default.
+
+        DEAD as of 2026-08-09 and kept only so a stale Tribute link in an old .env cannot
+        quietly start selling again — `can_sell` is False regardless. Delete both once the
+        Tribute product itself is gone.
 
         Returns "" when nothing is configured, which is what stops the Buy button being
         drawn at all.
@@ -133,13 +155,17 @@ class Settings(BaseSettings):
 
     @property
     def can_sell(self) -> bool:
-        """Whether a Buy button can lead anywhere at all.
+        """Whether a BUY button can lead anywhere. Now always False, deliberately.
 
-        The webhook secret is part of the test on purpose: verify() fails closed without
-        it, so selling first would mean taking money and rejecting every delivery that
-        says so.
+        There is no checkout to send anyone to. What replaces it is `sales_handle` and a
+        "message me" button, which is a different thing with a different failure mode — a
+        broken checkout takes money and delivers nothing, a broken handle just does not
+        open a chat.
+
+        Left as a property rather than deleted so that every call site keeps its shape and
+        the buy path can be revived by making this true again.
         """
-        return bool(self.tribute_webhook_secret and (self.any_checkout_link or self.tribute_links))
+        return False
 
     @property
     def tribute_links(self) -> dict[str, str]:
