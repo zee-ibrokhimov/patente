@@ -334,3 +334,77 @@ def test_the_prompt_shows_a_real_minimal_pair():
 
     assert "curva pericolosa a destra" in SYSTEM_PROMPT
     assert "VERO" in SYSTEM_PROMPT and "FALSO" in SYSTEM_PROMPT
+
+
+def test_temperature_is_dropped_before_reasoning_effort():
+    """The order of the fallback ladder is the whole point.
+
+    This was one try/except that fell back to NO parameters. gpt-5-mini rejects
+    `temperature=0` outright — "does not support 0 with this model" — so EVERY call took
+    that fallback and dropped `reasoning_effort` with it. The constant was set, these tests
+    passed, and production never ran a single low-effort translation: 13.8-36.7s each,
+    where the same model answers a low-effort request in 2.8-4.2s.
+
+    temperature is the expendable one. It pins determinism, which is nice; effort is most
+    of the time a learner spends watching the loading screen.
+    """
+    import re
+
+    from api.services import translations
+
+    source = open(translations.__file__, encoding="utf-8").read()
+    block = source[source.index("attempts = ("):source.index(")", source.index("dict(),"))]
+
+    combos = re.findall(r"dict\(([^)]*)\)", block)
+    assert combos, f"the fallback ladder is gone: {block[:200]}"
+
+    first_without_effort = next(
+        (i for i, c in enumerate(combos) if "reasoning_effort" not in c), len(combos))
+    first_without_temp = next(
+        (i for i, c in enumerate(combos) if "temperature" not in c), len(combos))
+    assert first_without_temp < first_without_effort, (
+        f"reasoning_effort is given up before temperature: {combos}")
+
+
+async def test_a_temperature_refusal_still_sends_the_effort(monkeypatch):
+    """Behavioural version of the above, against the error gpt-5-mini actually returns."""
+    from api.models import Question
+    from api.services import translations
+
+    seen: list[dict] = []
+
+    class Client:
+        def __init__(self):
+            self.chat = self
+            self.completions = self
+
+        async def create(self, **kwargs):
+            seen.append(kwargs)
+            if kwargs.get("temperature") is not None:
+                raise RuntimeError(
+                    "Unsupported value: 'temperature' does not support 0 with this model.")
+
+            class R:
+                choices = [type("C", (), {"message": type("M", (), {
+                    "content": '{"ru": {"statement": "x"}, "en": {"statement": "x"}, '
+                               '"uz": {"statement": "x"}}'})()})()]
+            return R()
+
+    monkeypatch.setattr(translations, "openai_client", Client)
+    monkeypatch.setattr(translations.settings, "openai_api_key", "k")
+
+    # `generate` is the function that talks to the model; it needs a session for the write,
+    # and the write is irrelevant here — the assertion is about the parameters sent.
+    class Session:
+        def add(self, *_a, **_k): pass
+        async def commit(self): pass
+        async def scalar(self, *_a, **_k): return None
+        async def execute(self, *_a, **_k): return None
+
+    await translations.generate(Session(), Question(
+        id=1, statement_it="prova", answer=True, quesito_id=1, topic_id=1,
+        source_version="v"))
+
+    assert len(seen) >= 2, "it did not retry after the temperature refusal"
+    assert seen[-1].get("reasoning_effort") == translations.REASONING_EFFORT, \
+        f"the retry dropped reasoning_effort: {seen[-1].keys()}"

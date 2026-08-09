@@ -205,16 +205,38 @@ async def generate(session: AsyncSession, question: Question, model: str | None 
         messages=build_messages(question),
         response_format={"type": "json_object"},
     )
+    # Degrade one parameter at a time, most-wanted last.
+    #
+    # This was a single fallback to NO parameters, and it silently undid the thing it was
+    # meant to protect. gpt-5-mini rejects `temperature=0` outright — "does not support 0
+    # with this model" — so every call took the fallback and dropped `reasoning_effort`
+    # along with it. The constant was set, the tests passed, and production never once ran
+    # a low-effort translation: measured at 13.8-36.7s each where the same model answers a
+    # low-effort request in 2.8-4.2s.
+    #
+    # So reasoning_effort is dropped LAST, and only if it is the thing being complained
+    # about. temperature is the expendable one: it pins determinism, which is nice to have,
+    # while effort is most of the wall-clock the learner sits through.
+    attempts = (
+        dict(temperature=0, reasoning_effort=REASONING_EFFORT),
+        dict(reasoning_effort=REASONING_EFFORT),
+        dict(temperature=0),
+        dict(),
+    )
     try:
-        try:
-            response = await client.chat.completions.create(
-                temperature=0, reasoning_effort=REASONING_EFFORT, **kwargs)
-        except Exception as exc:  # noqa: BLE001
-            # An older model takes neither parameter. Drop both rather than fail: a slower
-            # translation is worth having, an exception is not.
-            if "temperature" not in str(exc) and "reasoning_effort" not in str(exc):
-                raise
-            response = await client.chat.completions.create(**kwargs)
+        response = None
+        last: Exception | None = None
+        for extra in attempts:
+            try:
+                response = await client.chat.completions.create(**extra, **kwargs)
+                break
+            except Exception as exc:  # noqa: BLE001
+                text = str(exc)
+                if "temperature" not in text and "reasoning_effort" not in text:
+                    raise
+                last = exc
+        if response is None:
+            raise last or RuntimeError("no usable parameter combination")
         parsed = json.loads(response.choices[0].message.content)
     except Exception as exc:  # noqa: BLE001
         log.error(
