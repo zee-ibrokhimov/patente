@@ -724,22 +724,8 @@ html, body { overflow-x: hidden; }
 .prep-title { margin: var(--sm) 0 0; font-size: var(--t-title); font-weight: 800; }
 .prep-sub { color: var(--text-2); font-size: var(--t-caption); margin: 0; }
 
-/* Determinate progress. Width is driven by questions actually prepared, so it does not
-   move on a stall — which is the point: a bar that keeps creeping while nothing happens
-   is worse than no bar. The reduced-motion block below deliberately leaves this alone;
-   unlike the spinner it carries information, not decoration. */
-.prep-bar {
-  width: min(220px, 60vw); height: 6px; margin: var(--lg) auto 0;
-  background: var(--edge); border-radius: 999px; overflow: hidden;
-}
-.prep-bar-fill {
-  height: 100%; background: var(--accent); border-radius: 999px;
-  transition: width .25s ease;
-}
-.prep-count {
-  margin: var(--sm) 0 0; color: var(--text-2);
-  font-size: var(--t-caption); font-variant-numeric: tabular-nums;
-}
+/* (.prep-bar / .prep-count are gone with the per-question requests that fed them. The
+   window is prepared in one call now, so there is no honest number to show mid-flight.) */
 .prep-spinner {
   width: 34px; height: 34px; border-radius: 50%;
   border: 3px solid var(--edge); border-top-color: var(--accent);

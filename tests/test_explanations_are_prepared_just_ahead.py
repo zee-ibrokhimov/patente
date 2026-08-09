@@ -247,3 +247,41 @@ def test_translations_are_still_warmed():
     three-second wait in front of every single question, which is not the same trade."""
     source = open(webapp_route.__file__, encoding="utf-8").read()
     assert "translations.warm" in source
+
+
+def test_the_loading_screen_makes_one_request_for_the_whole_window():
+    """One call for five questions, not five calls for one.
+
+    The first version of the waiting loading screen looped, issuing a prefetch per question
+    so it could render "2 of 5". That is five round trips where the owner wants one, and the
+    server already prepares the whole window inside a single request.
+
+    Pinned because the loop is the tempting shape: it is what you write if you want a
+    progress bar, and it reads perfectly well in review.
+    """
+    import pathlib
+    main = (pathlib.Path(__file__).resolve().parent.parent / "webapp" / "src"
+            / "main.ts").read_text(encoding="utf-8")
+    start = main.index("const session = await sessions.start(mode, source)")
+    end = main.index("enterRun(session)", start)
+    block = main[start:end]
+
+    calls = block.count("sessions.prefetch(")
+    assert calls == 1, f"{calls} prefetch calls on the start path; the window is one request"
+    assert "for (" not in block and "while (" not in block, \
+        "the start path loops again — one request covers the whole window"
+    assert ", true)" in block, "the loading screen no longer waits for the work"
+
+
+def test_the_waited_prefetch_is_concurrency_bounded():
+    """A five-question window queues up to ten model calls. Released together against a
+    30,000 TPM account they do not go faster, they go 429.
+
+    Checks the jobs pass THROUGH the gate, not merely that a gate is declared. The first
+    version asserted `Semaphore(PREFETCH_CONCURRENCY)` was present and passed happily when
+    the warms were switched back to launching around it — caught by mutation, not review.
+    """
+    source = open(webapp_route.__file__, encoding="utf-8").read()
+    assert "_detach(bounded(" in source, "the warms are launched past the semaphore"
+    assert "Semaphore(PREFETCH_CONCURRENCY)" in source, \
+        "PREFETCH_CONCURRENCY is defined but nothing gates on it"

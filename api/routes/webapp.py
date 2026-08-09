@@ -368,6 +368,15 @@ class PrefetchIn(BaseModel):
 # half-finished paid model call, which is the one outcome with no upside.
 PREFETCH_DEADLINE = 75.0
 
+# How many warms may be in flight at once inside one waited prefetch.
+#
+# A five-question window queues up to ten model calls — five translations and five
+# explanations. Fired together they arrive as one burst against an account limited to
+# 30,000 tokens per minute, and an explanation prompt alone runs 7,000-14,000: the burst
+# does not go faster, it goes 429. Three at a time keeps the request saturated without
+# tripping the ceiling. Raise it when the account's TPM is raised, not before.
+PREFETCH_CONCURRENCY = 3
+
 # Tasks outstanding past the deadline. asyncio keeps only weak references to running tasks,
 # so without a strong one here the garbage collector is free to destroy a warm() mid-flight
 # — the failure mode being that prefetch works under load and silently drops work when idle.
@@ -446,7 +455,13 @@ async def prefetch(
         # RUNNING, not cancelled. Each warm() owns its session and swallows its own errors,
         # so a straggler finishing after the response simply populates the cache early for
         # whoever reads that question next.
-        started = [_detach(run()) for _kind, run in jobs]
+        gate = asyncio.Semaphore(PREFETCH_CONCURRENCY)
+
+        async def bounded(run):
+            async with gate:
+                await run()
+
+        started = [_detach(bounded(run)) for _kind, run in jobs]
         if started:
             finished, unfinished = await asyncio.wait(started, timeout=PREFETCH_DEADLINE)
             ready, pending = len(finished), len(unfinished)

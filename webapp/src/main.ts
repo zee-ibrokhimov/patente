@@ -127,7 +127,7 @@ const state: {
   adminData: { overview: AdminOverview | null; users: AdminUser[]; links: AdminLink[];
                query: string; busy: boolean } | null;
   /** A quiz being prepared. Non-null only between tapping Start and the first question. */
-  preparing: { mode: Mode; source: RepeatSource; done?: number; total?: number } | null;
+  preparing: { mode: Mode; source: RepeatSource } | null;
 } = { me: null, screen: "home", run: null, results: null, stats: null, profile: null,
       resumable: null, reviewWrongOnly: true, ratings: null, adminData: null,
       preparing: null,
@@ -242,29 +242,28 @@ async function startRun(mode: Mode, source: RepeatSource = "smart"): Promise<voi
   render();
   try {
     const session = await sessions.start(mode, source);
-    // Prepare the opening five and WAIT for them — one at a time, so the screen can count.
+    // Prepare the opening five and WAIT for them, in ONE request.
     //
-    // This used to race the request against a 2500ms timer, which could never have worked:
+    // It used to race the request against a 2500ms timer, which could never have worked:
     // the endpoint handed every job to BackgroundTasks and answered immediately, so the
     // race was between a timer and a response that arrived in milliseconds having done
-    // nothing at all. The loading screen always won, and the learner still met an
-    // untranslated question one. Now the server waits for the work, and this waits for the
-    // server.
+    // nothing. The loading screen always won, and the learner still met an untranslated
+    // question one. Now the server waits for the work, and this waits for the server.
     //
-    // One question per call rather than five in one call: it is the only way to show honest
-    // progress, and it costs almost nothing, because five translations issued in parallel
-    // measured 19.7s against ~3.9s each — they serialise anyway under the account's rate
-    // limit. Anything already cached returns at once, so a warm quiz still starts instantly.
+    // One call for the whole window, not one per question. An earlier version issued five
+    // so the screen could count "2 of 5"; a single round trip is what is wanted, and the
+    // server prepares the window inside it under a concurrency bound.
+    //
+    // The trade is that nothing is knowable between sending and receiving, so the screen
+    // shows an unlabelled wait instead of a counted one. Real progress needs either the
+    // five calls back or a status endpoint to poll — it is not something the client can
+    // honestly infer from one pending request, and a bar that moves on a timer would be a
+    // guess dressed as information.
     const total = Math.min(PREFETCH_WINDOW, session.question_count);
-    for (let i = 0; i < total; i++) {
-      if (!state.preparing) break;           // they navigated away; stop spending
-      state.preparing = { ...state.preparing, done: i, total };
-      render();
-      try {
-        await sessions.prefetch(session.id, i + 1, 1, true);
-      } catch {
-        /* a failed prefetch is a slower question, not a failed quiz — keep going */
-      }
+    try {
+      await sessions.prefetch(session.id, 1, total, true);
+    } catch {
+      /* a failed prefetch is a slower question, not a failed quiz */
     }
     state.preparing = null;
     enterRun(session);
@@ -2617,22 +2616,12 @@ function preparingScreen(): HTMLElement {
     state.preparing?.mode === "exam" ? t("exam") : t("practice")));
   box.append(el("p", "prep-sub", t("preparing_quiz")));
 
-  // A determinate bar, because the wait is now genuinely as long as the work.
-  //
-  // While this screen was capped at 2.5s an unlabelled spinner was defensible. Waiting for
-  // five cold model calls is not the same thing: without a count it is indistinguishable
-  // from a hang, and the honest reading of a frozen spinner is that the app has crashed.
-  // The steps are real — one per question actually prepared, not a timer pretending.
-  const total = state.preparing?.total ?? 0;
-  if (total > 0) {
-    const done = state.preparing?.done ?? 0;
-    const bar = el("div", "prep-bar");
-    const fill = el("div", "prep-bar-fill");
-    fill.style.width = `${Math.round((done / total) * 100)}%`;
-    bar.append(fill);
-    box.append(bar);
-    box.append(el("p", "prep-count", `${done} / ${total}`));
-  }
+  // No progress bar. There was one, driven by a per-question call; the window is now
+  // prepared in a single request, and between sending it and receiving it the client knows
+  // exactly nothing. A bar advanced on a timer would be a guess wearing the clothes of a
+  // measurement — worse than no bar, because it is believed. The wait can be genuinely
+  // long on cold questions, so the honest version of this screen is the spinner plus a
+  // sentence saying what is happening.
 
   wrap.append(box);
   return wrap;
