@@ -118,6 +118,15 @@ log = logging.getLogger(__name__)
 # to decide, not more. Do not raise it without measuring again.
 CONTEXT_CHARS = 24_000
 
+# How much of the budget is reserved for the topic's OWN articles before sign-name matches
+# get any. Without a reservation the floor is not a floor: one long matched article can
+# consume everything, and cluster 638 shipped a flatly wrong explanation because it did —
+# see select_articles.
+#
+# Half rather than all, because for a sign cluster the article naming that sign genuinely is
+# the most relevant thing and should still lead.
+FLOOR_SHARE = 0.5
+
 # Statements judged per cluster. A 34-member cluster does not need all 34 checked to
 # catch a bad explanation.
 MAX_STATEMENTS = 12
@@ -293,25 +302,63 @@ def select_articles(
     """The articles to put in front of the model, most specific first.
 
     Sign-name matches come first because they name the article defining the sign in
-    question; the topic's hand-mapped articles follow as the floor, so no cluster is
-    ever sent with no statute at all. Matches are used only for *ordering* — a mention
-    is not an identification, and being wrong here costs some irrelevant text rather
-    than a wrong answer.
-    """
-    ordered: list[tuple[str, str]] = []
-    for reference in signs_in(statements, index) + articles_for(topic_name):
-        if reference not in ordered:
-            ordered.append(reference)
+    question; the topic's hand-mapped articles are the FLOOR, so no cluster is ever sent
+    with no statute at all. Matches are used only for ordering — a mention is not an
+    identification, and being wrong there should cost some irrelevant text rather than a
+    wrong answer.
 
-    chosen, used = [], 0
-    for source, number in ordered:
-        article = corpus[source].get(number)
-        if article is None:          # repealed, or never fetched
-            continue
-        if used and used + len(article["text"]) > budget:
-            continue
-        chosen.append({"source": source, "number": number, **article})
-        used += len(article["text"])
+    THE FLOOR HAS TO BE RESERVED, OR IT IS NOT A FLOOR
+
+    It was not. Sign matches went first and the budget was filled in order, so a long
+    matched article could consume everything and leave nothing of the topic's own.
+
+    Cluster 638 is what that looks like in production. It is about a dashed white line;
+    `signs_in` matched art. 135 "Segnali utili per la guida", which is 16,208 characters —
+    two thirds of the whole budget. With arts. 122 and 148 behind it, every article the
+    topic actually maps to was skipped, including art. 139 "Strisce di separazione dei
+    sensi di marcia". The model was asked to explain a road MARKING while being shown
+    articles about road SIGNS, and the statute that says a dashed line separates the
+    directions of travel was not in the prompt at all.
+
+    It then wrote "Non è destinata a separare i sensi di marcia" — the exact opposite of
+    the ministerial answer to q20711 in its own cluster. That is not a hallucination; it is
+    a correct reading of the wrong law.
+
+    So the topic's articles now get a reserved share of the budget, filled FIRST, and sign
+    matches compete for the rest. Sign clusters are unaffected in practice: the article
+    defining a sign is almost always inside its own topic's mapping, so it is taken by the
+    reservation rather than despite it.
+    """
+    matched = signs_in(statements, index)
+    mapped = articles_for(topic_name)
+
+    def take(references, allowance, chosen, seen, used):
+        for source, number in references:
+            if (source, number) in seen:
+                continue
+            article = corpus[source].get(number)
+            if article is None:              # repealed, or never fetched
+                continue
+            size = len(article["text"])
+            # `used and ...` keeps the original behaviour that one oversized article is
+            # better than none: a cluster with a single 30k-character governing article
+            # still gets it rather than being sent bare.
+            if used and used + size > allowance:
+                continue
+            seen.add((source, number))
+            chosen.append({"source": source, "number": number, **article})
+            used += size
+        return used
+
+    chosen: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+
+    # The floor first, inside its reservation.
+    used = take(mapped, budget * FLOOR_SHARE, chosen, seen, 0)
+    # Then the sign matches, against the full budget.
+    used = take(matched, budget, chosen, seen, used)
+    # Then anything of the floor that the reservation could not fit.
+    take(mapped, budget, chosen, seen, used)
     return chosen
 
 
