@@ -204,3 +204,60 @@ async def test_coverage_reports_questions_not_only_rules(client, registered, api
     assert "questions_covered" in body, "coverage still understates itself five-fold"
     assert body["questions_covered"] >= body["explained"], \
         "fewer questions covered than rules explained, which cannot happen"
+
+
+# --- the batch reports its progress ------------------------------------------
+
+async def test_progress_is_readable_while_a_batch_runs(client, registered, api_db):
+    """The batch takes minutes. Without a bar the only feedback is a toast and then
+    silence, which is indistinguishable from having failed."""
+    r = await client.get("/webapp/admin/content/progress", headers=auth())
+    assert r.status_code == 200
+    for key in ("total", "done", "failed", "running"):
+        assert key in r.json(), f"progress does not report {key}"
+
+
+async def test_a_declined_generation_still_advances_the_bar(client, registered, api_db):
+    """A run that stalls at 17 of 20 for ever reads as a broken feature rather than as
+    three clusters the model refused. Failures have to count as finished."""
+    from api.routes import webapp_admin
+
+    source = open(webapp_admin.__file__, encoding="utf-8").read()
+    block = source[source.index("def finished(t: asyncio.Task)"):][:500]
+    assert 't.exception()' in block, "a failed generation is not detected"
+    assert '"failed" if' in block, "a failure does not advance the counter"
+
+
+async def test_the_progress_is_not_persisted(client, registered, api_db):
+    """It must die with the process, because the TASKS die with the process. A stored bar
+    would report progress for work that stopped at the last deploy — wrong, rather than
+    merely absent."""
+    from api.routes import webapp_admin
+
+    source = open(webapp_admin.__file__, encoding="utf-8").read()
+    assert "_progress: dict" in source, "progress is no longer plain in-memory state"
+    assert "events.record(session, EV_MODEL_CALL,\n                        chat_id=staff" in source \
+        or "_progress" in source
+
+
+# --- the count that was four times too big -----------------------------------
+
+async def test_disputed_counts_rules_not_rows(client, registered, api_db):
+    """It reported 180 where the truth was 45 — one row per language, exactly four times
+    too many, on the same card as two counters that had just been fixed for that."""
+    from api.models import Cluster, Explanation
+
+    before = (await client.get("/webapp/admin/overview",
+                               headers=auth())).json()["content"]["explanations_disputed"]
+    async with api_db() as s:
+        s.add(Cluster(id=9900, natural_key="seed|txt:9900", topic_id=1, rule_summary="r"))
+        await s.commit()
+        for lang in ("it", "ru", "en", "uz"):
+            s.add(Explanation(cluster_id=9900, lang=lang, text="t", status="draft",
+                              disputed="1,2"))
+        await s.commit()
+
+    after = (await client.get("/webapp/admin/overview",
+                              headers=auth())).json()["content"]["explanations_disputed"]
+    assert after - before == 1, (
+        f"one disputed rule in four languages moved the count by {after - before}")

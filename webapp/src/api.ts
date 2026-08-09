@@ -214,6 +214,11 @@ export const admin = {
   generateContent: (count: number) =>
     request<{ started: number; covers_questions: number }>(
       `/admin/content/generate?count=${count}`, { method: "POST" }),
+  /** How far the running batch has got. In memory server-side, so it resets on a deploy —
+   *  which is right, because the work resets with it. */
+  contentProgress: () =>
+    request<{ total: number; done: number; failed: number; running: boolean }>(
+      "/admin/content/progress"),
   /** Tokens, not euros — prices change and are per-model. */
   spend: () => request<AdminSpend>("/admin/spend"),
 

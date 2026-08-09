@@ -136,8 +136,12 @@ async def overview(
     withheld = await session.scalar(
         select(func.count(func.distinct(Explanation.cluster_id)))
         .where(Explanation.status == STATUS_FLAGGED))
+    # DISTINCT cluster, like the two counts above it. This counted rows and reported 180
+    # where the truth was 45 — one row per language, so exactly four times too many, on the
+    # same screen as two counters that had just been fixed for that. A row count is never
+    # the answer here: an explanation is one thing written in four languages.
     disputed = await session.scalar(
-        select(func.count(Explanation.id))
+        select(func.count(func.distinct(Explanation.cluster_id)))
         .where(Explanation.disputed.is_not(None), Explanation.disputed != ""))
 
     # How many QUESTIONS those explanations actually cover.
@@ -1141,6 +1145,7 @@ async def generate_content(
                         tokens_in=0, tokens_out=0)
     await session.commit()
 
+    _progress.update(total=len(targets), done=0, failed=0, running=True)
     for cluster_id, _n in targets:
         _detach_admin(explanations.warm(cluster_id, staff.lang))
 
@@ -1151,12 +1156,36 @@ async def generate_content(
 # so without a strong one the garbage collector may destroy a generation mid-flight.
 _batch: set[asyncio.Task] = set()
 
+# What the running batch is doing, for the progress bar.
+#
+# In memory on purpose, and it dies with the process — which is CORRECT here, because the
+# tasks die with it too. Persisting this would leave a bar reporting progress for work that
+# stopped at the last deploy, which is worse than a bar that resets: one is wrong, the
+# other is merely absent.
+_progress: dict = {"total": 0, "done": 0, "failed": 0, "running": False}
+
 
 def _detach_admin(coro) -> asyncio.Task:
     task = asyncio.create_task(coro)
     _batch.add(task)
-    task.add_done_callback(_batch.discard)
+
+    def finished(t: asyncio.Task) -> None:
+        _batch.discard(t)
+        # A generation that raised still counts as finished. The bar has to reach the end
+        # even when the model refuses — a run that silently stalls at 17 of 20 for ever
+        # reads as a broken feature rather than as three declines.
+        _progress["failed" if t.exception() else "done"] += 1
+        if _progress["done"] + _progress["failed"] >= _progress["total"]:
+            _progress["running"] = False
+
+    task.add_done_callback(finished)
     return task
+
+
+@router.get("/content/progress")
+async def content_progress(_staff: User = Depends(staff_user)):
+    """How far the running batch has got. Polled by the panel; cheap and in memory."""
+    return dict(_progress)
 
 
 @router.get("/spend")

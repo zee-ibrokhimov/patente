@@ -2335,16 +2335,65 @@ function adminScreen(): HTMLElement {
       const more = el("button", "btn secondary", "Write 20 more");
       more.type = "button";
       more.style.marginTop = "var(--md)";
+
+      // The batch takes minutes. Without a bar the only feedback is a toast and then
+      // nothing, so the honest reading is that it silently failed — which is exactly what
+      // a run that is quietly working looks like.
+      const bar = el("div", "cover-bar");
+      const fill = el("div", "cover-fill");
+      bar.append(fill);
+      const note = el("p", "caption", "");
+      const showProgress = (p: { total: number; done: number; failed: number;
+                                running: boolean }) => {
+        const finished = p.done + p.failed;
+        fill.style.width = `${p.total ? (finished / p.total) * 100 : 0}%`;
+        note.textContent = p.running
+          ? `Writing… ${finished} of ${p.total}`
+          : `${p.done} written${p.failed ? `, ${p.failed} the model declined` : ""}.`;
+        more.disabled = p.running;
+      };
+
+      let polling = 0;
+      const poll = async () => {
+        try {
+          const p = await admin.contentProgress();
+          showProgress(p);
+          if (!p.running) {
+            window.clearInterval(polling);
+            // The coverage numbers above are now stale by exactly what was just written.
+            await refreshAdmin();
+          }
+        } catch { window.clearInterval(polling); }
+      };
+
       more.onclick = async () => {
         if (!(await ask("Write explanations for the 20 biggest gaps? "
                         + "This spends model calls and takes a few minutes."))) return;
         more.disabled = true;
         try {
           const out = await admin.generateContent(20);
-          toast(`Writing ${out.started}, covering ${out.covers_questions} questions.`);
-        } catch (err) { reportError(err); } finally { more.disabled = false; }
+          card.append(bar, note);
+          showProgress({ total: out.started, done: 0, failed: 0, running: true });
+          window.clearInterval(polling);
+          // Three seconds: a generation takes 10-30s, so anything faster is polling for
+          // its own sake.
+          polling = window.setInterval(() => void poll(), 3000);
+        } catch (err) { more.disabled = false; reportError(err); }
       };
       card.append(more);
+
+      // A batch already running when this screen opens — a reopened app, or a second
+      // device. Without this the bar exists only for whoever pressed the button.
+      void (async () => {
+        try {
+          const p = await admin.contentProgress();
+          if (p.running) {
+            card.append(bar, note);
+            showProgress(p);
+            polling = window.setInterval(() => void poll(), 3000);
+          }
+        } catch { /* the panel is useful without the bar */ }
+      })();
 
       if (c.explanations_withheld || c.explanations_disputed) {
         card.append(el("p", "caption",
