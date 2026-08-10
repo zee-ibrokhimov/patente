@@ -996,6 +996,49 @@ html, body { overflow-x: hidden; }
 }
 .v-action:disabled { opacity: .55; cursor: default; }
 
+/* --- flip cards ---------------------------------------------------------
+   The card is a button, so it is tappable anywhere and reachable by keyboard without
+   any ARIA of its own. Sized with min-height rather than a fixed height: the deck holds
+   both `stop` and `avvisatore acustico`, and a fixed box would either clip the long one
+   or leave the short one floating in a field of white. */
+.v-flip {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: var(--md);
+  width: 100%; box-sizing: border-box; min-height: 9.5rem;
+  margin: var(--lg) 0 0;
+  padding: var(--xl) var(--lg);
+  border: 2px solid var(--edge); border-radius: var(--r-lg);
+  background: var(--surface); color: inherit;
+  font-family: var(--font); text-align: center;
+  cursor: pointer;
+  transition: border-color .15s ease, background .15s ease;
+}
+/* The revealed side is tinted, so a glance tells you which face you are on without
+   reading it — needed because the two sides otherwise look identical when the prompt
+   and the answer are both single words. */
+.v-flip.back { background: var(--tint-info); border-color: var(--accent); cursor: default; }
+.v-flip-word {
+  font-size: var(--t-question); line-height: var(--lh-question);
+  font-weight: var(--w-question); color: var(--text);
+  overflow-wrap: anywhere;
+}
+/* --text-2, not --text-3: this line is the instruction ("tap to see the translation"),
+   so it is the one caption on the screen that has to be READ rather than noticed. --text-3
+   sits at 3.1:1 on both faces, which is fine for a chevron and not for a sentence. */
+.v-flip-hint { font-size: var(--t-caption); color: var(--text-2); }
+
+.v-card-actions { display: flex; gap: var(--sm); margin-top: var(--lg); }
+.v-card-btn {
+  flex: 1; padding: var(--md) var(--sm);
+  border: 1px solid transparent; border-radius: var(--r);
+  font-family: var(--font); font-size: var(--t-body); font-weight: 700;
+  cursor: pointer;
+}
+/* Practice green and exam red, the same two colours this app uses everywhere for
+   "you had it" and "you did not". Not new hues — the pairing is already learned. */
+.v-card-btn.yes { background: var(--practice-tint); border-color: var(--practice-chip); color: var(--practice-deep); }
+.v-card-btn.no  { background: var(--exam-tint);     border-color: var(--exam-chip);     color: var(--exam-deep); }
+
 .v-verdict {
   margin-top: var(--lg); padding: var(--md) var(--lg);
   border-radius: var(--r); border: 1px solid transparent;

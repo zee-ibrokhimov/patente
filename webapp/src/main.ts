@@ -106,12 +106,22 @@ interface Run {
  *  the card from "type your answer" to "here is how you did", so there is one source of
  *  truth for which half is showing rather than a separate boolean that can disagree. */
 interface VocabRun {
-  view: "test" | "list";
+  view: "test" | "cards" | "list";
   round: VocabRound | null;
   index: number;
   current: VocabAnswer | null;
   right: number;
   typed: string;
+  /** The FLIP-CARD round, kept apart from `round` on purpose. Switching tabs mid-round
+   *  would otherwise throw away whichever one you were not looking at, and the two are
+   *  different exercises: typing is recall, flipping is recognition. */
+  cards: VocabRound | null;
+  cardIndex: number;
+  /** Whether the card on screen is showing its back. The whole interaction. */
+  flipped: boolean;
+  /** How many the learner said they knew. Their own verdict, not a graded score — which
+   *  is why the summary calls it differently from the typing round's. */
+  knew: number;
   busy: boolean;
   list: VocabList | null;
   query: string;
@@ -152,6 +162,7 @@ const state: {
       resumable: null, reviewWrongOnly: true, ratings: null, adminData: null,
       preparing: null,
       vocab: { view: "test", round: null, index: 0, current: null, right: 0, typed: "",
+               cards: null, cardIndex: 0, flipped: false, knew: 0,
                busy: false, list: null, query: "", stats: null, locked: false } };
 
 const root = document.getElementById("app")!;
@@ -1988,7 +1999,8 @@ function fallbackBack(handler: () => void): HTMLElement {
 async function openVocab(): Promise<void> {
   state.screen = "vocab";
   state.vocab = { ...state.vocab, view: "test", round: null, index: 0, current: null,
-                  right: 0, typed: "", locked: false };
+                  right: 0, typed: "", cards: null, cardIndex: 0, flipped: false, knew: 0,
+                  locked: false };
 
   // The word list is language-dependent CONTENT, not just labels — the server picks the
   // gloss column from `user.lang`. The spread above deliberately keeps `list` so returning
@@ -2030,6 +2042,51 @@ async function startVocabRound(): Promise<void> {
     state.vocab.busy = false;
     render();
   }
+}
+
+/** Deal a fresh deck. Separate from `startVocabRound` because the two rounds coexist:
+ *  the server draws each independently and losing one to open the other would punish
+ *  curiosity. */
+async function startVocabCards(): Promise<void> {
+  state.vocab.busy = true;
+  render();
+  try {
+    state.vocab.cards = await vocab.cards();
+    state.vocab.cardIndex = 0;
+    state.vocab.knew = 0;
+    state.vocab.flipped = false;
+    state.vocab.locked = false;
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 402) state.vocab.locked = true;
+    else reportError(err);
+  } finally {
+    state.vocab.busy = false;
+    render();
+  }
+}
+
+/** Answer a card by saying whether you knew it.
+ *
+ *  Advances immediately and posts in the background. A flashcard's whole appeal is speed —
+ *  putting a network round trip between "I knew that" and the next card turns a deck into
+ *  a series of waits. The schedule is the server's to keep; if the post fails the card
+ *  simply keeps its old box, which is the safe direction to be wrong in. */
+function gradeCard(knew: boolean): void {
+  const v = state.vocab;
+  const item = v.cards?.items[v.cardIndex];
+  if (!item || !v.flipped) return;
+
+  if (knew) v.knew += 1;
+  haptic(knew ? "success" : "error");
+  void vocab.recall(item.term_id, knew).catch(() => {
+    /* deliberately silent: see above. Reporting it would interrupt a deck mid-flow over
+       something the learner cannot act on. */
+  });
+
+  v.cardIndex += 1;
+  v.flipped = false;
+  render();
+  if (v.cardIndex >= (v.cards?.items.length ?? 0)) void loadVocabStats();
 }
 
 async function checkVocabAnswer(): Promise<void> {
@@ -2096,21 +2153,23 @@ function vocabScreen(): HTMLElement {
   }
 
   const seg = el("div", "v-seg");
-  for (const [id, label] of [["test", t("v_test")], ["list", t("v_list")]] as const) {
+  const tabs = [["test", t("v_test")], ["cards", t("v_cards")], ["list", t("v_list")]] as const;
+  for (const [id, label] of tabs) {
     const b = el("button", `v-seg-btn ${v.view === id ? "on" : ""}`, label);
     b.type = "button";
     b.onclick = () => {
-      v.view = id as "test" | "list";
+      v.view = id;
       render();
       if (id === "list" && !v.list) void loadVocabList("");
       if (id === "test" && !v.round) void startVocabRound();
+      if (id === "cards" && !v.cards) void startVocabCards();
     };
     seg.append(b);
   }
   wrap.append(seg);
 
   if (v.locked) { wrap.append(vocabLocked()); return wrap; }
-  wrap.append(v.view === "test" ? vocabTest() : vocabList());
+  wrap.append(v.view === "test" ? vocabTest() : v.view === "cards" ? vocabCards() : vocabList());
   wrap.append(vocabCredit());
   return wrap;
 }
@@ -2227,6 +2286,71 @@ function vocabSummary(): HTMLElement {
   const again = el("button", "v-action", t("v_again"));
   again.type = "button";
   again.onclick = () => void startVocabRound();
+  box.append(again);
+  return box;
+}
+
+/** The flip-card trainer.
+ *
+ *  Italian on one side, the learner's language on the other, and which side leads is the
+ *  server's mixed draw — recognising a word you are shown and producing one you are asked
+ *  for are different skills, and only drilling the easy direction hides that.
+ *
+ *  The card itself is the button. Tapping anywhere on it flips it, which is the gesture
+ *  people already expect from every flashcard app; the two verdict buttons appear only
+ *  once the answer is visible, because grading yourself before looking is not a thing you
+ *  can meaningfully do. */
+function vocabCards(): HTMLElement {
+  const v = state.vocab;
+  const box = el("div", "v-card");
+
+  if (v.busy && !v.cards) { box.append(el("p", "v-muted", "…")); return box; }
+  if (!v.cards || v.cards.items.length === 0) {
+    box.append(el("p", "v-muted", t("v_empty")));
+    return box;
+  }
+  if (v.cardIndex >= v.cards.items.length) return vocabCardsSummary();
+
+  const item = v.cards.items[v.cardIndex]!;
+  box.append(el("div", "v-counter", `${v.cardIndex + 1} / ${v.cards.items.length}`));
+  box.append(el("div", "v-direction",
+    item.direction === "it_to_lang" ? t("v_direction_it") : t("v_direction_lang")));
+
+  const card = el("button", `v-flip ${v.flipped ? "back" : "front"}`);
+  card.type = "button";
+  card.append(el("div", "v-flip-word", v.flipped ? (item.answer ?? "—") : item.prompt));
+  card.append(el("div", "v-flip-hint", v.flipped ? t("v_card_grade") : t("v_card_tap")));
+  card.onclick = () => {
+    if (v.flipped) return;   // flipping back would let a tap undo a reveal by accident
+    v.flipped = true;
+    render();
+  };
+  box.append(card);
+
+  if (v.flipped) {
+    const row = el("div", "v-card-actions");
+    const no = el("button", "v-card-btn no", t("v_card_no"));
+    no.type = "button";
+    no.onclick = () => gradeCard(false);
+    const yes = el("button", "v-card-btn yes", t("v_card_yes"));
+    yes.type = "button";
+    yes.onclick = () => gradeCard(true);
+    row.append(no, yes);
+    box.append(row);
+  }
+  return box;
+}
+
+function vocabCardsSummary(): HTMLElement {
+  const v = state.vocab;
+  const total = v.cards?.items.length ?? 0;
+  const box = el("div", "v-card v-summary");
+  box.append(el("div", "v-summary-title", t("v_round_done")));
+  // "You said you knew", not "you scored" — nobody marked this but the learner.
+  box.append(el("div", "v-summary-score", t("v_card_score", { ok: v.knew, total })));
+  const again = el("button", "v-action", t("v_again"));
+  again.type = "button";
+  again.onclick = () => void startVocabCards();
   box.append(again);
   return box;
 }

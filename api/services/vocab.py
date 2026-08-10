@@ -23,10 +23,11 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.models import User, VocabProgress, VocabTerm
-from api.services import leitner
+from api.services import events, leitner
 from api.services.entitlement import Entitlement
 from api.services.vocab_grading import Grade, Verdict, grade
 from shared.constants import (
+    EV_VOCAB_RECALL,
     TRANSLATION_LANGUAGES,
     VOCAB_IT_TO_LANG,
     VOCAB_LANG_TO_IT,
@@ -310,3 +311,85 @@ async def stats(session: AsyncSession, user: User) -> dict:
         "learned": learned,
         "almost": sum(r.almost for r in rows),
     }
+
+
+async def cards(
+    session: AsyncSession,
+    user: User,
+    entitlement: Entitlement,
+    now: datetime | None = None,
+    size: int = VOCAB_ROUND_SIZE,
+) -> dict:
+    """A round for FLIP CARDS: the same selection, with the answer included.
+
+    `round_for` withholds the answer on purpose — a typing test grades server-side so there
+    is nothing in the payload to read ahead. A card is the opposite: revealing the answer IS
+    the interaction, and it has to arrive in the same request or every flip costs a round
+    trip on a phone that may be on a train.
+
+    Same due-first ordering and the same alternating direction, so the two modes are the
+    same study session seen two ways rather than two separate schedules.
+    """
+    base = await round_for(session, user, entitlement, now=now, size=size)
+    lang = base["lang"]
+
+    ids = [item["term_id"] for item in base["items"]]
+    terms = {
+        t.id: t for t in await session.scalars(
+            select(VocabTerm).where(VocabTerm.id.in_(ids or [0])))
+    }
+    for item in base["items"]:
+        term = terms.get(item["term_id"])
+        if term is None:
+            continue
+        item["answer"] = (
+            term.gloss(lang) if item["direction"] == VOCAB_IT_TO_LANG else term.it)
+    return base
+
+
+async def recall(
+    session: AsyncSession,
+    user: User,
+    term_id: int,
+    knew: bool,
+    entitlement: Entitlement,
+    now: datetime | None = None,
+) -> dict:
+    """Move a term through the Leitner boxes from the learner's OWN verdict.
+
+    Flashcards are self-graded, and that is a weaker signal than a typed answer: flipping a
+    card and thinking "yes, I knew that" is recognition, and recognition is easier than
+    recall. Leitner was invented for paper cards, so the scheme itself is right for this —
+    but the two modes are not equally strong evidence and it is worth being clear that a
+    box reached by tapping "I knew it" was reached more cheaply than one reached by typing.
+
+    It is recorded as an event with the mode on it, so the split is measurable later if the
+    vocabulary numbers ever start looking better than the learner does.
+
+    `almost` is deliberately not touched. A card has two outcomes and "nearly" is not one of
+    them; inventing a third from a two-way tap would put made-up data in the column the
+    typing mode fills honestly.
+    """
+    _require_access(entitlement)
+    now = now or datetime.now(timezone.utc)
+
+    term = await session.get(VocabTerm, term_id)
+    if term is None:
+        raise VocabError(404, "no such term")
+
+    row = await session.get(VocabProgress, (user.chat_id, term_id))
+    if row is None:
+        row = VocabProgress(chat_id=user.chat_id, term_id=term_id, box=1,
+                            due_at=now, seen=0, wrong=0, almost=0)
+        session.add(row)
+
+    row.seen += 1
+    if not knew:
+        row.wrong += 1
+    row.box, row.due_at = leitner.schedule(row.box, knew, now)
+    row.last_answer_at = now
+
+    await events.record(session, EV_VOCAB_RECALL, chat_id=user.chat_id,
+                        term_id=term_id, knew=knew, box=row.box)
+
+    return {"term_id": term.id, "box": row.box, "due_at": row.due_at, "knew": knew}

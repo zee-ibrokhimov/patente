@@ -257,6 +257,9 @@ export interface VocabItem {
   direction: VocabDirection;
   prompt: string;
   answer_lang: string;
+  /** Present only on a CARDS round. The typing round withholds it on purpose — there is
+   *  nothing to read ahead when grading happens server-side. */
+  answer?: string;
 }
 
 export interface VocabRound {

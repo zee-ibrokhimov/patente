@@ -345,6 +345,14 @@ async def start_session(
     return _session_out(row, payloads, now)
 
 
+class VocabRecallIn(BaseModel):
+    """A self-graded card. No text: the learner did not type anything, and pretending
+    otherwise would put an answer they never gave into the grading path."""
+
+    term_id: int
+    knew: bool
+
+
 class PrefetchIn(BaseModel):
     """Which slice of the paper to prepare."""
 
@@ -780,3 +788,34 @@ async def submit_report(
     whose entire pitch is quality (plan §9), and it was structurally impossible to collect.
     """
     return await quiz_route.submit_report(body=body, user=user, session=session)
+
+
+@router.get("/vocab/cards", response_model=None)
+async def vocab_cards(
+    user: User = Depends(webapp_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """A round of flip cards — same terms as the typing round, with the answer attached.
+
+    Separate from /vocab/round because that one withholds the answer on purpose. Here the
+    answer IS the interaction, and fetching it per flip would put a network round trip
+    between a tap and the thing the learner tapped for.
+    """
+    try:
+        return await vocab_service.cards(session, user, evaluate(user))
+    except vocab_service.VocabError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+
+
+@router.post("/vocab/recall", response_model=None)
+async def vocab_recall(
+    body: VocabRecallIn,
+    user: User = Depends(webapp_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """"I knew it" / "I didn't", from a flip card."""
+    try:
+        return await vocab_service.recall(
+            session, user, body.term_id, body.knew, evaluate(user))
+    except vocab_service.VocabError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc

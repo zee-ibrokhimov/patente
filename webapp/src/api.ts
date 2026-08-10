@@ -141,6 +141,19 @@ export const vocab = {
     return request<VocabList>(`/vocab/terms${qs ? `?${qs}` : ""}`);
   },
 
+  /** A round of FLIP CARDS. Carries the answer, unlike `round` — here revealing it is the
+   *  interaction, and fetching it per flip would put a network round trip between a tap
+   *  and the thing the learner tapped for. */
+  cards: () => request<VocabRound>("/vocab/cards"),
+
+  /** "I knew it" / "I didn't", from a card. Self-graded, so no text is sent: the learner
+   *  typed nothing, and inventing an answer would put it into the grading path. */
+  recall: (termId: number, knew: boolean) =>
+    request<{ term_id: number; box: number; knew: boolean }>("/vocab/recall", {
+      method: "POST",
+      body: JSON.stringify({ term_id: termId, knew }),
+    }),
+
   /** Outside the paywall, so it can be shown to someone deciding whether to buy. */
   stats: () => request<VocabStats>("/vocab/stats"),
 };

@@ -325,6 +325,12 @@ EV_MODEL_CALL = "model_call"
 # only of successes would keep a blocked user permanently at the front of the queue.
 EV_REMINDER_SENT = "reminder_sent"
 
+# A vocabulary card was self-graded — "I knew it" or "I didn't". Recorded with the mode on
+# it because a box reached by tapping is weaker evidence than one reached by typing:
+# recognition is easier than recall. Nothing depends on the distinction today; this is what
+# makes it measurable if the vocabulary numbers ever start looking better than the learner.
+EV_VOCAB_RECALL = "vocab_recall"
+
 # Quiz sessions. EV_SESSION_START/END already existed for the study session; these name
 # the bounded, gradeable kind so an exam is separable in the funnel.
 EV_EXAM_STARTED = "exam_started"
