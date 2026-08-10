@@ -213,31 +213,73 @@ async def test_progress_is_readable_while_a_batch_runs(client, registered, api_d
     silence, which is indistinguishable from having failed."""
     r = await client.get("/webapp/admin/content/progress", headers=auth())
     assert r.status_code == 200
-    for key in ("total", "done", "failed", "running"):
+    for key in ("total", "done", "running"):
         assert key in r.json(), f"progress does not report {key}"
 
 
-async def test_a_declined_generation_still_advances_the_bar(client, registered, api_db):
-    """A run that stalls at 17 of 20 for ever reads as a broken feature rather than as
-    three clusters the model refused. Failures have to count as finished."""
+async def test_progress_survives_a_restart(client, registered, api_db):
+    """THE defect this replaced. Progress used to be a counter in module state, and two
+    deploys during one batch reset it to zero while the work carried on — so the bar
+    disappeared and the number froze at whatever had last been fetched.
+
+    It is derived from the database now: the batch records the cluster ids it asked for,
+    and progress is how many of those hold an explanation. Simulated here by asking for
+    progress from a fresh request, having written one of the requested clusters by hand.
+    """
+    from sqlalchemy import select
+
+    from api.models import Cluster, Event, Explanation, Question
+
+    async with api_db() as s:
+        anchor = (await s.scalars(select(Question).limit(1))).one()
+        for cid in (9750, 9751):
+            s.add(Cluster(id=cid, natural_key=f"seed|txt:{cid}",
+                          topic_id=anchor.topic_id, rule_summary="r"))
+        await s.commit()
+        s.add(Event(chat_id=42, type=EV_MODEL_CALL,
+                    payload={"kind": "batch_requested", "cluster_ids": [9750, 9751],
+                             "clusters": 2}))
+        s.add(Explanation(cluster_id=9750, lang="it", text="t", status="draft"))
+        await s.commit()
+
+    body = (await client.get("/webapp/admin/content/progress", headers=auth())).json()
+    assert body["total"] == 2
+    assert body["done"] == 1, \
+        "progress is not counted from what is actually written"
+
+
+async def test_a_stale_batch_stops_claiming_to_be_running(client, registered, api_db):
+    """Tasks die with the process, so a batch interrupted by a deploy has nobody left to
+    finish it. A bar that reports "running" for ever is worse than one that stops: it is a
+    claim rather than an absence."""
+    from datetime import timedelta
+
+    from api.models import Cluster, Event
+    from api.routes import webapp_admin
+
+    async with api_db() as s:
+        s.add(Cluster(id=9760, natural_key="seed|txt:9760", topic_id=1, rule_summary="r"))
+        s.add(Event(chat_id=42, type=EV_MODEL_CALL,
+                    created_at=datetime.now(timezone.utc)
+                    - webapp_admin.BATCH_GIVES_UP_AFTER - timedelta(minutes=1),
+                    payload={"kind": "batch_requested", "cluster_ids": [9760],
+                             "clusters": 1}))
+        await s.commit()
+
+    body = (await client.get("/webapp/admin/content/progress", headers=auth())).json()
+    assert body["running"] is False, "an abandoned batch still claims to be running"
+
+
+async def test_the_batch_is_concurrency_bounded(client, registered, api_db):
+    """Unbounded, twenty generations were released at once against a 30,000 TPM account.
+    They do not go faster — they queue behind each other, and the batch stretched from
+    minutes into the better part of an hour, which is why the number looked frozen."""
     from api.routes import webapp_admin
 
     source = open(webapp_admin.__file__, encoding="utf-8").read()
-    block = source[source.index("def finished(t: asyncio.Task)"):][:500]
-    assert 't.exception()' in block, "a failed generation is not detected"
-    assert '"failed" if' in block, "a failure does not advance the counter"
-
-
-async def test_the_progress_is_not_persisted(client, registered, api_db):
-    """It must die with the process, because the TASKS die with the process. A stored bar
-    would report progress for work that stopped at the last deploy — wrong, rather than
-    merely absent."""
-    from api.routes import webapp_admin
-
-    source = open(webapp_admin.__file__, encoding="utf-8").read()
-    assert "_progress: dict" in source, "progress is no longer plain in-memory state"
-    assert "events.record(session, EV_MODEL_CALL,\n                        chat_id=staff" in source \
-        or "_progress" in source
+    block = source[source.index("async def generate_content"):]
+    block = block[:block.index("@router.get")]
+    assert "Semaphore" in block, "the batch releases every generation at once again"
 
 
 # --- the count that was four times too big -----------------------------------
@@ -261,3 +303,47 @@ async def test_disputed_counts_rules_not_rows(client, registered, api_db):
                               headers=auth())).json()["content"]["explanations_disputed"]
     assert after - before == 1, (
         f"one disputed rule in four languages moved the count by {after - before}")
+
+
+async def test_the_batch_records_which_clusters_it_asked_for(client, registered, api_db):
+    """Progress is derived from those ids, so a batch that does not record them reports
+    zero for ever — and the bar silently stops working.
+
+    Goes through the real endpoint. The test above seeds its own event, so it verifies the
+    READING and not the WRITING: removing the ids from what generate() records left it
+    green.
+    """
+    from sqlalchemy import select
+
+    from api.models import Cluster, Event, Question
+
+    # Seed a cluster with no explanation, so the endpoint always has something to take.
+    # Without this the call can 409 ("everything is written") and the test returns before
+    # asserting anything — which is how it stayed green with the recording removed.
+    async with api_db() as s:
+        anchor = (await s.scalars(select(Question).limit(1))).one()
+        s.add(Cluster(id=9770, natural_key="seed|txt:9770",
+                      topic_id=anchor.topic_id, rule_summary="r"))
+        s.add(Question(id=977000, quesito_id=anchor.quesito_id, topic_id=anchor.topic_id,
+                       statement_it="q", answer=True, cluster_id=9770,
+                       source_version="v"))
+        await s.commit()
+
+    r = await client.post("/webapp/admin/content/generate?count=2", headers=auth())
+    assert r.status_code == 200, r.text
+
+    async with api_db() as s:
+        batches = [
+            e for e in await s.scalars(
+                select(Event).where(Event.type == EV_MODEL_CALL)
+                .order_by(Event.created_at.desc()))
+            if (e.payload or {}).get("kind") == "batch_requested"
+        ]
+    assert batches, "the batch recorded nothing at all"
+    ids = (batches[0].payload or {}).get("cluster_ids")
+    assert ids, "the batch did not record WHICH clusters — progress cannot be derived"
+    assert len(ids) == r.json()["started"]
+
+    body = (await client.get("/webapp/admin/content/progress", headers=auth())).json()
+    assert body["total"] == r.json()["started"], \
+        "progress does not see the batch that was just started"

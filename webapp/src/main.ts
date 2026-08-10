@@ -2343,13 +2343,16 @@ function adminScreen(): HTMLElement {
       const fill = el("div", "cover-fill");
       bar.append(fill);
       const note = el("p", "caption", "");
-      const showProgress = (p: { total: number; done: number; failed: number;
-                                running: boolean }) => {
-        const finished = p.done + p.failed;
-        fill.style.width = `${p.total ? (finished / p.total) * 100 : 0}%`;
+      // `done` is counted from the DATABASE — how many of the requested clusters now hold
+      // an explanation — so it survives a deploy and cannot disagree with the coverage
+      // number directly above it. The gap between done and total at the end is the clusters
+      // the model declined or a gate withheld, which is worth naming rather than hiding.
+      const showProgress = (p: { total: number; done: number; running: boolean }) => {
+        fill.style.width = `${p.total ? (p.done / p.total) * 100 : 0}%`;
+        const missed = p.total - p.done;
         note.textContent = p.running
-          ? `Writing… ${finished} of ${p.total}`
-          : `${p.done} written${p.failed ? `, ${p.failed} the model declined` : ""}.`;
+          ? `Writing… ${p.done} of ${p.total}`
+          : `${p.done} written${missed > 0 ? `, ${missed} declined or withheld` : ""}.`;
         more.disabled = p.running;
       };
 
@@ -2367,13 +2370,17 @@ function adminScreen(): HTMLElement {
       };
 
       more.onclick = async () => {
+        // Honest about the wait. "A few minutes" was written before the batch was
+        // concurrency-bounded, when twenty releases at once queued behind the rate limit
+        // and took the better part of an hour.
         if (!(await ask("Write explanations for the 20 biggest gaps? "
-                        + "This spends model calls and takes a few minutes."))) return;
+                        + "About 3-5 minutes, and it spends model calls. "
+                        + "You can close this — it keeps going."))) return;
         more.disabled = true;
         try {
           const out = await admin.generateContent(20);
           card.append(bar, note);
-          showProgress({ total: out.started, done: 0, failed: 0, running: true });
+          showProgress({ total: out.started, done: 0, running: true });
           window.clearInterval(polling);
           // Three seconds: a generation takes 10-30s, so anything faster is polling for
           // its own sake.

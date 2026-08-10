@@ -44,7 +44,7 @@ from api.models import (
     Cluster, Event, Explanation, Purchase, Question, QuizSession, ReferralLink,
     Report, Translation, User,
 )
-from api.routes.webapp import webapp_user
+from api.routes.webapp import PREFETCH_CONCURRENCY, webapp_user
 from api.services import broadcast, events, explanations, lapse, notify, referrals
 from api.services.entitlement import evaluate
 from api.services.users import _clean_source
@@ -1139,15 +1139,29 @@ async def generate_content(
         raise HTTPException(409, "every cluster already has an explanation")
 
     covers = sum(n for _cid, n in targets)
+    # The cluster IDS, not just how many. Progress is then a question the DATABASE can
+    # answer — "how many of these now have an explanation" — instead of a counter held in
+    # memory that a deploy silently resets. Two deploys during one batch is exactly how the
+    # bar vanished while the work carried on.
     await events.record(session, EV_MODEL_CALL,
                         chat_id=staff.chat_id, kind="batch_requested",
+                        cluster_ids=[cid for cid, _n in targets],
                         clusters=len(targets), covers_questions=covers,
                         tokens_in=0, tokens_out=0)
     await session.commit()
 
-    _progress.update(total=len(targets), done=0, failed=0, running=True)
+    # Bounded, like the prefetch. Unbounded, twenty generations were released at once
+    # against a 30,000 TPM account: they do not go faster, they queue behind each other and
+    # the whole batch stretches from minutes into the better part of an hour — which is why
+    # the number looked frozen.
+    gate = asyncio.Semaphore(PREFETCH_CONCURRENCY)
+
+    async def bounded(cluster_id: int):
+        async with gate:
+            await explanations.warm(cluster_id, staff.lang)
+
     for cluster_id, _n in targets:
-        _detach_admin(explanations.warm(cluster_id, staff.lang))
+        _detach_admin(bounded(cluster_id))
 
     return {"started": len(targets), "covers_questions": covers}
 
@@ -1156,36 +1170,72 @@ async def generate_content(
 # so without a strong one the garbage collector may destroy a generation mid-flight.
 _batch: set[asyncio.Task] = set()
 
-# What the running batch is doing, for the progress bar.
+# How long a batch may look "running" before the bar gives up on it.
 #
-# In memory on purpose, and it dies with the process — which is CORRECT here, because the
-# tasks die with it too. Persisting this would leave a bar reporting progress for work that
-# stopped at the last deploy, which is worse than a bar that resets: one is wrong, the
-# other is merely absent.
-_progress: dict = {"total": 0, "done": 0, "failed": 0, "running": False}
+# Tasks die with the process, so a batch interrupted by a deploy has no one left to finish
+# it — and a bar that reports "running" for ever is worse than one that stops, because it
+# is a claim rather than an absence. Twenty clusters, three at a time, at 10-30s each is
+# under five minutes; fifteen is generous.
+BATCH_GIVES_UP_AFTER = timedelta(minutes=15)
 
 
 def _detach_admin(coro) -> asyncio.Task:
     task = asyncio.create_task(coro)
     _batch.add(task)
 
-    def finished(t: asyncio.Task) -> None:
-        _batch.discard(t)
-        # A generation that raised still counts as finished. The bar has to reach the end
-        # even when the model refuses — a run that silently stalls at 17 of 20 for ever
-        # reads as a broken feature rather than as three declines.
-        _progress["failed" if t.exception() else "done"] += 1
-        if _progress["done"] + _progress["failed"] >= _progress["total"]:
-            _progress["running"] = False
-
-    task.add_done_callback(finished)
+    task.add_done_callback(_batch.discard)
     return task
 
 
 @router.get("/content/progress")
-async def content_progress(_staff: User = Depends(staff_user)):
-    """How far the running batch has got. Polled by the panel; cheap and in memory."""
-    return dict(_progress)
+async def content_progress(
+    _staff: User = Depends(staff_user), session: AsyncSession = Depends(get_session)
+):
+    """How far the last batch has got, ASKED OF THE DATABASE.
+
+    This used to be a counter in module state, and it had the one failure a progress bar
+    must not have: a deploy reset it while the work carried on, so the bar disappeared and
+    the number froze at whatever had last been fetched. Two deploys during one batch is
+    exactly what happened.
+
+    Derived instead. The batch records the cluster ids it asked for; progress is how many of
+    those now hold a servable explanation. It survives a restart, it cannot drift from the
+    coverage number on the same card, and it is right even if the request that started the
+    batch came from another device.
+
+    `running` is bounded by TIME as well as by completion. Tasks die with the process, so a
+    batch interrupted by a deploy would otherwise report "running" for ever — the bar has to
+    be able to give up.
+    """
+    batches = [
+        e for e in (await session.scalars(
+            select(Event).where(Event.type == EV_MODEL_CALL)
+            .order_by(Event.created_at.desc()).limit(200)))
+        if (e.payload or {}).get("kind") == "batch_requested"
+    ]
+    if not batches:
+        return {"total": 0, "done": 0, "running": False}
+
+    batch = batches[0]
+    ids = (batch.payload or {}).get("cluster_ids") or []
+    if not ids:
+        return {"total": (batch.payload or {}).get("clusters", 0), "done": 0,
+                "running": False}
+
+    done = await session.scalar(
+        select(func.count(func.distinct(Explanation.cluster_id))).where(
+            Explanation.cluster_id.in_(ids),
+            Explanation.status.in_(SERVABLE_STATUSES)))
+    done = done or 0
+
+    age = datetime.now(timezone.utc) - batch.created_at.replace(tzinfo=timezone.utc)
+    return {
+        "total": len(ids),
+        "done": done,
+        # Finished, or old enough that whatever was still running is gone.
+        "running": done < len(ids) and age < BATCH_GIVES_UP_AFTER,
+        "started_at": batch.created_at,
+    }
 
 
 @router.get("/spend")
