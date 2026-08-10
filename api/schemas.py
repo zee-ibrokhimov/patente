@@ -206,6 +206,46 @@ class StatsOut(BaseModel):
     by_topic: list[TopicStat]
 
 
+class ErrorHeadline(BaseModel):
+    """The error rate, or an explicit refusal to state one.
+
+    `rate` is None below `min_sample` — not a placeholder for zero. The client must render
+    the refusal ("47 / 100 answers") rather than treating null as 0%, which would tell
+    somebody with twelve answers that they never make mistakes.
+    """
+
+    rate: float | None
+    sample: int
+    min_sample: int
+    lifetime_answers: int
+
+
+class FamilyStat(BaseModel):
+    family: str
+    questions_in_bank: int
+    share: float
+    per_exam: float
+    answered: int
+    wrong: int
+    # None below the per-family threshold, for the same reason as above.
+    error_rate: float | None
+    enough: bool
+    coverage: float
+    predicted_mistakes: float | None
+
+
+class AnalysisOut(BaseModel):
+    headline: ErrorHeadline
+    families: list[FamilyStat]
+    # None until at least one family has enough answers to speak for.
+    predicted_mistakes: float | None
+    # What share of an exam that prediction actually covers. Without it the client would
+    # imply a number measured on a third of the paper describes the whole thing.
+    predicted_covers: float
+    exam_questions: int
+    exam_max_errors: int
+
+
 class TopicOut(BaseModel):
     id: int
     name: str

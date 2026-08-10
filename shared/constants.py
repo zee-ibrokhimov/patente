@@ -61,6 +61,73 @@ EXPLANATION_STATUSES = (STATUS_DRAFT, STATUS_APPROVED, STATUS_REJECTED, STATUS_F
 SERVABLE_STATUSES = (STATUS_APPROVED, STATUS_DRAFT)
 
 
+# --- Topic families ---------------------------------------------------------
+# The ministry stamps one of 25 topics on every question, and that is the vocabulary every
+# Italian study book uses — so the topics are kept, and grouped for a screen that has to fit
+# on a phone and be read in ten seconds.
+#
+# SEVEN, not the three the owner remembered. His memory is real: the highway code does split
+# VERTICAL signs into danger, prescription and information, and that is family 1 below. But
+# another 950 sign questions — road markings, traffic lights, police signals, supplementary
+# panels, roadworks — are not vertical signs and would have nowhere to go in a three-way
+# split, so they are their own family.
+#
+# The counts are exact against the seeded bank (7,106 questions) and were verified before
+# these groups were written down. Because an exam draws uniformly from the whole bank, a
+# family's share of the bank IS its expected share of a 30-question paper — which is what
+# makes "you would average N mistakes" computable rather than a guess.
+#
+#   1 signs_vertical   2,436   34.3%   10.3 questions per exam
+#   2 rules            1,724   24.3%    7.3
+#   3 signs_other        950   13.4%    4.0
+#   4 vehicle            696    9.8%    2.9
+#   5 definitions        531    7.5%    2.2
+#   6 safety             401    5.6%    1.7
+#   7 documents          368    5.2%    1.6
+#
+# Every topic id appears exactly once. `test_every_topic_has_a_family` enforces both halves
+# of that — nothing missing, nothing counted twice — because a topic silently absent from
+# this map would vanish from the screen with no error anywhere.
+TOPIC_FAMILIES: dict[str, tuple[int, ...]] = {
+    "signs_vertical": (20, 22, 23, 24, 21),
+    "rules": (6, 13, 9, 7, 11, 12),
+    "signs_other": (14, 17, 18, 19),
+    "vehicle": (5, 3, 25, 10),
+    "definitions": (2,),
+    "safety": (1, 4, 8),
+    "documents": (15, 16),
+}
+
+# topic id -> family, the direction every query actually needs.
+FAMILY_OF_TOPIC: dict[int, str] = {
+    topic: family for family, topics in TOPIC_FAMILIES.items() for topic in topics
+}
+
+# The window the headline error rate is measured over.
+#
+# Not all-time: it barely moves once a learner has a few hundred answers behind them, so the
+# number stops rewarding improvement exactly when improvement starts. Not one sitting: 30
+# answers swing about fourteen points on luck alone, and the same learner would read 6% one
+# evening and 34% the next.
+#
+# 100 is ~3.3 exams, and it is the window `profile._readiness` already uses. Two screens
+# quoting accuracy over two different windows is two screens that contradict each other, and
+# the learner cannot tell which to believe.
+ERROR_WINDOW = 100
+
+# Below this, no percentage is shown at all. A rate over twelve answers is a guess being
+# told to somebody deciding whether to book a paid exam.
+ERROR_MIN_SAMPLE = 100
+
+# A topic needs this many distinct questions answered before it gets a percentage. Below
+# ten, the margin of error is wider than the useful range of the metric.
+TOPIC_MIN_SAMPLE = 10
+
+# How far back a topic breakdown looks. The lifetime tally that ships today never recovers:
+# a question missed four times last month and fixed today drags its topic down forever, with
+# no action the learner can take to clear it.
+TOPIC_WINDOW_DAYS = 90
+
 # --- Purchase tiers ---------------------------------------------------------
 # Three lengths. Plan §4.2's advice still holds — the middle option should carry the
 # per-month framing and be the default, because the spread is visible but not obvious:

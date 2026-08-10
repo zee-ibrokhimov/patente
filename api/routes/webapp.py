@@ -37,6 +37,7 @@ from api.models import User
 from api.routes import quiz as quiz_route
 from api.routes import users as users_route
 from api.schemas import (
+    AnalysisOut,
     AnswerIn,
     AnswerOut,
     ExamAnswerOut,
@@ -63,6 +64,7 @@ from api.schemas import (
     VocabStatsOut,
 )
 from api.services import (
+    analysis,
     pacing,
     channel,
     content,
@@ -249,6 +251,19 @@ async def profile(
     """Streak, readiness and exam history. Free, like stats — the screen that makes
     someone come back tomorrow should never be behind the paywall it advertises."""
     return ProfileOut(**await profile_service.user_profile(session, user.chat_id))
+
+
+@router.get("/analysis", response_model=AnalysisOut)
+async def analysis_report(
+    user: User = Depends(webapp_user), session: AsyncSession = Depends(get_session)
+):
+    """Where the learner is losing marks.
+
+    Free, deliberately. It is the screen that makes the paid AI analysis worth tapping, and
+    a paywall in front of the diagnosis would leave a learner with a percentage and no idea
+    what to do about it — which is the state this endpoint exists to end.
+    """
+    return AnalysisOut(**await analysis.report(session, user.chat_id))
 
 
 @router.get("/stats", response_model=StatsOut)
