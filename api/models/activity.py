@@ -274,6 +274,29 @@ class Suggestion(Base):
     handled_at: Mapped[datetime | None] = mapped_column(default=None)
 
 
+class Analysis(Base):
+    """One piece of AI study advice, kept so a second tap does not pay twice.
+
+    The first AI cost in this product that scales with USERS rather than with content.
+    Explanations and translations are capped by the question bank and shared by everyone;
+    this one is about one learner and can never be reused. Storing it is what makes the
+    cooldown enforceable by looking at what exists, rather than by a counter that can drift
+    away from what was actually generated.
+    """
+
+    __tablename__ = "analyses"
+    __table_args__ = (Index("ix_analysis_chat_time", "chat_id", "created_at"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    chat_id: Mapped[int] = mapped_column(BigInteger)
+    # Recorded, but deliberately NOT part of the cooldown key — see the migration.
+    lang: Mapped[str] = mapped_column(Text)
+    body: Mapped[dict] = mapped_column(JSON)
+    tokens_in: Mapped[int] = mapped_column(default=0)
+    tokens_out: Mapped[int] = mapped_column(default=0)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
+
+
 class QuizSession(Base):
     """A bounded, gradeable sitting — an exam or a practice run.
 

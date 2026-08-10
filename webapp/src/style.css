@@ -314,6 +314,26 @@ html, body { overflow-x: hidden; }
 .an-bar-fill { height: 100%; background: var(--accent); border-radius: 999px; }
 .an-cov { margin: var(--xs) 0 0; font-size: var(--t-caption); color: var(--text-3); }
 
+/* --- the study coach ----------------------------------------------------- */
+
+.coach {
+  margin-top: var(--lg); padding: var(--lg);
+  background: var(--tint-info); border: 1px solid var(--tint-info-edge);
+  border-radius: var(--card-radius);
+}
+.coach-lead { margin: 0 0 var(--md); font-weight: 600; }
+.coach-summary { margin: 0 0 var(--md); line-height: 1.5; }
+.coach-item { margin-bottom: var(--md); }
+.coach-area { font-weight: 700; }
+.coach-action { margin: var(--xs) 0 0; color: var(--text-2); line-height: 1.45; }
+.coach-habit {
+  margin: var(--md) 0; padding-left: var(--md);
+  border-left: 3px solid var(--tint-info-edge);
+  color: var(--text-2); line-height: 1.45;
+}
+.coach-next { margin: var(--md) 0 var(--sm); font-weight: 600; }
+.coach-note { margin: var(--md) 0 0; font-size: var(--t-caption); color: var(--text-2); }
+
 /* --- your own words ------------------------------------------------------ */
 
 .v-add {

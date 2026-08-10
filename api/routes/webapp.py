@@ -37,6 +37,7 @@ from api.models import User
 from api.routes import quiz as quiz_route
 from api.routes import users as users_route
 from api.schemas import (
+    CoachOut,
     OwnTermIn,
     OwnTermPatch,
     SuggestionIn,
@@ -67,6 +68,7 @@ from api.schemas import (
     VocabStatsOut,
 )
 from api.services import (
+    coaching,
     suggestions,
     analysis,
     pacing,
@@ -255,6 +257,43 @@ async def profile(
     """Streak, readiness and exam history. Free, like stats — the screen that makes
     someone come back tomorrow should never be behind the paywall it advertises."""
     return ProfileOut(**await profile_service.user_profile(session, user.chat_id))
+
+
+@router.post("/analysis/coach", response_model=CoachOut)
+async def coach(
+    user: User = Depends(webapp_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Study advice on top of the breakdown.
+
+    POST rather than GET because it may spend money — a GET that bills is a GET a browser,
+    a prefetcher or a retry will fire on its own.
+
+    Every refusal is a 200 with a state, never an error: the breakdown underneath is the
+    screen, and an AI layer that can break the page it sits on is not worth the page.
+    """
+    now = datetime.now(timezone.utc)
+    entitlement = evaluate(user)
+
+    allowed, why = await coaching.may_generate(session, user, entitlement, now)
+    if not allowed:
+        last = await coaching.latest(session, user.chat_id)
+        body = dict(last.body) if last is not None else {}
+        available = None
+        if last is not None and why == "cooldown":
+            made = last.created_at
+            if made.tzinfo is None:
+                made = made.replace(tzinfo=timezone.utc)
+            available = made + coaching.COOLDOWN
+        # The previous analysis comes back with the refusal. A learner inside the cooldown
+        # should re-read what they were given, not stare at a locked button.
+        return CoachOut(state=why, available_at=available, **body)
+
+    report = await analysis.report(session, user.chat_id, now)
+    produced = await coaching.generate(session, user, report, now)
+    if produced is None:
+        return CoachOut(state="unavailable")
+    return CoachOut(state="ready", **produced)
 
 
 @router.post("/vocab/terms", status_code=201)

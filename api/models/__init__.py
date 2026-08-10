@@ -15,6 +15,7 @@ from api.models.vocab import (
     VocabTerm,
 )
 from api.models.activity import (
+    Analysis,
     ReferralLink,
     Event,
     Progress,
@@ -32,5 +33,5 @@ __all__ = [
     "Topic", "Quesito", "Figure", "Question", "Translation", "Cluster", "Explanation",
     "User", "Progress", "Purchase", "Event", "Report", "ReferralLink",
     "QuizSession", "QuizSessionItem", "WebhookDelivery",
-    "VocabTerm", "VocabProgress",
+    "VocabTerm", "VocabProgress", "Analysis",
 ]

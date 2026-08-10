@@ -234,6 +234,29 @@ class FamilyStat(BaseModel):
     predicted_mistakes: float | None
 
 
+class CoachFocus(BaseModel):
+    area: str
+    action: str
+
+
+class CoachOut(BaseModel):
+    """Study advice, or an honest account of why there is none.
+
+    `state` is what the client renders on: "ready" with a body, "cooldown" with the previous
+    one still attached, "locked" behind Premium, "too_early" before the free taster is
+    earned, or "unavailable" when the model did not answer. None of those is an error — the
+    breakdown underneath is the screen, and this sits on top of it.
+    """
+
+    state: str
+    summary: str | None = None
+    focus: list[CoachFocus] = []
+    habit: str | None = None
+    next_up: str | None = None
+    # When the next one may be asked for, so the button can say so instead of failing.
+    available_at: datetime | None = None
+
+
 class AnalysisOut(BaseModel):
     headline: ErrorHeadline
     families: list[FamilyStat]

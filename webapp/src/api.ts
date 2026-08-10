@@ -5,6 +5,7 @@
 import { tg } from "./telegram";
 import type {
   Analysis,
+  Coach,
   AnswerResult,
   ExamAnswer,
   ExplanationResult,
@@ -114,6 +115,10 @@ export const api = {
   /** Where the learner is losing marks. Free — it is what makes the paid analysis worth
    *  tapping, and a paywall here leaves somebody with a percentage and no idea what to do. */
   analysis: () => request<Analysis>("/analysis"),
+
+  /** Study advice on top of the breakdown. POST because it may spend money, and a GET that
+   *  bills is a GET a prefetcher will fire on its own. */
+  coach: () => request<Coach>("/analysis/coach", { method: "POST" }),
 
   report: (questionId: number) =>
     request<unknown>("/reports", {

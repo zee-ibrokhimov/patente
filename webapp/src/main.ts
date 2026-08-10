@@ -18,6 +18,7 @@ import type { Theme } from "./telegram";
 import type {
   Analysis,
   AnswerResult,
+  Coach,
   ExamAnswer,
   Me,
   Mode,
@@ -167,9 +168,13 @@ const state: {
   /** The error breakdown. Fetched when the screen opens, never on boot: it is one screen
    *  behind a tap and costs a query nobody has asked for otherwise. */
   analysis: Analysis | null;
+  /** The AI advice. Separate from `analysis` because it is asked for, not loaded: it may
+   *  cost money, so nothing fetches it on entering the screen. */
+  coach: Coach | null;
+  coachBusy: boolean;
 } = { me: null, screen: "home", run: null, results: null, stats: null, profile: null,
       resumable: null, reviewWrongOnly: true, ratings: null, adminData: null,
-      preparing: null, analysis: null,
+      preparing: null, analysis: null, coach: null, coachBusy: false,
       vocab: { view: "test", round: null, index: 0, current: null, right: 0, typed: "",
                cards: null, cardIndex: 0, flipped: false, knew: 0,
                busy: false, list: null, query: "", stats: null, locked: false } };
@@ -2024,7 +2029,73 @@ function analysisScreen(): HTMLElement {
     list.append(row);
   }
   wrap.append(list);
+
+  // The AI layer, under the numbers rather than over them. It never gates the screen: if
+  // the model is slow, refuses, or is not configured, everything above still renders and
+  // this is the only part that says so.
+  wrap.append(coachBlock());
   return wrap;
+}
+
+/** "get analysis then Ai model will give advices in language of mini app".
+ *
+ *  Asked for rather than loaded. It may spend money, so nothing fetches it on entering the
+ *  screen — and a learner who never taps it costs nothing at all.
+ */
+function coachBlock(): HTMLElement {
+  const box = el("div", "coach");
+  const c = state.coach;
+
+  if (!c || c.state === "unavailable") {
+    box.append(el("p", "coach-lead", t("coach_lead")));
+    const ask = el("button", "btn primary", t("coach_ask"));
+    ask.type = "button";
+    ask.disabled = state.coachBusy;
+    if (state.coachBusy) ask.textContent = t("coach_thinking");
+    ask.onclick = () => void askCoach();
+    box.append(ask);
+    if (c?.state === "unavailable") box.append(el("p", "coach-note", t("coach_unavailable")));
+    return box;
+  }
+
+  if (c.state === "locked" || c.state === "too_early" || c.state === "monthly_cap") {
+    box.append(el("p", "coach-lead", t("coach_lead")));
+    box.append(el("p", "coach-note", t(`coach_${c.state}` as Key)));
+    if (c.state === "locked" && state.me && !state.me.premium) box.append(premiumBlock());
+    return box;
+  }
+
+  // ready, or cooldown with the previous one still attached — a learner inside the window
+  // should re-read what they were given rather than stare at a locked button.
+  if (c.summary) box.append(el("p", "coach-summary", c.summary));
+  for (const f of c.focus) {
+    const item = el("div", "coach-item");
+    item.append(el("div", "coach-area", f.area), el("p", "coach-action", f.action));
+    box.append(item);
+  }
+  if (c.habit) box.append(el("p", "coach-habit", c.habit));
+  if (c.next_up) {
+    // "advice a learner can't act on in one tap is advice they won't take."
+    const go = el("button", "btn primary", t("coach_start"));
+    go.type = "button";
+    go.onclick = () => void startRun("practice");
+    box.append(el("p", "coach-next", c.next_up), go);
+  }
+  if (c.state === "cooldown") box.append(el("p", "coach-note", t("coach_cooldown")));
+  return box;
+}
+
+async function askCoach(): Promise<void> {
+  state.coachBusy = true;
+  render();
+  try {
+    state.coach = await api.coach();
+  } catch (err) {
+    reportError(err);
+  } finally {
+    state.coachBusy = false;
+    render();
+  }
 }
 
 function statsScreen(): HTMLElement {

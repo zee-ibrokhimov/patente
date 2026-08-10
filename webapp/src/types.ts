@@ -216,6 +216,19 @@ export interface FamilyStat {
   predicted_mistakes: number | null;
 }
 
+export interface CoachFocus { area: string; action: string }
+
+export interface Coach {
+  /** "ready" | "cooldown" | "locked" | "too_early" | "monthly_cap" | "unavailable".
+   *  None of them is an error: the breakdown underneath is the screen. */
+  state: string;
+  summary: string | null;
+  focus: CoachFocus[];
+  habit: string | null;
+  next_up: string | null;
+  available_at: string | null;
+}
+
 export interface Analysis {
   headline: ErrorHeadline;
   families: FamilyStat[];
