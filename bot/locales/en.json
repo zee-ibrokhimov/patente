@@ -66,5 +66,6 @@
   "open_app_short": "Open",
   "reminder": "👋 We haven't seen you in a while.\n\nThe exam doesn't wait — ten minutes a day moves your readiness noticeably. Shall we carry on?",
   "reminder_stop": "Stop reminders",
-  "reminder_stopped": "We won't remind you again."
+  "reminder_stopped": "We won't remind you again.",
+  "streak_at_risk": "🔥 Your {days}-day streak is at risk\n\n{left} more questions today and the day counts. That is a couple of minutes."
 }

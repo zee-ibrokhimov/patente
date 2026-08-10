@@ -52,6 +52,19 @@ async def notify_quiet(session: AsyncSession = Depends(get_session)):
     return await reminders.run(session)
 
 
+@router.post("/notify-streak-risk")
+async def notify_streak_risk(session: AsyncSession = Depends(get_session)):
+    """"Your streak is at risk", to the people who have actually built one.
+
+    Hourly, like its neighbours, and it refuses itself outside the evening window in Rome —
+    so the cron does not have to encode a timezone that changes twice a year. Idempotent per
+    Rome day from the event log, so a three-hour window does not send three messages.
+    """
+    from api.services import streak_nudge
+
+    return await streak_nudge.run(session)
+
+
 @router.post("/notify-lapses")
 async def notify_lapses(session: AsyncSession = Depends(get_session)):
     """Send "your Premium is ending / has ended" to whoever is due.

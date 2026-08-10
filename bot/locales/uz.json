@@ -66,5 +66,6 @@
   "menu_help": "❓ Yordam",
   "reminder": "👋 Ancha vaqtdan beri ko'rinmadingiz.\n\nImtihon kutmaydi — kuniga o'n daqiqa tayyorgarligingizni sezilarli oshiradi. Davom etamizmi?",
   "reminder_stop": "Eslatmalarni to'xtatish",
-  "reminder_stopped": "Boshqa eslatmaymiz."
+  "reminder_stopped": "Boshqa eslatmaymiz.",
+  "streak_at_risk": "🔥 {days} kunlik seriyangiz xavf ostida\n\nBugun yana {left} ta savol — va kun hisobga olinadi. Bu bir necha daqiqa."
 }

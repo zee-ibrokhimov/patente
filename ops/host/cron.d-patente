@@ -38,3 +38,11 @@ MAILTO=root
 # offset from it, so two docker execs do not start in the same second. Idempotent by
 # event, so hourly is harmless — see api/services/reminders.py for the limits.
 37 * * * * root docker exec $(docker ps -q --filter name=api-rboj5u2xk5dj4o4yto89ablh | head -1) python -c "import urllib.request;print(urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8000/admin/notify-quiet',method='POST'),timeout=60).read().decode())" >> /var/log/patente-janitor.log 2>&1
+
+# "Your streak is at risk", to people who have built one and have not banked today. Hourly
+# like its neighbours and offset again, but the job REFUSES ITSELF outside 19:00-22:00 Rome
+# — the window lives in api/services/streak_nudge.py rather than in this crontab, because a
+# cron hour is UTC and Rome moves twice a year. Encoding "19:00 Rome" here would mean the
+# message arriving at 18:00 for half the year with nobody having changed anything.
+# Idempotent per Rome day from the event log, so a three-hour window sends one message.
+53 * * * * root docker exec $(docker ps -q --filter name=api-rboj5u2xk5dj4o4yto89ablh | head -1) python -c "import urllib.request;print(urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8000/admin/notify-streak-risk',method='POST'),timeout=60).read().decode())" >> /var/log/patente-janitor.log 2>&1

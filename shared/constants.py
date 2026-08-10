@@ -362,6 +362,9 @@ EV_STREAK_FROZEN = "streak_frozen"
 # reports read; this event exists to make the payout repeatable-safe and to say which
 # milestone bought it.
 EV_STREAK_MILESTONE = "streak_milestone"
+# "Your streak is at risk" went out, and for which Rome DAY. Keyed on the day because the
+# job runs hourly: without it, an evening window three hours wide sends three messages.
+EV_STREAK_NUDGE = "streak_nudge"
 # A newsletter or a personal message went out from the admin panel. In the event log rather
 # than a table of its own: it is append-only, already backed up, and "did I already send
 # this" is exactly the question somebody needs answered before sending again. It is also the
@@ -425,6 +428,7 @@ EVENT_TYPES = (
     EV_PASS_LAPSED,
     EV_STREAK_FROZEN,
     EV_STREAK_MILESTONE,
+    EV_STREAK_NUDGE,
     EV_BROADCAST_SENT,
     EV_LINK_CHANGED,
     EV_VOCAB_ADDED,

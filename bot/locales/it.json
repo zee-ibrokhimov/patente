@@ -66,5 +66,6 @@
   "open_app_short": "Apri",
   "reminder": "👋 Non ti vediamo da un po'.\n\nL'esame non aspetta — dieci minuti al giorno alzano parecchio la tua preparazione. Riprendiamo?",
   "reminder_stop": "Non ricordarmelo",
-  "reminder_stopped": "Non te lo ricorderemo più."
+  "reminder_stopped": "Non te lo ricorderemo più.",
+  "streak_at_risk": "🔥 La tua serie di {days} giorni è a rischio\n\nAncora {left} domande oggi e il giorno conta. Sono due minuti."
 }

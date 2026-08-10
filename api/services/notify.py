@@ -320,6 +320,27 @@ async def reminder(chat_id: int, lang: str) -> bool:
     return await send_rich(chat_id, _bot_text(lang, "reminder"), buttons=buttons)
 
 
+async def streak_at_risk(chat_id: int, lang: str, days: int, left: int) -> bool:
+    """"Your {days}-day streak needs {left} more questions today."
+
+    Carries the two numbers because a nudge that does not say how close you are is a nudge
+    that cannot be acted on without opening the app to find out — and the reason this
+    message exists at all is that people do not realise the day is unbanked.
+
+    Same two buttons as the come-back reminder, and the stop button matters more here: this
+    is the message someone will mute the bot over if it outstays its welcome, and muting the
+    bot also silences the renewal warning.
+    """
+    buttons: list[dict] = []
+    if settings.webapp_url.startswith("https://"):
+        buttons.append({"text": _bot_text(lang, "open_app"),
+                        "web_app": {"url": settings.webapp_url}})
+    buttons.append({"text": _bot_text(lang, "reminder_stop"),
+                    "callback_data": "r:stop"})
+    text = _bot_text(lang, "streak_at_risk").format(days=days, left=left)
+    return await send_rich(chat_id, text, buttons=buttons)
+
+
 def _bot_text(lang: str, key: str) -> str:
     """One string from the bot's locale files.
 
