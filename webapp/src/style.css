@@ -81,20 +81,10 @@ body {
 
 h2 { font-size: 17px; font-weight: 700; margin: 26px 0 10px; letter-spacing: -.01em; }
 
-.screen {
-  padding: 16px 16px 24px;
-  flex: 1;
-  animation: rise .32s var(--ease) both;
-}
-
-@keyframes rise {
-  from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: none; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
-}
+/* .screen, @keyframes rise and the reduced-motion block are declared once, below, in the
+   token-spec section. They used to appear here too with hardcoded pixel padding, and the
+   later block won on every property they shared — so this one looked authoritative and
+   controlled nothing. */
 
 /* ======================================================================
    Base type, per the token spec
@@ -177,26 +167,37 @@ html, body { overflow-x: hidden; }
   padding: var(--lg) var(--card-pad-fluid);
   color: inherit;
   transition: transform .16s var(--ease);
+
+  /* ONE surface for both modes. The distinction is the TILE now — see modeCard. A card
+     carrying its meaning in a pale wash cannot survive a dark theme: invert it and the
+     signal is gone, which is the whole reason this app was light-only.
+     Declared here rather than in a second `.mode` block: a duplicate merges silently, and
+     that is how `.sheet` came to put a full-screen overlay over the exam. */
+  background: var(--card);
+  border: 1px solid var(--edge);
 }
 .mode:active { transform: scale(.985); }
-/* One surface for both. The distinction is the TILE now — see icons.tile and the note in
-   modeCard. A card that carries its meaning in a pale wash cannot survive a dark theme:
-   invert it and the signal is gone, which is the whole reason this app was light-only. */
-.mode { background: var(--card); border: 1px solid var(--edge); }
 .mode.exam:active, .mode.practice:active { transform: scale(.99); }
 
 /* The coloured tile. Fixed size rather than fluid: it is an icon, and an icon that grows
    with the viewport stops reading as one. */
-.tile {
+/* `.mode-tile`, NOT `.tile`.
+   `.tile` was already the stats screen's headline box (see further down this file), and a
+   duplicate rule does not warn — it merges. The later block won on background and padding,
+   so the coloured tile rendered as an empty bordered square on the home screen, while my
+   `width: 52px` leaked onto the stats tiles and squashed all three of them. Two screens
+   broken by one name. */
+.mode-tile {
   width: 52px; height: 52px; flex: none;
   border-radius: 15px;
   display: grid; place-items: center;
   color: #fff;                       /* the glyph, on a saturated tile, in both themes */
   pointer-events: none;
 }
-.tile-exam     { background: var(--exam); }
-.tile-practice { background: var(--practice); }
-.tile-vocab    { background: var(--accent); }
+.mode-tile svg { display: block; }
+.mode-tile-exam     { background: var(--exam); }
+.mode-tile-practice { background: var(--practice); }
+.mode-tile-vocab    { background: var(--accent); }
 /* min-width:0 lets a grid child actually shrink — without it a long word keeps the
    column at its intrinsic width and the card overflows the screen. */
 .mode-body { min-width: 0; }
@@ -279,8 +280,7 @@ html, body { overflow-x: hidden; }
 /* The dial and the submit button shrink first; the countdown is the last thing to give
    way, because it is the one thing on this screen a candidate is watching. */
 .timer-dial { flex: none; color: var(--exam); width: clamp(30px, 10vw, 46px); height: auto; }
-.timer-mid { min-width: 0; }
-.timer-mid { flex: 1; text-align: center; }
+.timer-mid { min-width: 0; flex: 1; text-align: center; }
 .timer-value {
   font-size: var(--t-display); line-height: var(--lh-display); font-weight: var(--w-display);
   color: var(--exam); letter-spacing: -.02em; font-variant-numeric: tabular-nums;
@@ -779,15 +779,25 @@ html, body { overflow-x: hidden; }
    One person sees this, so it is built for density rather than delight —
    finding a learner and granting them access should take two taps on a phone
    while they are mid-conversation with that learner. */
+/* auto-fit, not repeat(4). The overview appends four cells and the Money card two, and a
+   fixed four-column grid gave those two a quarter of the width each — "€0.00" at
+   --t-title (up to 40px) then overflowed its cell and printed over its neighbour. */
 .admin-stats {
-  display: grid; grid-template-columns: repeat(4, 1fr);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
   gap: var(--xs); margin: var(--md) 0;
 }
 .admin-stat {
   background: var(--card); border: 1px solid var(--edge);
   border-radius: var(--r); padding: var(--sm); text-align: center; min-width: 0;
 }
-.admin-stat-n { font-weight: 800; font-size: var(--t-title); line-height: 1.1; }
+/* Fluid against the CELL, not the viewport. --t-title is sized for a full-width heading;
+   in a grid cell it is a number wider than the box holding it. */
+.admin-stat-n {
+  font-weight: 800; line-height: 1.1;
+  font-size: clamp(18px, 5.5vw, 26px);
+  overflow-wrap: anywhere;
+}
 .admin-stat-l { font-size: 11px; color: var(--text-2); }
 
 .admin-row {
@@ -1255,32 +1265,37 @@ html, body { overflow-x: hidden; }
 /* A sheet rather than three chained window.prompt dialogs. The prompts could not show the
    price with the length, defaulted to the wrong amount two times in three, and cancelling
    the middle one aborted a sale silently. */
-.sheet {
+/* `.modal`, NOT `.sheet`. `.sheet` is the exam's ANSWER SHEET — the grid of thirty
+   numbered cells — and it had the name first. Merged, this block's `position: fixed;
+   inset: 0; z-index: 60` applied to that grid, so during an exam the answer sheet became a
+   full-screen fixed overlay with a scrim over the questions. Shipped, and found by looking
+   at a photograph. */
+.modal {
   position: fixed; inset: 0; z-index: 60;
   background: var(--scrim);
   display: grid; align-items: end;
   padding: var(--gutter);
   padding-bottom: calc(var(--gutter) + env(safe-area-inset-bottom, 0px));
 }
-.sheet-card {
+.modal-card {
   background: var(--card); border-radius: var(--card-radius);
   padding: var(--card-pad-fluid); max-height: 80vh; overflow-y: auto;
 }
 
 /* --- admin: segment chips -------------------------------------------------- */
 /* Scrolls sideways rather than wrapping to three rows on a narrow phone. */
-.chips {
+.segs {
   display: flex; gap: var(--sm); overflow-x: auto; margin: var(--sm) 0 var(--md);
   padding-bottom: 2px; scrollbar-width: none;
 }
-.chips::-webkit-scrollbar { display: none; }
-.chip {
+.segs::-webkit-scrollbar { display: none; }
+.seg {
   flex: none; appearance: none; cursor: pointer;
   border: 1px solid var(--edge); background: var(--card); color: var(--text-2);
   border-radius: 999px; padding: 0 var(--md); height: 34px;
   font-family: inherit; font-size: 14px; font-weight: 600;
 }
-.chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.seg.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 
 /* --- admin: payments ------------------------------------------------------- */
 .pay {

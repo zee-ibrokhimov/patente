@@ -45,7 +45,7 @@ function svg(paths: string, size = 24, filled = false): SVGSVGElement {
  */
 function tileImpl(glyph: SVGSVGElement, kind: string): HTMLElement {
   const box = document.createElement("div");
-  box.className = `tile tile-${kind}`;
+  box.className = `mode-tile mode-tile-${kind}`;
   box.append(glyph);
   return box;
 }

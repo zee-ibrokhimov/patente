@@ -2630,8 +2630,8 @@ function adminGrantMany(): HTMLElement {
  *  Everything here was already recorded. None of it was reachable.
  */
 async function openPerson(chatId: number): Promise<void> {
-  const sheet = el("div", "sheet");
-  const card = el("div", "sheet-card");
+  const sheet = el("div", "modal");
+  const card = el("div", "modal-card");
   card.append(el("p", "caption", t("loading")));
   sheet.append(card);
   sheet.onclick = (ev) => { if (ev.target === sheet) sheet.remove(); };
@@ -2837,12 +2837,12 @@ function adminUsers(users: AdminUser[]): HTMLElement {
   // The same segments the group grant targets — now something to LOOK at rather than only
   // a destination for free days. "Who runs out this week so I can ask them to renew" is the
   // conversation that produces money, and it had no screen.
-  const chips = el("div", "chips");
+  const chips = el("div", "segs");
   for (const [value, label] of [
     ["expiring", "Ending soon"], ["lapsed", "Expired"],
     ["quiet", "Quiet"], ["trial", "Trial"], ["active", "Active"],
   ] as const) {
-    const chip = el("button", `chip${state.adminData?.segment === value ? " on" : ""}`, label);
+    const chip = el("button", `seg${state.adminData?.segment === value ? " on" : ""}`, label);
     chip.type = "button";
     chip.onclick = () => {
       if (!state.adminData) return;
@@ -2983,8 +2983,8 @@ const GRANT_PRESETS = [
 
 async function grantTo(u: AdminUser): Promise<void> {
   const who = u.name || String(u.chat_id);
-  const sheet = el("div", "sheet");
-  const card = el("div", "sheet-card");
+  const sheet = el("div", "modal");
+  const card = el("div", "modal-card");
   card.append(el("div", "row-title", `Grant to ${who}`));
   const left = daysLeft(u.pass_expires_at);
   card.append(el("p", "caption", left !== null && left >= 0
