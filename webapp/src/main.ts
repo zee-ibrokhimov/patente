@@ -129,6 +129,10 @@ const state: {
    *  and everybody else would be paying for a request that 404s. */
   adminData: { overview: AdminOverview | null; users: AdminUser[]; links: AdminLink[];
                reports: AdminReport[]; openReports: number; userTotal: number;
+               /** Which page of the panel. People is its own screen: finding one learner
+                *  and acting on them is a different job from "how is the product doing",
+                *  done at a different moment. */
+               view: "home" | "people";
                query: string; segment: string; busy: boolean } | null;
   /** A quiz being prepared. Non-null only between tapping Start and the first question. */
   preparing: { mode: Mode; source: RepeatSource } | null;
@@ -2234,7 +2238,7 @@ function isStaff(): boolean {
 async function openAdmin(): Promise<void> {
   state.screen = "admin";
   state.adminData = { overview: null, users: [], links: [], reports: [], openReports: 0,
-                      userTotal: 0, query: "", segment: "", busy: true };
+                      userTotal: 0, view: "home", query: "", segment: "", busy: true };
   render();
   await refreshAdmin();
 }
@@ -2269,12 +2273,25 @@ function adminScreen(): HTMLElement {
   const wrap = el("section", "screen");
   const data = state.adminData;
 
+  const people = data?.view === "people";
   const head = el("div", "v-head");
-  head.append(el("h2", "v-title", "Admin"));
+  head.append(el("h2", "v-title", people ? "People" : "Admin"));
   wrap.append(head);
 
   if (!data || data.busy) {
     wrap.append(el("p", "caption", t("loading")));
+    return wrap;
+  }
+
+  // People is its own page.
+  //
+  // Everything about one learner — finding them, granting, messaging, taking access back,
+  // the group grant — belongs together and belongs OFF the page the owner opens. The main
+  // screen answers "how is the product doing"; this one answers "what do I do about this
+  // person", and they are different jobs done at different moments.
+  if (people) {
+    wrap.append(adminUsers(data.users));
+    wrap.append(adminGrantMany());
     return wrap;
   }
 
@@ -2416,8 +2433,27 @@ function adminScreen(): HTMLElement {
   // and a queue placed below three other cards is a queue that gets read once.
   wrap.append(adminMoney());
   wrap.append(adminReports(data.reports, data.openReports));
-  wrap.append(adminUsers(data.users));
-  wrap.append(adminGrantMany());
+
+  const peopleCard = el("div", "card");
+  peopleCard.style.marginTop = "var(--md)";
+  const peopleRow = el("div", "row");
+  const peopleText = el("div", "row-main");
+  peopleText.append(el("div", "row-title", `People · ${data.userTotal}`),
+                    el("div", "row-sub",
+                       "Find someone, grant or take back access, message them, "
+                       + "or reward a whole group."));
+  peopleRow.append(peopleText);
+  const open = el("button", "btn secondary", "Open");
+  open.type = "button";
+  open.onclick = () => {
+    if (!state.adminData) return;
+    state.adminData = { ...state.adminData, view: "people" };
+    render();
+  };
+  peopleRow.append(open);
+  peopleCard.append(peopleRow);
+  wrap.append(peopleCard);
+
   wrap.append(adminLinks(data.links));
   wrap.append(adminBroadcast());
   return wrap;
@@ -3313,7 +3349,19 @@ function backTarget(): (() => void) | null {
   // Vocabulary is entered from the home screen rather than the tab bar, so it is the one
   // tab-bar-visible screen with somewhere unambiguous to go back to.
   if (state.screen === "vocab") return goHome;
-  if (state.screen === "admin") return () => { state.screen = "settings"; render(); };
+  if (state.screen === "admin") {
+    // People is a page inside the panel, so Back must land on the panel rather than
+    // leaving it — otherwise the only way back to the overview is to reopen Admin.
+    if (state.adminData?.view === "people") {
+      return () => {
+        if (state.adminData) {
+          state.adminData = { ...state.adminData, view: "home", query: "", segment: "" };
+        }
+        render();
+      };
+    }
+    return () => { state.screen = "settings"; render(); };
+  }
   return null;
 }
 

@@ -125,3 +125,45 @@ def test_a_truncated_result_says_so():
     block = MAIN[start:MAIN.index("\n}\n", start)]
     assert "total > users.length" in block, \
         "a truncated list does not admit it is truncated"
+
+
+# --- People is its own page ---------------------------------------------------
+
+def test_people_is_a_separate_page():
+    """Finding one learner and acting on them is a different job from "how is the product
+    doing", done at a different moment. Both were on one screen, so the page the owner
+    opens most carried a list of everybody plus a group-grant form."""
+    assert '"home" | "people"' in MAIN, "the panel has no separate People page"
+    start = MAIN.index("function adminScreen(")
+    block = MAIN[start:start + 2500]
+    assert 'data?.view === "people"' in block, "nothing routes to the People page"
+    assert "return wrap" in block.split('if (people)')[1][:400], \
+        "the People page falls through into the main page's cards"
+
+
+def test_the_people_page_carries_the_people_tools():
+    """Grant, message, take back, delete and the group grant belong together — split
+    across two pages they are two half-features."""
+    start = MAIN.index("function adminScreen(")
+    block = MAIN[start:start + 2500]
+    people = block.split("if (people)")[1][:400]
+    assert "adminUsers(" in people, "the People page has no user list"
+    assert "adminGrantMany(" in people, "the group grant was left on the other page"
+
+
+def test_back_from_people_lands_on_the_panel():
+    """Back must return to the overview, not out of the panel — otherwise the only route
+    back to it is to reopen Admin from Settings."""
+    start = MAIN.index("function backTarget(")
+    block = MAIN[start:MAIN.index("\n}\n", start)]
+    assert 'view: "home"' in block, \
+        "Back from People leaves the admin panel entirely"
+
+
+def test_leaving_people_clears_the_filter():
+    """A segment left set is invisible from the overview, so the next visit would silently
+    show a filtered list with no sign of why."""
+    start = MAIN.index("function backTarget(")
+    block = MAIN[start:MAIN.index("\n}\n", start)]
+    assert 'segment: ""' in block and 'query: ""' in block, \
+        "the filter survives leaving the page and silently applies on the next visit"
