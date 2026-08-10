@@ -788,6 +788,43 @@ html, body { overflow-x: hidden; }
 .who-streak { font-size: var(--t-caption); font-weight: 700; color: var(--bad); margin-top: 2px; }
 .who-gear { margin-left: auto; color: var(--text-2); background: none; border: 0; cursor: pointer; padding: 6px; }
 
+/* The daily goal, above the readiness gauge on purpose. Readiness answers "am I ready for
+   the exam", which is a number nobody can move today; the goal answers "what do I do now",
+   which is the only question a daily habit is allowed to ask. */
+.streak { margin-bottom: var(--md); }
+.streak-head { display: flex; align-items: center; gap: var(--sm); }
+/* Grey until something is alight, so the flame reports a state rather than decorating. */
+.streak-flame { font-size: 26px; line-height: 1; filter: grayscale(1); opacity: .45; }
+.streak-flame.on { filter: none; opacity: 1; }
+.streak-headtext { min-width: 0; }
+.streak-count { font-weight: 800; font-size: var(--t-body); letter-spacing: -.01em; }
+.streak-sub { font-size: var(--t-caption); color: var(--text-2); margin-top: 1px; }
+.streak-freeze {
+  margin-left: auto; flex: none; font-size: var(--t-caption); font-weight: 700;
+  color: var(--text-2); background: var(--surface); border: 1px solid var(--edge);
+  border-radius: 999px; padding: 3px 9px;
+}
+/* One pip per question, in equal fractions of the row rather than at a fixed width, so a
+   goal of ten and a goal of twenty both fill it instead of one of them overflowing. */
+.streak-pips {
+  display: grid; grid-auto-flow: column; grid-auto-columns: 1fr;
+  gap: 4px; margin: var(--sm) 0 var(--xs);
+}
+.streak-pips .pip { height: 8px; border-radius: 999px; background: var(--track, var(--surface)); }
+.streak-pips .pip.on { background: var(--ok); }
+.streak-goal { font-size: var(--t-caption); color: var(--text-3); font-variant-numeric: tabular-nums; }
+
+/* Said on the verdict card, the moment the tenth question lands. Quiet on purpose: it sits
+   under a right-or-wrong the learner is still reading, and a banner there would compete with
+   the thing they actually came for. */
+.streak-won {
+  display: flex; align-items: center; gap: var(--xs);
+  margin: var(--sm) 0 0; padding: var(--sm) var(--md);
+  border-radius: var(--card-radius); background: var(--practice-tint);
+  font-size: var(--t-caption); font-weight: 700; color: var(--ok);
+}
+.streak-won-flame { font-size: 16px; line-height: 1; }
+
 /* The readiness gauge. A semicircle so the 90% pass threshold can sit ON the same scale
    as the score — a bare percentage floats, a percentage against a marked bar does not. */
 .gauge-wrap { text-align: center; }

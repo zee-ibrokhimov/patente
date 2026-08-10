@@ -37,6 +37,8 @@ export interface AnswerResult {
   explanation_state: Access;
   explanation: string | null;
   free_explanations_left: number;
+  /** True on the single answer that completed today's streak goal, and on no other. */
+  streak_earned_today?: boolean;
 }
 
 export interface QuestionTranslation {
@@ -262,6 +264,11 @@ export interface Profile {
   /** Streak freezes in hand. A freeze nobody can see protects nobody psychologically —
    *  the point of having one is knowing you are covered. */
   streak_freezes: number;
+  /** Distinct questions answered today, and how many the day costs. The goal comes from
+   *  the server: it is a rule of the product, and a second copy of it here would disagree
+   *  with the real one the first time it is tuned. */
+  streak_today: number;
+  streak_goal: number;
   /** The real bar: 27 of 30 correct. Without it a percentage means nothing. */
   pass_accuracy: number;
   exams: {

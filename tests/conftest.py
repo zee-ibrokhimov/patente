@@ -1,6 +1,6 @@
 import hashlib
 import sys
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -147,6 +147,37 @@ async def end_trial(api_db, chat_id: int) -> None:
             sa_update(User).where(User.chat_id == chat_id).values(pass_expires_at=None)
         )
         await session.commit()
+
+
+async def studied_on(api_db, chat_id: int, days: list[date], questions: int | None = None):
+    """Make each of these Rome days a qualifying streak day, the way a learner would.
+
+    Answers are written and `streak.note_answer` is then run over them in chronological
+    order, rather than inserting `streak_days` rows directly. That is the difference between
+    a test that proves the streak works and one that proves the test can write rows: the
+    goal, the distinctness rule and the minimum gap between days are all in `note_answer`,
+    and a fixture that bypasses it would keep passing after any of them broke.
+
+    `days` are Rome dates. Question ids are unique per day, and answers land at midday Rome
+    so the days are 24 hours apart and clear the minimum gap.
+    """
+    from api.models import Event
+    from api.services import streak
+    from shared.constants import EV_ANSWER_GIVEN
+
+    questions = streak.GOAL if questions is None else questions
+    async with api_db() as s:
+        for day in sorted(days):
+            noon = datetime.combine(day, time(12), tzinfo=streak.ROME).astimezone(timezone.utc)
+            when = noon
+            for i in range(questions):
+                when = noon + timedelta(seconds=i * 10)
+                s.add(Event(chat_id=chat_id, type=EV_ANSWER_GIVEN, created_at=when,
+                            payload={"question_id": day.toordinal() * 1000 + i,
+                                     "correct": True, "credited": True}))
+            await s.flush()
+            await streak.note_answer(s, chat_id, when)
+        await s.commit()
 
 
 @pytest_asyncio.fixture

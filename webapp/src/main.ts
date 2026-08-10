@@ -1474,6 +1474,15 @@ function verdictBox(a: AnswerResult): HTMLElement {
   verdict.append(text);
   box.append(verdict);
 
+  // The one answer that finished today's goal. Said here, at the moment it happens, rather
+  // than only on the profile: a habit is reinforced where the work was done, and a learner
+  // who never opens the profile would otherwise never learn the streak exists.
+  if (a.streak_earned_today) {
+    const won = el("div", "streak-won");
+    won.append(el("span", "streak-won-flame", "🔥"), el("span", "", t("streak_earned")));
+    box.append(won);
+  }
+
   if (a.explanation_state === "shown" && a.explanation) {
     const panel = el("div", "explain");
     panel.append(icons.info(24));
@@ -1782,6 +1791,48 @@ function resultsScreen(): HTMLElement {
   return wrap;
 }
 
+/** Today's goal, and the streak it is feeding.
+ *
+ * The daily goal is the part that has to be on screen. A streak whose rule is invisible is
+ * one people only learn by losing it — they answered five questions, felt they had studied,
+ * and the number reset overnight with nothing to explain why. So the progress toward today
+ * is shown before the streak itself, and the goal comes from the server rather than being
+ * repeated here, because two copies of a product rule disagree the moment one is tuned.
+ */
+function streakCard(p: Profile): HTMLElement {
+  const goal = Math.max(1, p.streak_goal);
+  const done = Math.min(p.streak_today, goal);
+  const met = done >= goal;
+
+  const card = el("div", "card streak");
+  const head = el("div", "streak-head");
+  const flame = el("div", met || p.streak_days > 0 ? "streak-flame on" : "streak-flame");
+  flame.textContent = "🔥";
+  const headText = el("div", "streak-headtext");
+  headText.append(el("div", "streak-count",
+    p.streak_days > 0 ? `${p.streak_days} ${t("streak_days")}` : t("streak_none")));
+  headText.append(el("div", "streak-sub",
+    met ? t("streak_done_today") : t("streak_left_today", { n: goal - done })));
+  head.append(flame, headText);
+
+  // Freezes are shown only when held. A "❄️ 0" is a reminder of something you do not have.
+  if (p.streak_freezes > 0) {
+    const freeze = el("div", "streak-freeze");
+    freeze.title = t("streak_freeze_hint");
+    freeze.textContent = `❄️ ${p.streak_freezes}`;
+    head.append(freeze);
+  }
+  card.append(head);
+
+  // One pip per question, not a continuous bar: at a goal of ten, "how many more" is a
+  // number people should be able to see without reading it.
+  const pips = el("div", "streak-pips");
+  for (let i = 0; i < goal; i++) pips.append(el("i", i < done ? "pip on" : "pip"));
+  card.append(pips);
+  card.append(el("div", "streak-goal", t("streak_goal_line", { done, goal })));
+  return card;
+}
+
 function profileScreen(): HTMLElement {
   const wrap = el("section", "screen");
   const p = state.profile;
@@ -1816,6 +1867,7 @@ function profileScreen(): HTMLElement {
   gear.onclick = () => { state.screen = "settings"; render(); };
   who.append(avatar, whoText, gear);
   wrap.append(who);
+  wrap.append(streakCard(p));
 
   // --- readiness ---
   const card = el("div", "card gauge-wrap");

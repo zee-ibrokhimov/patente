@@ -13,10 +13,11 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from api.models import Event, Progress, QuizSession
-from api.services import profile
+from api.services import profile, streak
 from api.services.telegram_auth import sign
 from shared.config import settings
 from shared.constants import EV_ANSWER_GIVEN, MODE_EXAM, SESSION_SUBMITTED
+from tests.conftest import studied_on
 
 TOKEN = "8918020834:AAEtest-token-not-real-only-for-tests"
 OWNER = 42
@@ -104,11 +105,14 @@ async def test_the_pass_bar_is_reported_so_the_number_means_something(client, re
 # --- streak ----------------------------------------------------------------
 
 async def _answer_events(api_db, days_ago: list[int]):
-    async with api_db() as s:
-        for d in days_ago:
-            s.add(Event(chat_id=OWNER, type=EV_ANSWER_GIVEN,
-                        created_at=datetime.now(timezone.utc) - timedelta(days=d)))
-        await s.commit()
+    """Meet the daily goal on each of these days-ago, in Rome days.
+
+    A day is ten distinct questions now, not one answer, so these go through the real
+    `note_answer` path — see `studied_on`. Written in Rome days because that is what the
+    streak counts; asking for "today" in UTC would be yesterday for two hours every night.
+    """
+    today = streak.rome_day(datetime.now(timezone.utc))
+    await studied_on(api_db, OWNER, [today - timedelta(days=d) for d in days_ago])
 
 
 async def test_a_streak_counts_consecutive_days(client, registered, api_db):

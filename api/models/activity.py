@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import JSON, BigInteger, ForeignKey, Index, Text
+from sqlalchemy import JSON, BigInteger, ForeignKey, Index, PrimaryKeyConstraint, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from api.models.base import Base, utcnow
@@ -215,6 +215,53 @@ class Purchase(Base):
 
     created_at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
     refunded_at: Mapped[datetime | None] = mapped_column(default=None)
+
+
+class StreakDay(Base):
+    """One row per day a learner actually met the daily goal.
+
+    WHY A TABLE, WHEN THE STREAK IS OTHERWISE DERIVED
+
+    The old rule — "answered anything" — could be derived from the event log with one
+    grouped query over dates. The new rule cannot: a day counts only once ten DISTINCT
+    questions have been answered at a credited pace, and only if it began at least
+    STREAK_MIN_GAP after the previous qualifying day. That is a forward walk over every
+    answer a learner has ever given, and it is the same shape as the leaderboard scan the
+    proposal singled out as unable to carry its own traffic: work proportional to total
+    history, repeated on every profile view.
+
+    So the expensive part is computed ONCE, at the moment it becomes true, and the read is a
+    small indexed lookup of dates. Everything downstream — the count, the freeze, the
+    milestone — still derives from these rows and stores nothing.
+
+    `day` IS A ROME DATE, NOT UTC
+
+    Stored as text, because it is a calendar day in a fixed civil timezone and not an
+    instant. The distinction matters at exactly the hour it is hardest to test: with UTC the
+    day rolls over at 02:00 Rome in summer, so a learner studying at 23:50 and 00:10 puts
+    six questions into each of two days and fails both.
+
+    `qualified_at` is the instant the day was earned, in UTC, and is what the minimum-gap
+    rule compares against. Two columns in two different time systems is deliberate: one is a
+    civil date, the other is a duration measured between two moments, and conflating them is
+    how the gap rule would quietly gain or lose an hour twice a year.
+    """
+
+    __tablename__ = "streak_days"
+    __table_args__ = (
+        # (chat_id, day) is the primary key, so recording the same day twice is refused by
+        # the database rather than by a "have I already?" query — the check and the write
+        # cannot interleave, and restoring a backup cannot double up.
+        PrimaryKeyConstraint("chat_id", "day"),
+    )
+
+    chat_id: Mapped[int] = mapped_column(BigInteger)
+    day: Mapped[str] = mapped_column(Text)
+    qualified_at: Mapped[datetime] = mapped_column(default=utcnow)
+    # Distinct questions answered at the instant the day qualified. Never updated afterwards:
+    # it exists to show what the day was earned with, and a column that must be kept current
+    # on every subsequent answer is a write on the hot path for a number nobody reads.
+    questions: Mapped[int] = mapped_column(default=0)
 
 
 class Event(Base):

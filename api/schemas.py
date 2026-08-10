@@ -143,6 +143,11 @@ class AnswerOut(BaseModel):
     explanation_state: str
     explanation: str | None = None
     free_explanations_left: int
+    # True on the single answer that completed today's streak goal. Declared here or it does
+    # not exist: this model strips whatever the service returns and does not list, so a field
+    # added to the service payload alone reaches nobody — and fails silently in the one
+    # direction that looks like it worked.
+    streak_earned_today: bool = False
 
 
 class GrantPassIn(BaseModel):
@@ -471,6 +476,11 @@ class ProfileOut(BaseModel):
     # rather than abandon, and the count has to be visible or it protects nobody
     # psychologically — the point is knowing you are covered.
     streak_freezes: int = 0
+    # Distinct questions answered today, and how many the day costs. Both are sent because a
+    # goal the learner cannot see themselves approaching is a goal they only discover by
+    # failing it.
+    streak_today: int = 0
+    streak_goal: int = 10
     pass_accuracy: float
     exams: ExamSummaryOut
 

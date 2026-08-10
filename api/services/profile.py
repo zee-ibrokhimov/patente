@@ -27,9 +27,9 @@ so the percentage has something to mean.
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.models import Event, QuizSession, User
@@ -68,40 +68,6 @@ RECENT_WINDOW = 100
 STALE_AFTER = timedelta(days=90)
 # The bar the percentage is measured against: 27 of 30 correct.
 PASS_ACCURACY = round((EXAM_QUESTIONS - EXAM_MAX_ERRORS) / EXAM_QUESTIONS, 3)
-
-
-async def _streak(session: AsyncSession, chat_id: int, today: date) -> int:
-    """Consecutive days ending today or yesterday on which the user answered something.
-
-    Ending *or yesterday* on purpose: a streak that breaks at midnight in a timezone the
-    server picked is a punishment for the server's convenience. Someone who studied last
-    night and opens the app before studying today still has their streak.
-    """
-    rows = await session.scalars(
-        select(func.date(Event.created_at))
-        .where(Event.chat_id == chat_id, Event.type == EV_ANSWER_GIVEN)
-        .group_by(func.date(Event.created_at))
-        .order_by(func.date(Event.created_at).desc())
-        .limit(400)
-    )
-    days = []
-    for value in rows:
-        if isinstance(value, str):
-            value = date.fromisoformat(value[:10])
-        days.append(value)
-    if not days:
-        return 0
-
-    if days[0] < today - timedelta(days=1):
-        return 0
-
-    streak = 1
-    for previous, current in zip(days, days[1:]):
-        if previous - current == timedelta(days=1):
-            streak += 1
-        else:
-            break
-    return streak
 
 
 async def _readiness(
@@ -151,7 +117,7 @@ async def _readiness(
     Leitner SCHEDULE (see answers.py) — that is a separate concern about what to teach
     next, not about how ready somebody is.
     """
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     rows = (
         await session.scalars(
             select(Event.payload)
@@ -225,27 +191,42 @@ async def _exams(session: AsyncSession, chat_id: int) -> dict:
 async def user_profile(
     session: AsyncSession, chat_id: int, now: datetime | None = None
 ) -> dict:
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     readiness, sample = await _readiness(session, chat_id)
 
-    # The streak now comes from `streak.refresh`, which is the same count as before PLUS the
-    # freeze: it bridges a single missed day if the learner has one to spend, and records
-    # which day it covered. `_streak` is left in place and still tested — it is the unfrozen
-    # rule, and having the plain version to compare against is what makes the freeze
-    # provably a bridge rather than a different count.
+    # The streak comes from `streak.refresh`, which counts days the learner MET THE GOAL —
+    # ten distinct questions — bridges a single missed day if they have a freeze to spend,
+    # and pays out the fourteen-day milestone.
+    #
+    # There used to be a second, simpler implementation here (`_streak`: consecutive days on
+    # which anything at all was answered), kept "to compare against". It is gone. Once the
+    # goal became ten questions the two rules gave different answers for the same learner,
+    # and a spare copy of a rule that disagrees with the real one is not a safety net — it is
+    # the bug, waiting for someone to read the wrong one.
     #
     # Spending happens on read because there is no scheduler here. That is also the right
     # moment: nobody is harmed by a gap nobody has looked at, and it works whenever the
     # learner comes back rather than depending on a job having run in the right timezone.
     user = await session.get(User, chat_id)
     if user is not None:
-        streak_days, freezes = await streak_service.refresh(session, user, now.date())
+        streak_days, freezes, _granted = await streak_service.refresh(session, user, now=now)
     else:
-        streak_days, freezes = await _streak(session, chat_id, now.date()), 0
+        # No user row means there is nothing to spend a freeze against and nobody to grant
+        # Premium to, but the days they qualified are still theirs and still count.
+        streak_days, freezes = streak_service.count_streak(
+            await streak_service.qualifying_days(session, chat_id),
+            streak_service.rome_day(now),
+            await streak_service.frozen_days(session, chat_id),
+        ), 0
 
     return {
         "streak_days": streak_days,
         "streak_freezes": freezes,
+        # Today's progress toward the goal, and the goal itself. Sent rather than hardcoded
+        # in the client: the number is a rule of the product, and a second copy of it in the
+        # frontend is a copy that disagrees with this one the first time it is tuned.
+        "streak_today": await streak_service.counted_today(session, chat_id, now),
+        "streak_goal": streak_service.GOAL,
         "readiness": readiness,
         "readiness_sample": sample,
         "readiness_min_sample": MIN_SAMPLE,

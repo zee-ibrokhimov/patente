@@ -356,6 +356,12 @@ EV_PASS_LAPSED = "pass_lapsed"
 # that silently does nothing. Keyed on the day, so computing the streak twice cannot spend
 # two freezes.
 EV_STREAK_FROZEN = "streak_frozen"
+# A 14-day streak milestone was reached and paid for. Carries the milestone NUMBER, so the
+# payout is idempotent: the second pass over the same milestone finds it already recorded and
+# grants nothing. The grant itself also writes EV_PASS_GRANTED, which is what the revenue
+# reports read; this event exists to make the payout repeatable-safe and to say which
+# milestone bought it.
+EV_STREAK_MILESTONE = "streak_milestone"
 # A newsletter or a personal message went out from the admin panel. In the event log rather
 # than a table of its own: it is append-only, already backed up, and "did I already send
 # this" is exactly the question somebody needs answered before sending again. It is also the
@@ -418,6 +424,7 @@ EVENT_TYPES = (
     EV_PASS_ENDING,
     EV_PASS_LAPSED,
     EV_STREAK_FROZEN,
+    EV_STREAK_MILESTONE,
     EV_BROADCAST_SENT,
     EV_LINK_CHANGED,
     EV_VOCAB_ADDED,

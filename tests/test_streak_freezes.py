@@ -5,9 +5,13 @@ entirely. Someone thirty days in who misses a Tuesday does not restart at day on
 conclude the thing they were proud of is gone and quietly stop opening the app. A freeze
 covers ONE missed day so a late shift does not undo a month.
 
-Deliberately not generous: two at most, one earned per FREEZE_EVERY days, spent
+Deliberately not generous: MAX_FREEZES at most, one earned per FREEZE_EVERY days, spent
 automatically. A freeze the learner has to remember to use fails at exactly the moment it
 was for, and an unlimited supply is not a streak.
+
+A DAY IS TEN DISTINCT QUESTIONS, not one answer. These tests build days through
+`studied_on`, which drives the real `note_answer` path, so the goal, the distinctness rule
+and the minimum gap between days are all exercised rather than bypassed.
 
 WHICH DAYS WERE COVERED LIVES IN THE EVENT LOG, not in a "frozen until" column. That is what
 makes it idempotent — computing the streak twice cannot spend two freezes, because the
@@ -25,6 +29,7 @@ from sqlalchemy import select
 from api.models import Event, User
 from api.services import streak
 from api.services.streak import FREEZE_EVERY, MAX_FREEZES, count_streak, earned
+from tests.conftest import studied_on
 from shared.constants import EV_ANSWER_GIVEN, EV_STREAK_FROZEN
 
 TODAY = date(2026, 7, 31)
@@ -94,19 +99,14 @@ def test_freezes_are_earned_slowly():
 
 
 async def _answered_on(api_db, offsets, chat_id=CHAT):
-    async with api_db() as s:
-        for n in offsets:
-            when = datetime.combine(TODAY - timedelta(days=n),
-                                    datetime.min.time(), tzinfo=timezone.utc)
-            s.add(Event(chat_id=chat_id, type=EV_ANSWER_GIVEN,
-                        payload={"correct": True}, created_at=when + timedelta(hours=12)))
-        await s.commit()
+    """Meet the goal on each of these days-ago."""
+    await studied_on(api_db, chat_id, [TODAY - timedelta(days=n) for n in offsets])
 
 
 async def test_a_new_learner_has_no_freezes(api_db, registered):
     await _answered_on(api_db, [0, 1])
     async with api_db() as s:
-        days, freezes = await streak.refresh(s, await s.get(User, CHAT), TODAY)
+        days, freezes, _granted = await streak.refresh(s, await s.get(User, CHAT), TODAY)
     assert days == 2
     assert freezes == 0
 
@@ -114,7 +114,7 @@ async def test_a_new_learner_has_no_freezes(api_db, registered):
 async def test_a_week_earns_one(api_db, registered):
     await _answered_on(api_db, list(range(FREEZE_EVERY)))
     async with api_db() as s:
-        days, freezes = await streak.refresh(s, await s.get(User, CHAT), TODAY)
+        days, freezes, _granted = await streak.refresh(s, await s.get(User, CHAT), TODAY)
     assert days == FREEZE_EVERY
     assert freezes == 1
 
@@ -122,7 +122,7 @@ async def test_a_week_earns_one(api_db, registered):
 async def test_the_balance_is_capped(api_db, registered):
     await _answered_on(api_db, list(range(FREEZE_EVERY * (MAX_FREEZES + 4))))
     async with api_db() as s:
-        _days, freezes = await streak.refresh(s, await s.get(User, CHAT), TODAY)
+        _days, freezes, _granted = await streak.refresh(s, await s.get(User, CHAT), TODAY)
     assert freezes == MAX_FREEZES
 
 
@@ -139,7 +139,7 @@ async def test_a_missed_day_spends_a_freeze_and_saves_the_streak(api_db, registe
     await _answered_on(api_db, list(range(2, 16)))     # nothing today, nothing yesterday
     async with api_db() as s:
         user = await s.get(User, CHAT)
-        days, freezes = await streak.refresh(s, user, TODAY)
+        days, freezes, _granted = await streak.refresh(s, user, TODAY)
         await s.commit()
     assert days >= 14, f"the streak collapsed to {days} despite a freeze being available"
     assert freezes == 1, "the spent freeze was handed straight back"
@@ -185,7 +185,7 @@ async def test_without_an_earned_freeze_the_streak_really_ends(api_db, registere
     await _answered_on(api_db, list(range(2, 2 + FREEZE_EVERY - 2)))   # too short to earn
     async with api_db() as s:
         user = await s.get(User, CHAT)
-        days, freezes = await streak.refresh(s, user, TODAY)
+        days, freezes, _granted = await streak.refresh(s, user, TODAY)
     assert freezes == 0
     assert days == 0
 
@@ -193,10 +193,13 @@ async def test_without_an_earned_freeze_the_streak_really_ends(api_db, registere
 async def test_a_long_absence_is_not_bridged(api_db, registered):
     """A freeze covers a slip, not a fortnight away. Pretending otherwise makes the number
     a lie, and a streak nobody believes is worth nothing."""
-    await _answered_on(api_db, list(range(10, 30)))     # long enough to have earned two
+    # Long enough ago to be a real absence, and long enough to have earned a full purse —
+    # expressed in terms of the cap, not in a literal, so raising the cap cannot make this
+    # test quietly assert something weaker than it says.
+    await _answered_on(api_db, list(range(10, 10 + FREEZE_EVERY * MAX_FREEZES)))
     async with api_db() as s:
         user = await s.get(User, CHAT)
-        days, freezes = await streak.refresh(s, user, TODAY)
+        days, freezes, _granted = await streak.refresh(s, user, TODAY)
     assert days == 0
     assert freezes == MAX_FREEZES, "a freeze was spent on a gap it could not bridge"
 
@@ -204,10 +207,10 @@ async def test_a_long_absence_is_not_bridged(api_db, registered):
 async def test_an_active_streak_spends_nothing(api_db, registered):
     """Nothing to rescue, so nothing is spent — and the balance stays available for the day
     it is actually needed."""
-    await _answered_on(api_db, list(range(FREEZE_EVERY * 2)))     # unbroken, ends today
+    await _answered_on(api_db, list(range(FREEZE_EVERY * MAX_FREEZES)))   # unbroken, ends today
     async with api_db() as s:
         user = await s.get(User, CHAT)
-        _days, freezes = await streak.refresh(s, user, TODAY)
+        _days, freezes, _granted = await streak.refresh(s, user, TODAY)
         await s.commit()
 
     async with api_db() as s:
