@@ -37,6 +37,8 @@ from api.models import User
 from api.routes import quiz as quiz_route
 from api.routes import users as users_route
 from api.schemas import (
+    OwnTermIn,
+    OwnTermPatch,
     SuggestionIn,
     AnalysisOut,
     AnswerIn,
@@ -253,6 +255,49 @@ async def profile(
     """Streak, readiness and exam history. Free, like stats — the screen that makes
     someone come back tomorrow should never be behind the paywall it advertises."""
     return ProfileOut(**await profile_service.user_profile(session, user.chat_id))
+
+
+@router.post("/vocab/terms", status_code=201)
+async def add_own_term(
+    body: OwnTermIn,
+    user: User = Depends(webapp_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """A word the learner adds for themselves. Nobody else ever sees it."""
+    try:
+        row = await vocab_service.add_own(
+            session, user, body.it, body.gloss, evaluate(user))
+    except vocab_service.VocabError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+    return {"id": row.id}
+
+
+@router.patch("/vocab/terms/{term_id}")
+async def edit_own_term(
+    term_id: int,
+    body: OwnTermPatch,
+    user: User = Depends(webapp_user),
+    session: AsyncSession = Depends(get_session),
+):
+    try:
+        row = await vocab_service.edit_own(
+            session, user, term_id, body.it, body.gloss, evaluate(user))
+    except vocab_service.VocabError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+    return {"id": row.id, "it": row.it, "gloss": row.gloss(user.lang)}
+
+
+@router.delete("/vocab/terms/{term_id}", status_code=204)
+async def delete_own_term(
+    term_id: int,
+    user: User = Depends(webapp_user),
+    session: AsyncSession = Depends(get_session),
+):
+    try:
+        await vocab_service.delete_own(session, user, term_id, evaluate(user))
+    except vocab_service.VocabError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+    return None
 
 
 @router.post("/suggestions", status_code=201)

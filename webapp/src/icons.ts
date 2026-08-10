@@ -133,6 +133,10 @@ export const icons = {
 
   chevron: (size = 22) => svg(`<path d="m9 5 7 7-7 7"/>`, size),
 
+  plus: (size = 18) => svg(`<path d="M12 5v14M5 12h14"/>`, size),
+  pencil: (size = 16) =>
+    svg(`<path d="M4 20h4l10-10a2.8 2.8 0 0 0-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>`, size),
+
   flag: (size = 20) => svg(`<path d="M6 20V4M6 5h11l-2.5 4L17 13H6"/>`, size),
 
   /** A door with an arrow leaving it. Deliberately not an X: a cross reads as "close this

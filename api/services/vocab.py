@@ -27,6 +27,7 @@ from api.services import events, leitner
 from api.services.entitlement import Entitlement
 from api.services.vocab_grading import Grade, Verdict, grade
 from shared.constants import (
+    EV_VOCAB_ADDED,
     EV_VOCAB_RECALL,
     TRANSLATION_LANGUAGES,
     VOCAB_IT_TO_LANG,
@@ -34,6 +35,141 @@ from shared.constants import (
     VOCAB_PAIR_FALLBACK,
     VOCAB_ROUND_SIZE,
 )
+
+def visible_to(chat_id: int):
+    """Which terms this learner may see: the shared glossary, plus their own.
+
+    ONE helper rather than a filter written out at each call site, because there are a
+    dozen of them and forgetting one does not fail — it silently shows one learner another
+    learner's private words. `test_no_vocab_query_forgets_the_owner` scans this module and
+    fails on any `select(VocabTerm)` that does not go through here.
+    """
+    return or_(VocabTerm.owner_chat_id.is_(None), VocabTerm.owner_chat_id == chat_id)
+
+
+# A learner's own word is short by nature — "sosta", "avvisatore acustico". The cap is
+# generous against the longest term in the shared sheet (34 characters) and small enough
+# that the column stays a vocabulary list.
+OWN_MAX_LENGTH = 120
+
+# Enough to be somebody's whole personal glossary, few enough that one account cannot fill
+# the table. The shared sheet is 1,104 words; nobody is hand-typing more than this.
+OWN_MAX_TERMS = 500
+
+
+async def add_own(
+    session: AsyncSession, user, it: str, gloss: str, entitlement: Entitlement
+) -> VocabTerm:
+    """A word the learner adds for themselves.
+
+    Stored in the same table as the shared glossary, with an owner — so it is drawn into
+    rounds, scheduled by Leitner, graded and counted by exactly the code that already works.
+
+    THE GLOSS GOES IN ALL THREE LANGUAGE COLUMNS, deliberately. A shared term carries a real
+    translation per language; a learner's own note is one string they wrote, and they are
+    the only person who will ever read it. Writing it once and leaving the other two empty
+    would make their own word vanish from their own list the moment they switched the
+    interface language — which is a bug that would look like data loss.
+    """
+    _require_access(entitlement)
+
+    word = (it or "").strip()
+    meaning = (gloss or "").strip()
+    if not word or not meaning:
+        raise VocabError(422, "both the word and its meaning are needed")
+    if len(word) > OWN_MAX_LENGTH or len(meaning) > OWN_MAX_LENGTH:
+        raise VocabError(422, f"keep each side under {OWN_MAX_LENGTH} characters")
+
+    mine = await session.scalar(
+        select(func.count()).select_from(VocabTerm).where(own_only(user.chat_id))) or 0
+    if mine >= OWN_MAX_TERMS:
+        raise VocabError(422, "that is as many words as one list can hold")
+
+    clash = await session.scalar(
+        select(VocabTerm).where(own_only(user.chat_id),
+                                func.lower(VocabTerm.it) == word.lower()))
+    if clash is not None:
+        raise VocabError(409, "you have already added that word")
+
+    row = VocabTerm(owner_chat_id=user.chat_id, rank=None, it=word,
+                    en=meaning, ru=meaning, uz=meaning)
+    session.add(row)
+    await session.flush()
+    await events.record(session, EV_VOCAB_ADDED, chat_id=user.chat_id, term_id=row.id)
+    return row
+
+
+async def edit_own(
+    session: AsyncSession, user, term_id: int, it: str | None, gloss: str | None,
+    entitlement: Entitlement,
+) -> VocabTerm:
+    """Change a word the learner added. Shared terms are not editable — see `own_only`."""
+    _require_access(entitlement)
+
+    row = await session.scalar(
+        select(VocabTerm).where(VocabTerm.id == term_id, own_only(user.chat_id)))
+    if row is None:
+        # 404 whether it does not exist, belongs to somebody else, or is a shared term:
+        # all three are "not yours to change", and distinguishing them tells the caller
+        # something about rows they cannot see.
+        raise VocabError(404, "no such word in your list")
+
+    if it is not None:
+        word = it.strip()
+        if not word:
+            raise VocabError(422, "the word cannot be empty")
+        if len(word) > OWN_MAX_LENGTH:
+            raise VocabError(422, f"keep each side under {OWN_MAX_LENGTH} characters")
+        row.it = word
+    if gloss is not None:
+        meaning = gloss.strip()
+        if not meaning:
+            raise VocabError(422, "the meaning cannot be empty")
+        if len(meaning) > OWN_MAX_LENGTH:
+            raise VocabError(422, f"keep each side under {OWN_MAX_LENGTH} characters")
+        row.en = row.ru = row.uz = meaning
+
+    await session.flush()
+    return row
+
+
+async def delete_own(
+    session: AsyncSession, user, term_id: int, entitlement: Entitlement
+) -> None:
+    """Remove a word the learner added, and its Leitner history with it.
+
+    The progress rows go through the relationship's delete-orphan cascade rather than a
+    second statement here: a term with no row and a schedule that still refers to it is the
+    kind of leftover that surfaces months later as a round containing a blank card.
+    """
+    _require_access(entitlement)
+
+    row = await session.scalar(
+        select(VocabTerm).where(VocabTerm.id == term_id, own_only(user.chat_id)))
+    if row is None:
+        raise VocabError(404, "no such word in your list")
+    await session.delete(row)
+    await session.flush()
+
+
+async def _visible_term(session: AsyncSession, user, term_id: int) -> VocabTerm:
+    """A term this learner may act on, or 404.
+
+    404 and not 403 for somebody else's private word: telling them it exists is already
+    telling them something about another learner.
+    """
+    term = await session.scalar(
+        select(VocabTerm).where(VocabTerm.id == term_id, visible_to(user.chat_id)))
+    if term is None:
+        raise VocabError(404, "no such term")
+    return term
+
+
+def own_only(chat_id: int):
+    """Just this learner's own additions — for editing and deleting, where touching a
+    shared row would be a very different thing."""
+    return VocabTerm.owner_chat_id == chat_id
+
 
 log = logging.getLogger(__name__)
 
@@ -82,7 +218,8 @@ async def round_for(
     due = (await session.scalars(
         select(VocabTerm)
         .join(VocabProgress, VocabProgress.term_id == VocabTerm.id)
-        .where(VocabProgress.chat_id == user.chat_id, VocabProgress.due_at <= now)
+        .where(VocabProgress.chat_id == user.chat_id, VocabProgress.due_at <= now,
+               visible_to(user.chat_id))
         .order_by(VocabProgress.due_at)
         .limit(size)
     )).all()
@@ -92,8 +229,10 @@ async def round_for(
         seen_ids = select(VocabProgress.term_id).where(VocabProgress.chat_id == user.chat_id)
         fresh = (await session.scalars(
             select(VocabTerm)
-            .where(VocabTerm.id.not_in(seen_ids))
-            .order_by(VocabTerm.rank)          # commonest words first
+            .where(VocabTerm.id.not_in(seen_ids), visible_to(user.chat_id))
+            # NULLs first, so a learner's own additions lead their own drill; then the
+            # shared sheet in teaching order, commonest first.
+            .order_by(VocabTerm.rank.is_(None).desc(), VocabTerm.rank)
             .limit(size - len(terms))
         )).all()
         terms.extend(fresh)
@@ -104,7 +243,7 @@ async def round_for(
         terms = list((await session.scalars(
             select(VocabTerm)
             .join(VocabProgress, VocabProgress.term_id == VocabTerm.id)
-            .where(VocabProgress.chat_id == user.chat_id)
+            .where(VocabProgress.chat_id == user.chat_id, visible_to(user.chat_id))
             .order_by(VocabProgress.due_at)
             .limit(size)
         )).all())
@@ -151,9 +290,7 @@ async def answer(
     if direction not in (VOCAB_IT_TO_LANG, VOCAB_LANG_TO_IT):
         raise VocabError(422, f"direction must be one of {(VOCAB_IT_TO_LANG, VOCAB_LANG_TO_IT)}")
 
-    term = await session.get(VocabTerm, term_id)
-    if term is None:
-        raise VocabError(404, "no such term")
+    term = await _visible_term(session, user, term_id)
 
     lang = pair_language(user)
     if direction == VOCAB_IT_TO_LANG:
@@ -209,7 +346,10 @@ async def _same_meaning(session: AsyncSession, term: VocabTerm, lang: str) -> li
     if column is None:
         return [term.it]
     rows = await session.scalars(
-        select(VocabTerm.it).where(func.lower(func.trim(column)) == term.gloss(lang).strip().lower())
+        select(VocabTerm.it).where(
+            func.lower(func.trim(column)) == term.gloss(lang).strip().lower(),
+            visible_to(term.owner_chat_id or -1) if term.owner_chat_id else
+            VocabTerm.owner_chat_id.is_(None))
     )
     # The asked-about word first, so it is the one shown as the correction.
     others = [r for r in rows if r != term.it]
@@ -253,8 +393,9 @@ async def browse(
     lang = pair_language(user)
     column = {"en": VocabTerm.en, "ru": VocabTerm.ru, "uz": VocabTerm.uz}[lang]
 
-    stmt = select(VocabTerm)
-    count_stmt = select(func.count()).select_from(VocabTerm)
+    stmt = select(VocabTerm).where(visible_to(user.chat_id))
+    count_stmt = (select(func.count()).select_from(VocabTerm)
+                  .where(visible_to(user.chat_id)))
     q = (query or "").strip()
     if q:
         like = f"%{q}%"
@@ -263,7 +404,16 @@ async def browse(
 
     total = (await session.scalar(count_stmt)) or 0
     rows = (await session.scalars(
-        stmt.order_by(VocabTerm.rank).offset(max(0, offset)).limit(min(200, max(1, limit)))
+        # NULLs first: a learner's own additions lead their own list. They are the words
+        # that person just chose to care about, and burying them under 1,104 shared entries
+        # is the difference between a feature and a form nobody revisits.
+        #
+        # Written out even though SQLite already sorts NULLs first, because that is a
+        # BACKEND DEFAULT and not a promise — Postgres sorts them last. Mutation reports
+        # this clause as removable, and on SQLite it is; the day the database moves it
+        # would silently invert the one ordering this feature depends on.
+        stmt.order_by(VocabTerm.rank.is_(None).desc(), VocabTerm.rank)
+        .offset(max(0, offset)).limit(min(200, max(1, limit)))
     )).all()
 
     known = {
@@ -283,6 +433,7 @@ async def browse(
         "terms": [
             {
                 "id": r.id, "rank": r.rank, "it": r.it, "gloss": r.gloss(lang),
+                "mine": r.owner_chat_id is not None,
                 "box": known[r.id].box if r.id in known else 0,
             }
             for r in rows
@@ -297,7 +448,9 @@ async def stats(session: AsyncSession, user: User) -> dict:
     the feature worth paying for, and hiding it behind the thing it advertises is a
     poor trade. It is also the same call the Profile screen makes.
     """
-    total = (await session.scalar(select(func.count()).select_from(VocabTerm))) or 0
+    total = (await session.scalar(
+        select(func.count()).select_from(VocabTerm)
+        .where(visible_to(user.chat_id)))) or 0
     rows = (await session.scalars(
         select(VocabProgress).where(VocabProgress.chat_id == user.chat_id)
     )).all()
@@ -336,7 +489,8 @@ async def cards(
     ids = [item["term_id"] for item in base["items"]]
     terms = {
         t.id: t for t in await session.scalars(
-            select(VocabTerm).where(VocabTerm.id.in_(ids or [0])))
+            select(VocabTerm).where(VocabTerm.id.in_(ids or [0]),
+                                    visible_to(user.chat_id)))
     }
     for item in base["items"]:
         term = terms.get(item["term_id"])
@@ -373,9 +527,7 @@ async def recall(
     _require_access(entitlement)
     now = now or datetime.now(timezone.utc)
 
-    term = await session.get(VocabTerm, term_id)
-    if term is None:
-        raise VocabError(404, "no such term")
+    term = await _visible_term(session, user, term_id)
 
     row = await session.get(VocabProgress, (user.chat_id, term_id))
     if row is None:

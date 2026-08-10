@@ -71,7 +71,12 @@ async def _out(user: User, session: AsyncSession) -> UserOut:
     # build-time content and costs nothing measurable, while a process-lifetime cache would
     # be wrong in exactly the place this field exists to be right: reseeding a larger
     # glossary would leave every running worker still reporting the old size.
-    vocab_terms = (await session.scalar(select(func.count()).select_from(VocabTerm))) or 0
+    # The SHARED sheet. This is the "1,104 exam words" headline, and counting a learner's
+    # own additions into it would make the advertised size of the product different for
+    # every user.
+    vocab_terms = (await session.scalar(
+        select(func.count()).select_from(VocabTerm)
+        .where(VocabTerm.owner_chat_id.is_(None)))) or 0
     return UserOut(
         chat_id=user.chat_id,
         lang=user.lang,

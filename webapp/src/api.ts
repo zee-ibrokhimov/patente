@@ -155,6 +155,20 @@ export const vocab = {
     return request<VocabList>(`/vocab/terms${qs ? `?${qs}` : ""}`);
   },
 
+  /** A word the learner adds for themselves. Nobody else ever sees it. */
+  addTerm: (it: string, gloss: string) =>
+    request<{ id: number }>("/vocab/terms", {
+      method: "POST", body: JSON.stringify({ it, gloss }),
+    }),
+
+  editTerm: (id: number, body: { it?: string; gloss?: string }) =>
+    request<{ id: number; it: string; gloss: string }>(`/vocab/terms/${id}`, {
+      method: "PATCH", body: JSON.stringify(body),
+    }),
+
+  removeTerm: (id: number) =>
+    request<void>(`/vocab/terms/${id}`, { method: "DELETE" }),
+
   /** A round of FLIP CARDS. Carries the answer, unlike `round` — here revealing it is the
    *  interaction, and fetching it per flip would put a network round trip between a tap
    *  and the thing the learner tapped for. */

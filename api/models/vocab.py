@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, ForeignKey, Index, Text, UniqueConstraint
+from sqlalchemy import BigInteger, ForeignKey, Index, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from api.models.base import Base, utcnow
@@ -38,18 +38,39 @@ class VocabTerm(Base):
 
     __tablename__ = "vocab_terms"
     __table_args__ = (
-        UniqueConstraint("it", name="uq_vocab_term_it"),
+        # TWO uniqueness rules, not one. A plain UNIQUE(owner_chat_id, it) would not keep
+        # the shared list unique, because SQLite treats NULLs as distinct and would accept
+        # two shared rows for `sosta`. And UNIQUE(it) alone — which is what shipped — stops
+        # a learner adding their own note on a word the glossary already has.
+        Index("uq_vocab_shared_it", "it", unique=True,
+              sqlite_where=text("owner_chat_id IS NULL")),
+        Index("uq_vocab_own_it", "owner_chat_id", "it", unique=True,
+              sqlite_where=text("owner_chat_id IS NOT NULL")),
         # The drill draws in teaching order — commonest words first — so this is the
         # ordering read on every round.
         Index("ix_vocab_rank", "rank"),
+        Index("ix_vocab_owner", "owner_chat_id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
 
-    # Position in the owner's frequency-ranked sheet. Lower is more common, and more
-    # worth learning first. Not contiguous: ten Italian words appear twice in the sheet
-    # and are stored once.
-    rank: Mapped[int] = mapped_column()
+    # NULL for the SHARED glossary, a chat id for one learner's own word.
+    #
+    # One table rather than two: a second one would need its own progress rows, its own
+    # Leitner scheduling, its own place in the round draw and in the flip-card deck, and
+    # each of those is a chance for the two kinds of word to drift apart. Sharing the table
+    # means a learner's own words are drawn, scheduled and graded by the code that already
+    # works. The cost is that every query must be scoped — see `vocab.visible_to`, and the
+    # test that fails when a query is written without it.
+    owner_chat_id: Mapped[int | None] = mapped_column(BigInteger, default=None)
+
+    # Position in the shared frequency-ranked sheet. Lower is more common, and more worth
+    # learning first. Not contiguous: ten Italian words appear twice in the sheet and are
+    # stored once.
+    #
+    # NULL for a learner's own word, which has no position in a frequency list — and NULLs
+    # sort first, which is where somebody's own additions belong in their own list.
+    rank: Mapped[int | None] = mapped_column(default=None)
 
     it: Mapped[str] = mapped_column(Text)
     en: Mapped[str] = mapped_column(Text)

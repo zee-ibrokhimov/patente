@@ -314,6 +314,34 @@ html, body { overflow-x: hidden; }
 .an-bar-fill { height: 100%; background: var(--accent); border-radius: 999px; }
 .an-cov { margin: var(--xs) 0 0; font-size: var(--t-caption); color: var(--text-3); }
 
+/* --- your own words ------------------------------------------------------ */
+
+.v-add {
+  display: flex; align-items: center; justify-content: center; gap: var(--sm);
+  width: 100%; margin: var(--sm) 0 var(--md);
+  padding: var(--md); appearance: none; cursor: pointer;
+  font-family: inherit; font-size: var(--t-body); font-weight: 700;
+  color: var(--accent); background: var(--tint-info);
+  border: 1px dashed var(--tint-info-edge); border-radius: var(--r);
+}
+/* Dashed, and tinted rather than solid: it is the one row in this list that is not a word,
+   and it should not read as the first entry. */
+.v-row.mine { border-left: 3px solid var(--accent); }
+.v-row-edit {
+  flex: none; appearance: none; border: 0; cursor: pointer;
+  background: transparent; color: var(--text-3);
+  padding: var(--xs); border-radius: var(--r-sm, 8px);
+}
+.v-field {
+  width: 100%; box-sizing: border-box; margin-top: var(--md);
+  padding: var(--md);
+  font-family: var(--font); font-size: var(--t-body);
+  color: var(--text); background: var(--bg);
+  border: 2px solid var(--edge); border-radius: var(--r);
+}
+.v-field:focus { outline: none; border-color: var(--accent); }
+.v-remove { margin-top: var(--sm); color: var(--exam-deep); }
+
 .suggest-box {
   width: 100%; box-sizing: border-box; margin: var(--md) 0;
   padding: var(--md); resize: vertical;

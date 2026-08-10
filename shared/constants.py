@@ -397,6 +397,7 @@ EV_REMINDER_SENT = "reminder_sent"
 # recognition is easier than recall. Nothing depends on the distinction today; this is what
 # makes it measurable if the vocabulary numbers ever start looking better than the learner.
 EV_VOCAB_RECALL = "vocab_recall"
+EV_VOCAB_ADDED = "vocab_added"
 
 # Quiz sessions. EV_SESSION_START/END already existed for the study session; these name
 # the bounded, gradeable kind so an exam is separable in the funnel.
@@ -419,6 +420,8 @@ EVENT_TYPES = (
     EV_STREAK_FROZEN,
     EV_BROADCAST_SENT,
     EV_LINK_CHANGED,
+    EV_VOCAB_ADDED,
+    EV_VOCAB_RECALL,
 )
 # What counts as the USER doing something, as opposed to something being done TO them.
 #

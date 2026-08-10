@@ -250,6 +250,16 @@ class SuggestionIn(BaseModel):
     text: str = Field(min_length=1, max_length=1000)
 
 
+class OwnTermIn(BaseModel):
+    it: str = Field(min_length=1, max_length=120)
+    gloss: str = Field(min_length=1, max_length=120)
+
+
+class OwnTermPatch(BaseModel):
+    it: str | None = Field(default=None, min_length=1, max_length=120)
+    gloss: str | None = Field(default=None, min_length=1, max_length=120)
+
+
 class TopicOut(BaseModel):
     id: int
     name: str
@@ -479,10 +489,13 @@ class VocabAnswerOut(BaseModel):
 
 class VocabTermOut(BaseModel):
     id: int
-    rank: int
+    # NULL for a word the learner added: it has no position in the shared frequency sheet.
+    rank: int | None
     it: str
     gloss: str
     box: int = Field(description="0 when never answered")
+    # Their own addition, so the client can offer edit and delete on it and on nothing else.
+    mine: bool = False
 
 
 class VocabListOut(BaseModel):

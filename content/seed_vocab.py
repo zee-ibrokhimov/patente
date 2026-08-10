@@ -58,7 +58,11 @@ def seed() -> tuple[int, int]:
     with factory() as session:
         existing = {
             t.it.strip().lower(): t
-            for t in session.scalars(select(VocabTerm)).all()
+            # SHARED rows only. This matches on the Italian and updates glosses in place,
+            # so without the filter a re-export would find a learner's own `sosta`, decide
+            # it was the sheet's, and overwrite their note with the shared translation.
+            for t in session.scalars(
+                select(VocabTerm).where(VocabTerm.owner_chat_id.is_(None))).all()
         }
         for t in terms:
             row = existing.get(t["it"].strip().lower())

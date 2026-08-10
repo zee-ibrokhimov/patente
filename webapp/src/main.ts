@@ -40,6 +40,7 @@ import type {
   RepeatSource,
   VocabRound,
   VocabStats,
+  VocabTerm,
 } from "./types";
 import "./style.css";
 
@@ -2922,6 +2923,82 @@ function vocabCardsSummary(): HTMLElement {
   return box;
 }
 
+/** Add a word, or change one already added.
+ *
+ *  One sheet for both, because they are the same three fields and a separate "edit" screen
+ *  would be the same form with a different title. Delete lives here rather than as a swipe
+ *  or a long-press: those are gestures a learner has to discover, and this list is read far
+ *  more often than it is edited.
+ */
+function openOwnWord(existing: VocabTerm | null): void {
+  const scrim = el("div", "modal");
+  const card = el("div", "modal-card");
+  const close = () => { scrim.remove(); setBackButton(backTarget()); };
+
+  card.append(el("h3", "sheet-title", existing ? t("v_edit") : t("v_add")));
+  card.append(el("p", "sheet-sub", t("v_add_sub")));
+
+  const word = el("input", "v-field");
+  word.type = "text";
+  word.placeholder = t("v_add_it");
+  word.autocapitalize = "off";
+  word.spellcheck = false;
+  word.value = existing?.it ?? "";
+  card.append(word);
+
+  const gloss = el("input", "v-field");
+  gloss.type = "text";
+  gloss.placeholder = t("v_add_gloss");
+  gloss.value = existing?.gloss ?? "";
+  card.append(gloss);
+
+  const save = el("button", "btn primary", t("v_save"));
+  save.type = "button";
+  save.onclick = async () => {
+    const it = word.value.trim();
+    const meaning = gloss.value.trim();
+    if (!it) { word.focus(); return; }
+    if (!meaning) { gloss.focus(); return; }
+    save.disabled = true;
+    try {
+      if (existing) await vocab.editTerm(existing.id, { it, gloss: meaning });
+      else await vocab.addTerm(it, meaning);
+      close();
+      // Re-read rather than patching the list in place: the server decides the order, and
+      // a new word belongs at the top of it.
+      await loadVocabList(state.vocab.query);
+      void loadVocabStats();
+    } catch (err) {
+      save.disabled = false;
+      reportError(err);
+    }
+  };
+  card.append(save);
+
+  if (existing) {
+    const remove = el("button", "btn secondary v-remove", t("v_remove"));
+    remove.type = "button";
+    remove.onclick = async () => {
+      if (!(await ask(t("v_remove_confirm", { word: existing.it })))) return;
+      try {
+        await vocab.removeTerm(existing.id);
+        close();
+        await loadVocabList(state.vocab.query);
+        void loadVocabStats();
+      } catch (err) {
+        reportError(err);
+      }
+    };
+    card.append(remove);
+  }
+
+  scrim.append(card);
+  scrim.onclick = (ev) => { if (ev.target === scrim) close(); };
+  setBackButton(close);
+  document.body.append(scrim);
+  queueMicrotask(() => word.focus());
+}
+
 function vocabList(): HTMLElement {
   const v = state.vocab;
   const box = el("div", "v-list-wrap");
@@ -2940,6 +3017,13 @@ function vocabList(): HTMLElement {
   };
   box.append(search);
 
+  // "adding function should be in the first" — above the list, not below a thousand rows.
+  const add = el("button", "v-add");
+  add.type = "button";
+  add.append(icons.plus(18), el("span", "", t("v_add")));
+  add.onclick = () => openOwnWord(null);
+  box.append(add);
+
   if (!v.list) { box.append(el("p", "v-muted", "…")); return box; }
   if (v.list.terms.length === 0) { box.append(el("p", "v-muted", t("v_empty"))); return box; }
 
@@ -2949,7 +3033,17 @@ function vocabList(): HTMLElement {
     const left = el("div", "v-row-main");
     left.append(el("div", "v-row-it", term.it), el("div", "v-row-gloss", term.gloss));
     row.append(left);
-    if (term.box >= 4) {
+    if (term.mine) {
+      // Only their own words are editable. A shared entry belongs to the compiler of the
+      // glossary and is the same for everybody.
+      row.classList.add("mine");
+      const edit = el("button", "v-row-edit");
+      edit.type = "button";
+      edit.setAttribute("aria-label", t("v_edit"));
+      edit.append(icons.pencil(16));
+      edit.onclick = () => openOwnWord(term);
+      row.append(edit);
+    } else if (term.box >= 4) {
       const tick = el("span", "v-row-known", t("v_known"));
       row.append(tick);
     }

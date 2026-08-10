@@ -267,7 +267,8 @@ export interface Profile {
  *  learner's data to another, and a first name plus a score cannot be used to FIND
  *  somebody. See api/services/leaderboard.py. */
 export interface LeaderboardEntry {
-  rank: number;
+  /** Null for a word the learner added — it has no place in the shared sheet. */
+  rank: number | null;
   name: string | null;
   score: number;
   is_me: boolean;
@@ -324,11 +325,14 @@ export interface VocabAnswer {
 
 export interface VocabTerm {
   id: number;
-  rank: number;
+  /** Null for a word the learner added — it has no place in the shared sheet. */
+  rank: number | null;
   it: string;
   gloss: string;
   /** 0 when never answered. */
   box: number;
+  /** Their own addition. Nothing else in the list may be edited or deleted. */
+  mine?: boolean;
 }
 
 export interface VocabList {
