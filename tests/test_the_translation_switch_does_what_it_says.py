@@ -152,3 +152,24 @@ def test_the_answer_sheet_is_still_reachable_from_the_finish_screen():
                                  "fetching_translations"])
 def test_every_language_has_the_new_strings(key):
     assert i18n().count(f"{key}:") == 4, f"{key} is not defined in all four locales"
+
+
+# --- the suggestion box -----------------------------------------------------
+
+def test_settings_opens_with_a_way_to_ask_for_things():
+    """"in setting on top we need to add a button like what you whant to add".
+
+    Above the settings, because it is not one — and the people who know what is missing from
+    a study app are the ones sitting the exam this month. Their only route before was the
+    support handle at the bottom of the same screen.
+    """
+    block = main()[main().index("function settingsScreen("):]
+    block = block[:block.index("\nfunction ")]
+    head = block[:block.index("--- language ---")]
+    assert "suggest_title" in head, "the suggestion box must come before the settings"
+    assert "support_contact" in head, (
+        "it should open the support chat that already exists rather than a form that needs "
+        "a table, a queue and somewhere for the owner to read it"
+    )
+    for key in ("suggest_title", "suggest_sub"):
+        assert i18n().count(f"{key}:") == 4

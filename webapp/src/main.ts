@@ -2153,6 +2153,33 @@ function settingsScreen(): HTMLElement {
   wrap.append(el("h1", "h1", t("settings")));
   wrap.append(el("p", "sub", t("settings_sub")));
 
+  // --- "what should we add?" ------------------------------------------------
+  //
+  // At the top, above the settings themselves, because it is not one. The people who know
+  // what is missing from a study app are the people studying for the exam this month, and
+  // the only route they had was finding the support handle buried at the bottom of this
+  // screen.
+  //
+  // It opens the existing support chat rather than a form. A form needs a table, a queue,
+  // a moderation story and somewhere for the owner to read it; a Telegram message needs
+  // none of that and arrives somewhere he already looks. If the volume ever justifies a
+  // form, the button stays where it is and only its handler changes.
+  const suggest = el("button", "card suggest");
+  suggest.type = "button";
+  const suggestMain = el("div", "row-main");
+  suggestMain.append(el("div", "row-title", t("suggest_title")),
+                     el("div", "row-sub", t("suggest_sub")));
+  suggest.append(icons.bulb(24), suggestMain);
+  const suggestChev = el("span", "chev");
+  suggestChev.append(icons.chevron(20));
+  suggest.append(suggestChev);
+  suggest.onclick = () => {
+    const handle = me.support_contact || me.bot_username;
+    if (!handle) return;
+    if (!openChat(`https://t.me/${handle.replace(/^@/, "")}`)) toast(`@${handle}`);
+  };
+  wrap.append(suggest);
+
   // --- language ---
   const langCard = el("div", "card");
   const langHead = el("div", "row");

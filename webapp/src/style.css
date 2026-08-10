@@ -261,6 +261,16 @@ html, body { overflow-x: hidden; }
   width: 100%; text-align: left; appearance: none; cursor: pointer; color: inherit;
 }
 .premium-strip svg:first-child { flex: none; color: var(--gold); }
+
+/* The suggestion box, at the top of Settings. A card that is a button: same surface as the
+   settings below it so it reads as part of the screen, with the affordance of the rows
+   inside them. */
+.suggest {
+  display: flex; align-items: center; gap: var(--md); width: 100%;
+  text-align: left; appearance: none; cursor: pointer; color: inherit;
+  margin-bottom: var(--lg);
+}
+.suggest > svg:first-child { flex: none; color: var(--accent); }
 .premium-strip-title { font-weight: 700; font-size: 16px; color: var(--gold-dark); }
 .premium-strip-text { color: var(--text-2); font-size: 14px; line-height: 20px; margin-top: 2px; }
 .premium-strip .chev { margin-left: auto; flex: none; color: var(--gold-dark); }
