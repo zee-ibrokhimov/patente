@@ -302,3 +302,42 @@ async def test_the_leaderboard_still_gets_the_name(client, registered, api_db):
         rows = await s.scalars(select(User.display_name).where(User.chat_id == CHAT))
         assert rows.one() == "Aziz"
         assert leaderboard is not None
+
+
+# --- the regression the first fix introduced ---------------------------------
+
+async def test_ten_at_once_do_not_deadlock_on_the_connection_pool(client, registered):
+    """The first version of this fix took its connection from the MAIN pool, and hung.
+
+    A request holds one connection for its whole lifetime. Opening a second inside it means
+    every concurrent request needs two — so at ten parallel requests all fifteen connections
+    (5 + 10 overflow) were held by requests each waiting for a sixteenth. Not slow: stuck,
+    for the full thirty-second pool timeout, which is worse than the outage being fixed.
+
+    Ten is chosen because 2 x 10 exceeds the pool and 10 alone does not: the assertion fails
+    only if the warm write competes for the same connections.
+    """
+    started = time.monotonic()
+    results = await asyncio.gather(*[
+        client.get("/webapp/me", headers=auth(first_name=f"Name{i}"))
+        for i in range(10)
+    ])
+    elapsed = time.monotonic() - started
+    assert [r.status_code for r in results] == [200] * 10
+    assert elapsed < 10.0, f"ten parallel requests took {elapsed:.1f}s — pool starvation"
+
+
+async def test_warm_writes_have_a_pool_of_their_own(client, registered):
+    """Structural, and deliberately so: the isolation IS the fix.
+
+    A warm write must never be able to take a connection a real request needs, so its pool
+    is one connection with no overflow. If someone later points this back at the shared
+    factory the deadlock returns, and the timing test above is the kind that goes flaky
+    before it goes red.
+    """
+    from api.routes import webapp as webapp_routes
+
+    await client.get("/webapp/me", headers=auth(first_name="Aziz"))
+    pool = webapp_routes._warm_sessions().kw["bind"].pool
+    assert pool.size() == 1, f"warm pool has {pool.size()} connections, expected 1"
+    assert pool._max_overflow == 0, "warm writes may overflow into the request pool"

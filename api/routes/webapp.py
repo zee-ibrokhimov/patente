@@ -31,7 +31,8 @@ from functools import partial
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import OperationalError
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import TimeoutError as PoolTimeout
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from api.deps import get_session
 from api.models import User
@@ -184,6 +185,38 @@ async def webapp_user(
 # seconds is a spinner, which is the same failure wearing a different hat.
 WARM_LOCK_WAIT_MS = 250
 
+_warm_factory: async_sessionmaker[AsyncSession] | None = None
+
+
+def _warm_sessions() -> async_sessionmaker[AsyncSession]:
+    """A tiny pool of its own, for warm writes only.
+
+    THE FIRST VERSION OF THIS FIX TOOK CONNECTIONS FROM THE MAIN POOL AND DEADLOCKED.
+
+    The request already holds one connection for its whole lifetime, so opening a second
+    inside it means every concurrent request needs two. The default pool is 5 + 10 overflow,
+    so at ten parallel requests all fifteen connections were held by requests that were each
+    waiting for a sixteenth — `QueuePool limit of size 5 overflow 10 reached, connection
+    timed out, timeout 30.00`. Not slow: stuck, for thirty seconds, which is worse than the
+    outage this was written to fix.
+
+    One connection, no overflow, and a quarter-second to get it. Warm writes therefore queue
+    among THEMSELVES and can never take a connection a real request needs. Failing to get
+    one is treated exactly like failing to get the write lock — skip it, the next request
+    recomputes it.
+    """
+    global _warm_factory
+    if _warm_factory is None:
+        from shared.config import settings
+        from shared.db import make_async_engine
+
+        engine = make_async_engine(
+            settings.database_url, pool_size=1, max_overflow=0,
+            pool_timeout=WARM_LOCK_WAIT_MS / 1000,
+        )
+        _warm_factory = async_sessionmaker(engine, expire_on_commit=False)
+    return _warm_factory
+
 
 async def _store_warm_fields(chat_id: int, values: dict) -> bool:
     """Persist derived, cached fields — and never fail the request that noticed them.
@@ -221,11 +254,8 @@ async def _store_warm_fields(chat_id: int, values: dict) -> bool:
     """
     from sqlalchemy import text, update
 
-    from shared.db import async_session_factory
-
-    factory = async_session_factory()
     try:
-        async with factory() as own:
+        async with _warm_sessions()() as own:
             # Scoped to this connection and restored below, because connections are pooled
             # and a 250 ms timeout left behind would silently apply to real writes.
             await own.execute(text(f"PRAGMA busy_timeout = {WARM_LOCK_WAIT_MS}"))
@@ -236,10 +266,11 @@ async def _store_warm_fields(chat_id: int, values: dict) -> bool:
             finally:
                 await own.execute(text("PRAGMA busy_timeout = 5000"))
         return True
-    except OperationalError as exc:
-        # Expected under contention, and not an error anybody should be paged about. INFO
-        # rather than WARNING for that reason — but logged, because a cache that stops
-        # warming permanently would otherwise be invisible.
+    except (OperationalError, PoolTimeout) as exc:
+        # Both are "somebody else is busy", and both are expected: OperationalError is the
+        # write lock, PoolTimeout is the single warm connection already in use. Neither is
+        # something to page anybody about, hence INFO — but logged, because a cache that
+        # stopped warming permanently would otherwise be completely invisible.
         log.info("skipped a warm write for %s (%s): %s", chat_id, ",".join(values), exc)
         return False
 

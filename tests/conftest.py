@@ -84,11 +84,17 @@ async def api_db(tmp_path):
 
     from shared.config import settings as app_settings
 
+    from api.routes import webapp as webapp_routes
+
     saved = (shared_db._async_engine, shared_db._async_session_factory,
-             app_settings.database_url)
+             app_settings.database_url, webapp_routes._warm_factory)
     app_settings.database_url = url
     shared_db._async_engine = engine
     shared_db._async_session_factory = factory
+    # The warm-write pool is built once per process and cached. Left alone it would belong
+    # to the first test's event loop and its database, and every later test would either get
+    # somebody else's file or `RuntimeError: attached to a different loop`.
+    webapp_routes._warm_factory = None
     async with factory() as s:
         s.add_all([
             Topic(id=1, name="Segnali di divieto"),
@@ -129,8 +135,11 @@ async def api_db(tmp_path):
 
     yield factory
 
+    warm = webapp_routes._warm_factory
+    if warm is not None:
+        await warm.kw["bind"].dispose()
     (shared_db._async_engine, shared_db._async_session_factory,
-     app_settings.database_url) = saved
+     app_settings.database_url, webapp_routes._warm_factory) = saved
     await engine.dispose()
 
 
