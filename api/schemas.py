@@ -246,6 +246,10 @@ class AnalysisOut(BaseModel):
     exam_max_errors: int
 
 
+class SuggestionIn(BaseModel):
+    text: str = Field(min_length=1, max_length=1000)
+
+
 class TopicOut(BaseModel):
     id: int
     name: str

@@ -251,6 +251,29 @@ class Report(Base):
     resolved_at: Mapped[datetime | None] = mapped_column(default=None)
 
 
+class Suggestion(Base):
+    """"What should we add?" — the form at the top of Settings.
+
+    The people who know what is missing from a study app are the ones sitting the exam this
+    month, and until this existed their only route was finding a support handle at the
+    bottom of the same screen and composing a message to a stranger.
+
+    Two states, `handled_at` null or not, matching the reports queue beside it. A suggestion
+    is read or it is not; anything richer is a workflow nobody asked for.
+    """
+
+    __tablename__ = "suggestions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    chat_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    text: Mapped[str] = mapped_column(Text)
+    # The interface language at the time of writing. The owner reads four languages' worth
+    # of these and needs to know which one a message is in before opening it.
+    lang: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
+    handled_at: Mapped[datetime | None] = mapped_column(default=None)
+
+
 class QuizSession(Base):
     """A bounded, gradeable sitting — an exam or a practice run.
 

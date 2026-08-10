@@ -2145,6 +2145,70 @@ async function beginReset(card: HTMLElement, opener: HTMLButtonElement): Promise
   card.append(confirm);
 }
 
+/** The suggestion form.
+ *
+ *  This was a link to the support chat, which was the wrong trade: it asks a learner to
+ *  compose a message to a stranger — which almost nobody does — and it drops "add a dark
+ *  mode" into the same inbox as "my payment failed". A form asks for one thing, in the
+ *  language the app is already speaking.
+ *
+ *  Sent state rather than a toast. A toast fades in three seconds and leaves the person
+ *  looking at the same empty box wondering whether it went; the card says it arrived and
+ *  offers to take another. */
+function openSuggestion(): void {
+  const scrim = el("div", "modal");
+  const card = el("div", "modal-card");
+  const close = () => { scrim.remove(); setBackButton(backTarget()); };
+
+  const draw = () => {
+    card.replaceChildren();
+    card.append(el("h3", "sheet-title", t("suggest_title")));
+    card.append(el("p", "sheet-sub", t("suggest_form_sub")));
+
+    const box = el("textarea", "suggest-box");
+    box.rows = 5;
+    box.maxLength = 1000;
+    box.placeholder = t("suggest_placeholder");
+    card.append(box);
+
+    const send = el("button", "btn primary", t("suggest_send"));
+    send.type = "button";
+    send.onclick = async () => {
+      const text = box.value.trim();
+      if (!text) { box.focus(); return; }
+      send.disabled = box.disabled = true;
+      try {
+        await api.suggest(text);
+        card.replaceChildren();
+        const mark = el("div", "suggest-done");
+        mark.append(icons.tick(44));
+        card.append(mark);
+        card.append(el("h3", "sheet-title", t("suggest_thanks")));
+        card.append(el("p", "sheet-sub", t("suggest_thanks_sub")));
+        const again = el("button", "btn secondary", t("suggest_another"));
+        again.type = "button";
+        again.onclick = draw;
+        card.append(again);
+        const done = el("button", "link-btn", t("close"));
+        done.type = "button";
+        done.onclick = close;
+        card.append(done);
+      } catch (err) {
+        send.disabled = box.disabled = false;
+        reportError(err);
+      }
+    };
+    card.append(send);
+    queueMicrotask(() => box.focus());
+  };
+
+  draw();
+  scrim.append(card);
+  scrim.onclick = (ev) => { if (ev.target === scrim) close(); };
+  setBackButton(close);
+  document.body.append(scrim);
+}
+
 function settingsScreen(): HTMLElement {
   const wrap = el("section", "screen");
   const me = state.me;
@@ -2173,11 +2237,7 @@ function settingsScreen(): HTMLElement {
   const suggestChev = el("span", "chev");
   suggestChev.append(icons.chevron(20));
   suggest.append(suggestChev);
-  suggest.onclick = () => {
-    const handle = me.support_contact || me.bot_username;
-    if (!handle) return;
-    if (!openChat(`https://t.me/${handle.replace(/^@/, "")}`)) toast(`@${handle}`);
-  };
+  suggest.onclick = openSuggestion;
   wrap.append(suggest);
 
   // --- language ---

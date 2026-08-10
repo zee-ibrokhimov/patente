@@ -45,7 +45,15 @@ from api.models import (
     Report, Translation, User,
 )
 from api.routes.webapp import PREFETCH_CONCURRENCY, webapp_user
-from api.services import broadcast, events, explanations, lapse, notify, referrals
+from api.services import (
+    broadcast,
+    events,
+    explanations,
+    lapse,
+    notify,
+    referrals,
+    suggestions,
+)
 from api.services.entitlement import evaluate
 from api.services.users import _clean_source
 from shared.constants import (
@@ -565,6 +573,25 @@ async def broadcast_history(
 
 
 # --- what learners are telling you ------------------------------------------
+
+@router.get("/suggestions")
+async def list_suggestions(
+    _staff: User = Depends(staff_user), session: AsyncSession = Depends(get_session)
+):
+    """Unhandled first, newest first — the order they actually get read in."""
+    return await suggestions.queue(session)
+
+
+@router.post("/suggestions/{suggestion_id}/handled")
+async def resolve_suggestion(
+    suggestion_id: int,
+    _staff: User = Depends(staff_user),
+    session: AsyncSession = Depends(get_session),
+):
+    if not await suggestions.mark_handled(session, suggestion_id):
+        raise HTTPException(404, "unknown suggestion")
+    return {"ok": True}
+
 
 @router.get("/reports")
 async def list_reports(

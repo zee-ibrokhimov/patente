@@ -103,6 +103,13 @@ export const api = {
   /** "This explanation is wrong." The path existed server-side and was reachable only
    *  from the loopback route the bot used, so since drilling moved here nobody could
    *  report anything. */
+  /** "What should we add?" — the form at the top of Settings. */
+  suggest: (text: string) =>
+    request<{ id: number }>("/suggestions", {
+      method: "POST",
+      body: JSON.stringify({ text }),
+    }),
+
   report: (questionId: number) =>
     request<unknown>("/reports", {
       method: "POST",

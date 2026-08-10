@@ -271,6 +271,22 @@ html, body { overflow-x: hidden; }
   margin-bottom: var(--lg);
 }
 .suggest > svg:first-child { flex: none; color: var(--accent); }
+
+.suggest-box {
+  width: 100%; box-sizing: border-box; margin: var(--md) 0;
+  padding: var(--md); resize: vertical;
+  font-family: var(--font); font-size: var(--t-body); line-height: 1.45;
+  color: var(--text); background: var(--bg);
+  border: 2px solid var(--edge); border-radius: var(--r);
+}
+.suggest-box:focus { outline: none; border-color: var(--accent); }
+/* The sent state, in place of the box. A toast fades in three seconds and leaves somebody
+   looking at the same empty field wondering whether it went. */
+.suggest-done {
+  display: grid; place-items: center; margin: var(--lg) auto var(--md);
+  width: 72px; height: 72px; border-radius: 50%;
+  background: var(--practice-chip); color: var(--ok);
+}
 .premium-strip-title { font-weight: 700; font-size: 16px; color: var(--gold-dark); }
 .premium-strip-text { color: var(--text-2); font-size: 14px; line-height: 20px; margin-top: 2px; }
 .premium-strip .chev { margin-left: auto; flex: none; color: var(--gold-dark); }
@@ -406,7 +422,12 @@ html, body { overflow-x: hidden; }
    conveyor, and constant now that the sheet can jump back to answered questions. */
 .cell.done.here { background: var(--ok); color: #fff; border-color: var(--ok-deep, var(--accent)); }
 
-.sheet-title { margin: 0; font-size: var(--t-title); font-weight: 800; }
+/* Smaller than --t-title, which is sized for a screen heading. These are modal headings
+   and one of them is a question — "Что добавить?" at title size wraps to two lines and
+   fills half the card before the form starts. */
+.sheet-title {
+  margin: 0; font-size: clamp(20px, 5.6vw, 26px); font-weight: 800; text-wrap: balance;
+}
 .sheet-sub { margin: var(--xs) 0 0; color: var(--text-2); font-size: var(--t-caption); }
 .sheet-submit { margin-top: var(--sm); }
 .sheet-exit { margin-top: var(--sm); }

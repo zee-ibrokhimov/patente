@@ -160,16 +160,16 @@ def test_settings_opens_with_a_way_to_ask_for_things():
     """"in setting on top we need to add a button like what you whant to add".
 
     Above the settings, because it is not one — and the people who know what is missing from
-    a study app are the ones sitting the exam this month. Their only route before was the
-    support handle at the bottom of the same screen.
+    a study app are the ones sitting the exam this month.
+
+    The first version opened the support chat, on the argument that a form needs a table, a
+    queue and somewhere for the owner to read it. The owner asked for the form, and he was
+    right: a chat link asks somebody to compose a message to a stranger, which almost nobody
+    does. What it opens now is checked in test_asking_for_things.py.
     """
     block = main()[main().index("function settingsScreen("):]
     block = block[:block.index("\nfunction ")]
     head = block[:block.index("--- language ---")]
     assert "suggest_title" in head, "the suggestion box must come before the settings"
-    assert "support_contact" in head, (
-        "it should open the support chat that already exists rather than a form that needs "
-        "a table, a queue and somewhere for the owner to read it"
-    )
     for key in ("suggest_title", "suggest_sub"):
         assert i18n().count(f"{key}:") == 4

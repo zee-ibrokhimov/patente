@@ -37,6 +37,7 @@ from api.models import User
 from api.routes import quiz as quiz_route
 from api.routes import users as users_route
 from api.schemas import (
+    SuggestionIn,
     AnalysisOut,
     AnswerIn,
     AnswerOut,
@@ -64,6 +65,7 @@ from api.schemas import (
     VocabStatsOut,
 )
 from api.services import (
+    suggestions,
     analysis,
     pacing,
     channel,
@@ -251,6 +253,25 @@ async def profile(
     """Streak, readiness and exam history. Free, like stats — the screen that makes
     someone come back tomorrow should never be behind the paywall it advertises."""
     return ProfileOut(**await profile_service.user_profile(session, user.chat_id))
+
+
+@router.post("/suggestions", status_code=201)
+async def suggest(
+    body: SuggestionIn,
+    user: User = Depends(webapp_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """"What should we add?" from the top of Settings.
+
+    Stores the text, the language it was written in and who wrote it, and nothing else. The
+    owner needs to reply and to know which of four languages to reply in; anything more
+    would be collected because it was easy rather than because it was needed.
+    """
+    try:
+        row = await suggestions.submit(session, user.chat_id, body.text, user.lang)
+    except suggestions.Refused as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return {"id": row.id}
 
 
 @router.get("/analysis", response_model=AnalysisOut)

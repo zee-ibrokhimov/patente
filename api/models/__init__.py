@@ -22,6 +22,7 @@ from api.models.activity import (
     QuizSession,
     QuizSessionItem,
     Report,
+    Suggestion,
     User,
     WebhookDelivery,
 )
