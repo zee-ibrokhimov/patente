@@ -156,7 +156,7 @@ async def test_exiting_hands_back_the_review(client, registered, api_db):
     assert body["passed"] is None, "the client renders null as 'not counted'; false is a fail"
     assert body["answered"] == 3
     assert body["wrong"] == 2
-    assert len(body["items"]) == started["question_count"]
+    assert len(body["items"]) == 3, "only the answered questions come back"
 
 
 async def test_the_review_says_which_answered_questions_were_wrong(client, registered, api_db):
@@ -173,20 +173,38 @@ async def test_the_review_says_which_answered_questions_were_wrong(client, regis
     assert all(i["answer"] is not None for i in answered), "the correct answer must be shown"
 
 
-async def test_the_untouched_questions_are_distinguishable_from_mistakes(client, registered, api_db):
-    """Eighteen questions never reached are not eighteen mistakes.
+async def test_an_exit_does_not_hand_back_the_answer_key(client, registered, api_db):
+    """The questions never reached are not returned AT ALL, and the reason is not tidiness.
 
-    In a SUBMITTED exam a blank does count against you, and the review deliberately files it
-    with the errors. On an exit it must not: the client filters on `given`, so the field has
-    to be null for anything untouched rather than defaulted to something falsy.
+    Every review item carries `answer` — the ministerial key. Starting an exam costs nothing
+    and exiting is now one tap, so a sitting exited on question one would hand back the
+    correct answer to the whole paper on demand. Filtering in the client would not help: the
+    payload is what is on the wire.
+
+    A SUBMITTED or EXPIRED sitting still returns everything, and must — there a blank counts
+    against the candidate and the review exists to show them what they never reached.
     """
-    started = await sit(client, api_db, answer=2)
+    started = await sit(client, api_db, answer=1)
     body = (await client.post(f"/webapp/sessions/{started['id']}/exit", headers=auth())).json()
 
+    assert len(body["items"]) == 1, "an exited exam returned questions the learner never saw"
+    assert all(i["given"] is not None for i in body["items"])
+
+    # And the same is true through the plain results endpoint, which is a second door to the
+    # same payload and was the pre-existing route to it.
+    again = (await client.get(f"/webapp/sessions/{started['id']}/results", headers=auth())).json()
+    assert len(again["items"]) == 1
+
+
+async def test_a_submitted_exam_still_reviews_the_blanks(client, registered, api_db):
+    """The other half of the rule above. Running out of time or handing in early is a way to
+    fail a real exam, so the questions left blank are part of what the review is for."""
+    started = await sit(client, api_db, answer=1)
+    body = (await client.post(f"/webapp/sessions/{started['id']}/finish", headers=auth())).json()
+
+    assert len(body["items"]) == started["question_count"]
     untouched = [i for i in body["items"] if i["given"] is None]
-    assert len(untouched) == started["question_count"] - 2
-    assert all(i["correct"] is None for i in untouched), \
-        "an unanswered question came back with a verdict, and would be shown as a mistake"
+    assert untouched and all(i["correct"] is None for i in untouched)
 
 
 async def test_exits_cannot_push_real_exams_out_of_the_record(client, registered, api_db):
@@ -279,3 +297,45 @@ async def test_you_cannot_exit_someone_elses_exam(client, registered, api_db):
     async with api_db() as s:
         row = await s.get(QuizSession, started["id"])
     assert row.state != SESSION_ABANDONED
+
+
+# --- the owner's numbers have to agree with the learner's ---------------------
+
+async def test_the_owners_counts_mean_the_same_as_the_learners(client, registered, api_db):
+    """Three places count exams and they were counting three different things.
+
+    The learner's profile filters on `passed is not None`; the weekly digest counted every
+    sitting STARTED, and the per-learner admin card counted every sitting of any state. A
+    week in which people opened ten exams and finished one was reported to the owner as ten
+    exams sat — and support, looking at a learner who had exited every attempt, saw a column
+    of exams taken. The numbers being comparable is the only reason to look at either.
+    """
+    from api.services import admin
+
+    sat = await sit(client, api_db, answer=None, wrong=1)
+    await client.post(f"/webapp/sessions/{sat['id']}/finish", headers=auth())
+    for _ in range(4):
+        walked = await sit(client, api_db, answer=1)
+        await client.post(f"/webapp/sessions/{walked['id']}/exit", headers=auth())
+
+    async with api_db() as s:
+        mine = (await profile.user_profile(s, OWNER))["exams"]["taken"]
+        week = (await admin.overview(s))["exams_week"]
+    assert mine == 1, mine
+    assert week == mine, f"the owner sees {week} exams this week, the learner sees {mine}"
+
+
+async def test_the_owner_can_tell_an_exit_from_a_submission(client, registered, api_db):
+    """`exam_finished` is written for a submission, an expiry and an exit alike, and the
+    /whois pane printed the bare type — so the one thing support is usually being asked
+    about was the one thing not on the screen."""
+    from api.services import admin
+
+    started = await sit(client, api_db, answer=1)
+    await client.post(f"/webapp/sessions/{started['id']}/exit", headers=auth())
+
+    async with api_db() as s:
+        events = (await admin.whois(s, OWNER))["recent_events"]
+    finished = [e for e in events if e["type"] == "exam_finished"]
+    assert finished, events
+    assert finished[0]["state"] == SESSION_ABANDONED, finished[0]

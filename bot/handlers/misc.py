@@ -249,7 +249,13 @@ async def admin_whois(message: Message, lang: str, api: ApiClient):
         lines += ["", "no purchases"]
     if d["recent_events"]:
         lines += ["", "<b>Recent</b>"]
-        lines += [f"  {e['type']} {_when(e['at'])}" for e in d["recent_events"]]
+        # The state in brackets, when there is one. "exam_finished" was printed for a
+        # sitting that was submitted, one that expired and one the learner walked out of —
+        # three different answers to the question support is usually being asked.
+        lines += [
+            f"  {e['type']}{f' ({e['state']})' if e.get('state') else ''} {_when(e['at'])}"
+            for e in d["recent_events"]
+        ]
     await message.answer("\n".join(lines))
 
 

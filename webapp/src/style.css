@@ -404,6 +404,10 @@ html, body { overflow-x: hidden; }
   padding-inline: 10px;
 }
 .runbar-end-label { font-size: var(--t-caption); font-weight: 600; }
+/* Below 340px the bar carries a clock, a 12/30 chip and this, and the countdown is the one
+   thing a candidate is watching — so the word goes and the door stays. The aria-label does
+   not, so the control keeps its name for anyone who cannot see the icon. */
+@media (max-width: 340px) { .runbar-end-label { display: none; } }
 
 /* min-height reserves the figure's box BEFORE the image loads. Without it the plate is
    zero-high until the sign arrives over mobile data, so the statement and the Vero/Falso

@@ -66,9 +66,14 @@ async def overview(session: AsyncSession, now: datetime | None = None) -> dict:
             select(func.count()).select_from(Event)
             .where(Event.type == name, Event.created_at >= since))) or 0
 
+    # `passed is not None` — the same predicate the learner's own profile uses for "Exams
+    # taken". Without it this counted every sitting STARTED, so a week in which people
+    # opened ten exams and finished one was reported to the owner as ten exams sat. The two
+    # numbers being comparable is the only reason to look at either.
     exams_week = (await session.scalar(
         select(func.count()).select_from(QuizSession)
-        .where(QuizSession.mode == MODE_EXAM, QuizSession.started_at >= week))) or 0
+        .where(QuizSession.mode == MODE_EXAM, QuizSession.started_at >= week,
+               QuizSession.passed.is_not(None)))) or 0
 
     # Where people came from. The whole point of recording it — a count with no
     # breakdown cannot tell the owner which channel to post in again.
@@ -140,5 +145,12 @@ async def whois(session: AsyncSession, chat_id: int, now: datetime | None = None
             }
             for p in purchases
         ],
-        "recent_events": [{"type": e.type, "at": e.created_at} for e in recent],
+        # The state travels with the event. `exam_finished` alone is ambiguous now that a
+        # sitting can finish by being submitted, by expiring, or by being walked out of —
+        # and the one the owner is usually being asked about is the last of those.
+        "recent_events": [
+            {"type": e.type, "at": e.created_at,
+             "state": (e.payload or {}).get("state")}
+            for e in recent
+        ],
     }

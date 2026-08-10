@@ -409,6 +409,20 @@ async def results(
         .where(QuizSessionItem.session_id == row.id)
         .order_by(QuizSessionItem.ordinal)
     ))
+
+    # An EXITED exam reveals only what the learner actually answered.
+    #
+    # Not a display preference — every item below carries `answer`, the ministerial key. A
+    # sitting that is exited on the first question would otherwise hand back the correct
+    # answer to all thirty, and starting an exam and leaving it costs nothing, so the paper
+    # becomes an answer-key tap. Filtering in the client is not a fix: the payload is what
+    # is on the wire.
+    #
+    # SUBMITTED and EXPIRED still return everything, and must: there the learner has spent
+    # the sitting, a blank counts against them exactly as in the real exam, and the whole
+    # point of the review is to show what they got wrong INCLUDING what they never reached.
+    if row.state == SESSION_ABANDONED and row.mode == MODE_EXAM:
+        items = [i for i in items if i.given is not None]
     questions = {
         q.id: q
         for q in await session.scalars(
