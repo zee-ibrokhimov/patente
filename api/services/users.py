@@ -31,6 +31,7 @@ from shared.constants import (
     EV_SESSION_START,
     EV_TRIAL_STARTED,
     EV_USER_DELETED,
+    TRANSLATION_LANGUAGES,
     UI_LANGUAGES,
 )
 
@@ -112,6 +113,7 @@ async def update_settings(
     user: User,
     lang: str | None = None,
     translations_on: bool | None = None,
+    translation_lang: str | None = None,
     onboarded: bool | None = None,
     leaderboard_opt_out: bool | None = None,
     reminders_off: bool | None = None,
@@ -122,6 +124,19 @@ async def update_settings(
         user.lang = lang
     if translations_on is not None:
         user.translations_on = translations_on
+    if translation_lang is not None:
+        # "" is the client saying "follow the interface language again", which is NULL in
+        # the column. Validated against TRANSLATION_LANGUAGES rather than UI_LANGUAGES:
+        # Italian is a UI language and not a translation target, because the question is
+        # already Italian — accepting it here would store a preference that `deliver`
+        # silently treats as OFF, and the learner would see translations vanish with the
+        # dropdown still showing their choice.
+        if translation_lang == "":
+            user.translation_lang = None
+        elif translation_lang not in TRANSLATION_LANGUAGES:
+            raise ValueError(f"unsupported translation language {translation_lang!r}")
+        else:
+            user.translation_lang = translation_lang
     if onboarded and user.onboarded_at is None:
         user.onboarded_at = datetime.now(timezone.utc)
     if leaderboard_opt_out is not None:

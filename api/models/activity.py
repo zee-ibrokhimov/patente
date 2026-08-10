@@ -39,6 +39,14 @@ class User(Base):
     lang: Mapped[str] = mapped_column(Text, default="ru")
     translations_on: Mapped[bool] = mapped_column(default=True)
 
+    # The language QUESTIONS are translated into, when it differs from the interface.
+    #
+    # NULL means "follow `lang`", which is what it did when there was only one field. Kept
+    # separate because the two are genuinely different choices: Uzbek shipped as beta and a
+    # good number of its speakers read Russian more comfortably, so making them switch the
+    # whole app to Russian to read Russian translations is the wrong trade.
+    translation_lang: Mapped[str | None] = mapped_column(Text, default=None)
+
     # NULL means "never bought". Access is granted while this is in the future;
     # on expiry, progress is kept and only translations and explanations lock.
     pass_expires_at: Mapped[datetime | None] = mapped_column(default=None, index=True)

@@ -1319,6 +1319,15 @@ html, body { overflow-x: hidden; }
 /* Question counter and the in-sitting translation switch, on one line. */
 .q-meta { display: flex; align-items: center; justify-content: space-between; gap: var(--md); }
 .q-tr { display: flex; align-items: center; gap: var(--sm); cursor: pointer; }
+/* The reading-language picker. Native <select>, so it costs one line and opens the
+   platform's own wheel rather than a bespoke sheet over a running exam. */
+.q-tr-pick {
+  appearance: none; -webkit-appearance: none;
+  font-family: inherit; font-size: var(--t-caption); font-weight: 600;
+  color: var(--accent); background: var(--tint-info);
+  border: 1px solid var(--tint-info-edge); border-radius: 999px;
+  padding: 5px 10px; cursor: pointer;
+}
 .q-tr-label { font-size: var(--t-caption); color: var(--text-2); }
 .switch.small { width: 38px; height: 22px; }
 .switch.small::after { width: 18px; height: 18px; }

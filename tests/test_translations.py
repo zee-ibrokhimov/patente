@@ -76,7 +76,7 @@ def entitled():
 
 
 def reader(lang="ru", on=True):
-    return type("U", (), {"chat_id": 42, "lang": lang, "translations_on": on})()
+    return type("U", (), {"chat_id": 42, "translation_lang": None, "lang": lang, "translations_on": on})()
 
 
 # --- generating --------------------------------------------------------------
@@ -266,7 +266,7 @@ async def test_a_language_we_do_not_translate_into_never_pays_for_a_call(api_db,
 
     async with api_db() as session:
         question = await session.get(Question, 1)
-        user = SimpleNamespace(chat_id=1, lang="it", translations_on=True)
+        user = SimpleNamespace(chat_id=1, translation_lang=None, lang="it", translations_on=True)
         entitlement = SimpleNamespace(can_translate=True)
         payload, access = await translations.deliver(session, question, user, entitlement)
 
@@ -292,7 +292,7 @@ async def test_a_translated_language_still_reaches_generation(api_db, monkeypatc
 
     async with api_db() as session:
         question = await session.get(Question, 2)
-        user = SimpleNamespace(chat_id=1, lang="ru", translations_on=True)
+        user = SimpleNamespace(chat_id=1, translation_lang=None, lang="ru", translations_on=True)
         entitlement = SimpleNamespace(can_translate=True)
         _payload, access = await translations.deliver(session, question, user, entitlement)
 

@@ -356,6 +356,22 @@ async def warm(question_id: int) -> None:
         log.warning("warming translation for question %s failed", question_id, exc_info=True)
 
 
+def reading_language(user) -> str:
+    """The language this learner wants QUESTIONS in.
+
+    `translation_lang` when they have chosen one, otherwise the interface language — which
+    is what the product did when the two were a single field, and what every row created
+    before the column existed still means.
+
+    One function rather than `user.translation_lang or user.lang` at each call site, because
+    there are four of them and the paywall has to agree with the payload about which language
+    is on offer: `entitlement.translation_offer` refuses a language we do not translate into,
+    and if the two computed that language differently a learner would be shown a locked strip
+    for a translation the API would happily have served, or vice versa.
+    """
+    return user.translation_lang or user.lang
+
+
 async def deliver(
     session: AsyncSession, question: Question, user, entitlement: Entitlement
 ) -> tuple[dict, Access]:
@@ -378,13 +394,14 @@ async def deliver(
     # Italian is the live case: it is a UI language but not a translation target, which
     # is correct (the question is already Italian). entitlement.translation_offer has
     # always had this guard; deliver did not, and the two disagreed.
-    if user.lang not in TRANSLATION_LANGUAGES:
+    wanted = reading_language(user)
+    if wanted not in TRANSLATION_LANGUAGES:
         return {"translation_state": Access.OFF.value, "translation": None}, Access.OFF
 
     if not entitlement.can_translate:
         return {"translation_state": Access.LOCKED.value, "translation": None}, Access.LOCKED
 
-    row = await ensure(session, question, user.lang)
+    row = await ensure(session, question, wanted)
     if row is None:
         return {"translation_state": Access.UNAVAILABLE.value, "translation": None}, \
             Access.UNAVAILABLE

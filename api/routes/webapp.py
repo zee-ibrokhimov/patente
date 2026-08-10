@@ -446,7 +446,9 @@ async def prefetch(
         if (cluster_id is not None
                 and entitlement.can_explain
                 and MODE_OFFERS_EXPLANATION.get(row.mode)):
-            jobs.append(("explanation", partial(explanations.warm, cluster_id, user.lang)))
+            jobs.append(("explanation",
+                         partial(explanations.warm, cluster_id,
+                                 translations.reading_language(user))))
 
     warmed_translations = sum(1 for kind, _ in jobs if kind == "translation")
     warmed_explanations = sum(1 for kind, _ in jobs if kind == "explanation")

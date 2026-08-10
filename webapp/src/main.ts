@@ -1,7 +1,7 @@
 import { admin, api, ApiError, leaderboard, sessions, vocab } from "./api";
 import { readinessGauge } from "./gauge";
 import { icons } from "./icons";
-import { TRANSLATION_LANGUAGES, lang, setLang, t, tips } from "./i18n";
+import { TRANSLATION_LANGUAGES, type Key, lang, setLang, t, tips } from "./i18n";
 import {
   applyTheme,
   ask,
@@ -960,32 +960,60 @@ function currentQuestion(run: Run): Question | undefined {
  *  UI language the questions are not translated into. A switch that does nothing is
  *  worse than no switch.
  */
+/** Which language the questions are read in — off, or one of the three we translate into.
+ *
+ *  Was a two-state switch tied to the interface language, so an Uzbek speaker who reads
+ *  Russian more comfortably — common enough that Uzbek shipped as beta — had to change the
+ *  whole app to Russian to get Russian translations. The reading language is now its own
+ *  choice, and "off" is one of its values rather than a separate control.
+ *
+ *  A <select> rather than a row of chips: four options do not fit beside a question, and the
+ *  native picker is the one control on this screen that costs no vertical space at all.
+ */
 function translationToggle(): HTMLElement | null {
   const me = state.me;
   if (!me || !me.premium) return null;
-  if (!TRANSLATION_LANGUAGES.includes(me.lang)) return null;
 
   const row = el("label", "q-tr");
   row.append(el("span", "q-tr-label", t("tr_toggle")));
-  const sw = el("button", `switch small ${me.translations_on ? "on" : ""}`);
-  sw.type = "button";
-  sw.setAttribute("role", "switch");
-  sw.setAttribute("aria-checked", String(me.translations_on));
-  sw.onclick = async () => {
-    const turningOn = !me.translations_on;
+
+  const pick = el("select", "q-tr-pick");
+  const current = me.translations_on ? (me.translation_lang || me.lang) : "";
+  for (const [value, label] of [
+    ["", t("tr_off")],
+    ...TRANSLATION_LANGUAGES.map((code) => [code, t(`lang_${code}` as Key)] as const),
+  ] as ReadonlyArray<readonly [string, string]>) {
+    const option = el("option", "", label);
+    option.value = value;
+    if (value === current) option.selected = true;
+    pick.append(option);
+  }
+
+  pick.onchange = async () => {
+    const chosen = pick.value;
     try {
-      state.me = await api.settings({ translations_on: turningOn });
-      if (turningOn) {
-        await warmTranslations();
-      } else {
+      // Two settings in one call: "off" is translations_on = false, and any language is
+      // translations_on = true plus that language. Sending them separately would leave a
+      // window where the server had one and not the other.
+      state.me = await api.settings({
+        translations_on: chosen !== "",
+        ...(chosen === "" ? {} : { translation_lang: chosen }),
+      });
+      if (chosen === "") {
         dropLoadedTranslations();
         render();
+      } else {
+        // Also on a LANGUAGE change, not just on turning them on: the questions already
+        // fetched carry the old language's text, and leaving it there would show Russian
+        // under a question the learner has just asked to read in English.
+        dropLoadedTranslations();
+        await warmTranslations();
       }
     } catch (err) {
       reportError(err);
     }
   };
-  row.append(sw);
+  row.append(pick);
   return row;
 }
 

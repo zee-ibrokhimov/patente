@@ -43,7 +43,8 @@ async def question_payload(
     The ministerial wording is the thing being learned, so it is never replaced
     by a translation — the translation rides underneath as a comprehension aid.
     """
-    translation = await get_translation(session, question.id, user.lang)
+    from api.services.translations import reading_language
+    translation = await get_translation(session, question.id, reading_language(user))
     # `AVAILABLE` when nothing is stored yet: the client fetches it and edits the message,
     # rather than the question waiting on a translation call.
     access = translation_offer(entitlement, user, translation is not None)

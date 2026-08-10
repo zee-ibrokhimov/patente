@@ -25,6 +25,15 @@ SRC = (pathlib.Path(__file__).resolve().parent.parent
 LANGS = ("it", "ru", "en", "uz")
 
 CYRILLIC = re.compile(r"[А-Яа-яЁё]")
+
+# The one legitimate exception, and it is deliberately a list of exact keys rather than a
+# pattern: the language PICKER names languages in their own script, because a list of
+# languages is read by someone scanning for their own. "Russo" in the Italian block and
+# "Rus tili" in the Uzbek one are two more ways of hiding the word that person is looking
+# for. Every OS language menu does the same thing.
+#
+# Exact keys so that adding a fifth language means editing this line — which is the point.
+ENDONYMS = {"lang_ru", "lang_en", "lang_uz"}
 # o' and g' are letters in Uzbek orthography, not punctuation. Two or more of these in a
 # string is a strong signal it is Uzbek — and it is what a Cyrillic check cannot see.
 UZBEK_MARK = re.compile(r"[a-z]['’ʻ][a-z]", re.I)
@@ -49,8 +58,22 @@ def test_every_locale_has_the_same_keys():
 
 @pytest.mark.parametrize("lang", ["it", "en", "uz"])
 def test_no_cyrillic_outside_russian(lang):
-    bad = {k: v for k, v in BLOCKS[lang].items() if CYRILLIC.search(v)}
+    bad = {k: v for k, v in BLOCKS[lang].items()
+           if k not in ENDONYMS and CYRILLIC.search(v)}
     assert bad == {}, f"{lang} contains Russian text: {list(bad)[:5]}"
+
+
+@pytest.mark.parametrize("lang", LANGS)
+def test_the_language_names_are_the_same_in_every_locale(lang):
+    """The other half of the exemption above. Exempting a key from the crossing check means
+    nothing else guards it, so this does: an endonym is the SAME string everywhere, and a
+    locale that has quietly localised one has lost the property the exemption was granted
+    for."""
+    for key in ENDONYMS:
+        assert BLOCKS[lang].get(key) == BLOCKS["en"].get(key), (
+            f"{lang}.{key} = {BLOCKS[lang].get(key)!r}, but a language name must read the "
+            f"same in every locale (en has {BLOCKS['en'].get(key)!r})"
+        )
 
 
 def test_russian_is_actually_in_russian():

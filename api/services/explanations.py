@@ -1088,9 +1088,15 @@ async def deliver(
     # at all. They are now, so the fallback is what it should always have been — a per-
     # cluster safety net for the cases where the model declined that one language, rather
     # than a standing decision about a whole audience.
-    wanted = user.lang if user.lang in EXPLANATION_LANGUAGES else DEFAULT_LANG
+    # The READING language, the same one the question is translated into. A learner who has
+    # set questions to Russian while the app stays in Uzbek is telling us which language they
+    # study in; serving the question in Russian and the explanation under it in Uzbek would
+    # split one act of reading across two languages.
+    from api.services.translations import reading_language
+    reads = reading_language(user)
+    wanted = reads if reads in EXPLANATION_LANGUAGES else DEFAULT_LANG
     order = [wanted]
-    fallback = EXPLANATION_FALLBACK.get(user.lang)
+    fallback = EXPLANATION_FALLBACK.get(reads)
     if fallback and fallback not in order:
         order.append(fallback)
 

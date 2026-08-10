@@ -65,7 +65,9 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 export const api = {
   me: () => request<Me>("/me"),
 
-  settings: (body: { lang?: string; translations_on?: boolean; leaderboard_opt_out?: boolean }) =>
+  settings: (body: { lang?: string; translations_on?: boolean; leaderboard_opt_out?: boolean;
+                   /** "" clears it back to following the interface language. */
+                   translation_lang?: string }) =>
     request<Me>("/settings", { method: "PATCH", body: JSON.stringify(body) }),
 
   nextQuestion: (opts: { topicId?: number; excludeId?: number } = {}) => {

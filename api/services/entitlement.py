@@ -140,7 +140,11 @@ def translation_offer(entitlement: Entitlement, user, translation_exists: bool) 
     """
     if not user.translations_on:
         return Access.OFF
-    if user.lang not in TRANSLATION_LANGUAGES:
+    # The READING language, which may differ from the interface one. Reading `user.lang`
+    # here while `translations.deliver` reads `translation_lang` would put a locked strip
+    # under a question the API would have translated, or the reverse.
+    from api.services.translations import reading_language
+    if reading_language(user) not in TRANSLATION_LANGUAGES:
         return Access.OFF
     if not entitlement.can_translate:
         return Access.LOCKED

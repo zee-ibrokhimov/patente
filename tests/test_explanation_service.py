@@ -224,7 +224,7 @@ async def test_a_disputed_statement_is_withheld_while_its_siblings_are_served(
 
     async with api_db() as s:
         await explanations.ensure(s, cluster, "ru")
-        user = type("U", (), {"chat_id": 42, "lang": "ru", "free_explanations_used": 0})()
+        user = type("U", (), {"chat_id": 42, "translation_lang": None, "lang": "ru", "free_explanations_used": 0})()
 
         agreed = await s.get(Question, 1)
         _, access = await explanations.deliver(s, agreed, user, entitled)
@@ -284,7 +284,7 @@ async def test_an_unentitled_user_never_triggers_a_call(api_db, fake_openai, clu
 
     async with api_db() as s:
         question = await s.get(Question, 1)
-        user = type("U", (), {"chat_id": 42, "lang": "ru"})()
+        user = type("U", (), {"chat_id": 42, "translation_lang": None, "lang": "ru"})()
         payload, access = await explanations.deliver(s, question, user, broke)
 
     assert access is Access.LOCKED
@@ -305,7 +305,7 @@ async def test_a_withheld_draft_does_not_cost_the_user_a_taster(
 
     async with api_db() as s:
         question = await s.get(Question, 1)
-        user = type("U", (), {"chat_id": 42, "lang": "ru", "free_explanations_used": 0})()
+        user = type("U", (), {"chat_id": 42, "translation_lang": None, "lang": "ru", "free_explanations_used": 0})()
         payload, access = await explanations.deliver(s, question, user, entitled)
 
     assert access is Access.UNAVAILABLE

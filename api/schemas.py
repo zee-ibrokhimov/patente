@@ -34,6 +34,10 @@ class UserIn(BaseModel):
 class UserSettingsIn(BaseModel):
     lang: str | None = Field(default=None, description=f"one of {UI_LANGUAGES}")
     translations_on: bool | None = None
+    # The language QUESTIONS are translated into, when it differs from the interface one.
+    # "" clears it back to following the interface language — a thing the client needs to be
+    # able to say, and `None` already means "leave this setting alone".
+    translation_lang: str | None = None
     onboarded: bool | None = None
     # Hide me from the weekly league. The switch that makes showing real first names to
     # other learners defensible: one tap, immediate, and retroactive.
@@ -47,6 +51,9 @@ class UserOut(BaseModel):
     chat_id: int
     lang: str
     translations_on: bool
+    # NULL means "follow `lang`". Sent as-is rather than resolved, so the client can show
+    # which option is actually selected instead of guessing from the interface language.
+    translation_lang: str | None
     pass_expires_at: datetime | None
     has_pass: bool
     # A trial is a pass with an expiry and no purchase behind it, so the client needs

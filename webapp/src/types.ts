@@ -58,6 +58,10 @@ export interface Me {
   chat_id: number;
   lang: string;
   translations_on: boolean;
+  /** The language QUESTIONS are translated into. Null means "follow `lang`" — sent
+   *  unresolved so the control can show which option is actually selected rather than
+   *  inferring it from the interface language. */
+  translation_lang: string | null;
   pass_expires_at: string | null;
   has_pass: boolean;
   free_explanations_left: number;
