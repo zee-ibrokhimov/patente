@@ -272,61 +272,127 @@ html, body { overflow-x: hidden; }
 /* The clock. Red because the token spec assigns red to urgency and countdowns, and it
    is the largest thing on the screen because it is the thing a candidate is most aware
    of. */
-.timer-card {
-  display: flex; align-items: center; gap: clamp(6px, 3vw, 16px);
-  background: var(--exam-tint); border-radius: var(--r-lg);
-  padding: clamp(10px, 3.6vw, 16px); margin-bottom: var(--lg);
+/* --- the run shell -------------------------------------------------------
+   The exam screen's defect was never its total height: it was that the position of the
+   Vero/Falso buttons was a function of how long the question happened to be. Measured on a
+   390x844 phone inside Telegram (~700px of usable viewport), the pair used to begin at
+   y=722 and end at y=846 — below the fold on every device — and the corpus makes that the
+   normal case, not the bad one: of 3,946 figure-bearing questions the MEDIAN statement is
+   four lines and only 6% are two or fewer.
+
+   So the screen is three boxes. The bar and the answers are fixed rows that never move; the
+   question in between takes what is left and scrolls if it must. The buttons now end at
+   y=690 for every question in the database, including the longest. */
+.screen.run {
+  /* flex: none is load-bearing. #app is a column flex container and the base .screen rule
+     sets flex: 1, whose flex-basis: 0% overrides `height` on the main axis — so without
+     this the height below is silently ignored and the screen grows to fit its content,
+     which is exactly the bug being fixed. */
+  flex: none;
+  display: flex; flex-direction: column;
+  height: 100vh;            /* for webviews without dvh */
+  height: 100dvh;           /* dvh, not svh: it re-resolves after tg.expand() */
+  box-sizing: border-box;
+  padding-bottom: var(--lg);
 }
-/* The dial and the submit button shrink first; the countdown is the last thing to give
-   way, because it is the one thing on this screen a candidate is watching. */
-.timer-dial { flex: none; color: var(--exam); width: clamp(30px, 10vw, 46px); height: auto; }
-.timer-mid { min-width: 0; flex: 1; text-align: center; }
-.timer-value {
-  font-size: var(--t-display); line-height: var(--lh-display); font-weight: var(--w-display);
+.run-body {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto;
+  display: flex; flex-direction: column;
+  /* `safe` matters: plain `center` on an overflowing scroll container pushes the top of the
+     content above the scrollport where it cannot be reached. safe falls back to flex-start
+     the moment the content is taller than the box — the long-question case. Older WebKit
+     drops the declaration as invalid and lands on flex-start, which is the same behaviour
+     by a different route. */
+  justify-content: safe center;
+}
+/* Only while there is more below. A permanent fade would dim the last line of the 90% of
+   questions that fit, to signal something that is not true of them. */
+.run-body.more {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+}
+
+/* --- the run bar ----------------------------------------------------------
+   One row: what governs the sitting, where you are in it, the way out. */
+.runbar {
+  display: flex; align-items: center; gap: var(--sm);
+  border-radius: var(--r);
+  padding: clamp(6px, 2vw, 9px) clamp(8px, 3vw, 12px);
+  margin-bottom: var(--md);
+}
+.runbar.exam { background: var(--exam-tint); }
+.runbar.practice { background: var(--practice-tint); }
+.runbar .timer-dial { flex: none; color: var(--exam); width: 26px; height: 26px; }
+.runbar .timer-value {
+  flex: 1; min-width: 0; text-align: left;
+  /* Was --t-display: 72px at this width, wide enough that the digits collided with the
+     Submit button beside them. */
+  font-size: clamp(24px, 7.2vw, 30px); line-height: 1.1; font-weight: 800;
   color: var(--exam); letter-spacing: -.02em; font-variant-numeric: tabular-nums;
 }
-.timer-label { color: var(--exam); font-size: var(--t-caption); margin-top: -2px; }
-/* The five-minute warning. tick() has always toggled `.warn` on this node, and no rule
-   ever matched it — so the state existed in the code and was invisible on screen, and the
-   countdown went straight from calm to the final-minute pulse with no step between.
-   Only the digits change: the dial and its label stay --exam so the thing being watched is
-   the thing that moves. */
-.timer-value.warn { color: var(--warn); }
-.timer-value.crit { animation: pulse 1s steps(2, jump-none) infinite; }
-@keyframes pulse { 50% { opacity: .5; } }
-
-.timer-submit {
+.runbar-mode {
+  flex: 1; min-width: 0;
+  font-size: var(--t-body); font-weight: 700; color: var(--practice-deep);
+}
+.runbar-chip {
   flex: none; appearance: none; cursor: pointer; border: 0;
-  background: var(--exam-chip); color: var(--exam);
-  border-radius: var(--r); padding: clamp(7px, 2.5vw, 10px) clamp(9px, 3.6vw, 14px);
-  font-family: inherit; font-size: clamp(11px, 3.3vw, 13px); font-weight: 600;
-  display: grid; justify-items: center; gap: 3px;
+  background: var(--card); color: var(--text-2); border-radius: 999px;
+  padding: 7px 12px; font-family: inherit; font-size: var(--t-caption);
+  font-weight: 600; font-variant-numeric: tabular-nums;
+}
+.runbar-at { color: var(--exam); font-weight: 800; }
+/* Practice's counter is a label, not a control — there is no paper to open. */
+.runbar-chip.plain { background: transparent; cursor: default; color: var(--practice-deep); }
+.runbar-end {
+  flex: none; appearance: none; cursor: pointer; border: 0;
+  background: var(--practice-chip); color: var(--practice-deep); border-radius: 12px;
+  width: 38px; height: 38px; display: grid; place-items: center;
 }
 
-/* The answer sheet. Numbered, so a candidate can tell WHICH question is which — but it
-   never shows correctness, because in a real exam you do not find out until the end. */
-/* auto-fit, not repeat(15). Fifteen fixed columns left each cell 13.6px on a 320px
-   screen — too small for the number inside it. This reflows to however many fit: ten on
-   a small phone, fifteen on a large one, and it never clips. */
+/* The five-minute warning. tick() has always toggled `.warn` on this node, and no rule
+   ever matched it — so the state existed in the code and was invisible on screen. */
+.timer-value.warn { color: var(--warn); }
+/* The final minute needs a signal that is not motion. The pulse below is the only thing
+   this state ever expressed, and the global rule at the top of this file collapses every
+   animation to 0.01ms under prefers-reduced-motion — so a candidate who has asked for less
+   motion got no final-minute warning at all. The pill is always painted; the pulse is the
+   part that goes away. */
+.timer-value.crit {
+  color: var(--exam);
+  background: var(--exam-chip); border-radius: 999px;
+  padding-inline: clamp(6px, 2vw, 10px);
+  animation: pulse 1s steps(2, jump-none) infinite;
+}
+@keyframes pulse { 50% { opacity: .5; } }
+
+/* --- the answer sheet, now inside the position chip's modal ---------------
+   Numbered, and it NEVER shows correctness: in a real exam you do not find out until the
+   end. auto-fit rather than a fixed column count so it never clips on a narrow phone. */
 .sheet {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(clamp(20px, 5.6vw, 26px), 1fr));
-  gap: clamp(4px, 1.4vw, 6px);
-  background: var(--surface); border-radius: var(--r);
-  padding: clamp(8px, 3vw, 12px);
-  margin-bottom: var(--lg);
+  grid-template-columns: repeat(auto-fit, minmax(clamp(26px, 7vw, 34px), 1fr));
+  gap: clamp(5px, 1.8vw, 8px);
+  margin: var(--md) 0 var(--lg);
 }
 .cell {
   aspect-ratio: 1; border-radius: 50%;
   display: grid; place-items: center;
-  font-size: clamp(10px, 3.1vw, 12px); font-weight: 600;
-  background: var(--card); color: var(--text-2);
+  font-size: clamp(11px, 3.4vw, 13px); font-weight: 600;
+  font-family: inherit;
+  background: var(--surface); color: var(--text-2);
   border: 1.5px solid transparent;
+  appearance: none; cursor: pointer;
 }
 .cell.done { background: var(--ok); color: #fff; }
 .cell.here { background: var(--card); color: var(--accent); border-color: var(--accent); font-weight: 700; }
+/* Declared after .here on purpose. .here resets the background, so the cell you are
+   standing on used to lose its answered state — invisible while an exam was a one-way
+   conveyor, and constant now that the sheet can jump back to answered questions. */
+.cell.done.here { background: var(--ok); color: #fff; border-color: var(--ok-deep, var(--accent)); }
 
-.q-index { text-align: center; color: var(--text-2); font-size: var(--t-caption); margin-bottom: var(--md); }
+.sheet-title { margin: 0; font-size: var(--t-title); font-weight: 800; }
+.sheet-sub { margin: var(--xs) 0 0; color: var(--text-2); font-size: var(--t-caption); }
+.sheet-submit { margin-top: var(--sm); }
 
 /* min-height reserves the figure's box BEFORE the image loads. Without it the plate is
    zero-high until the sign arrives over mobile data, so the statement and the Vero/Falso
@@ -346,6 +412,39 @@ html, body { overflow-x: hidden; }
   padding: var(--sm);
 }
 .plate img { display: block; max-width: 100%; max-height: 32vh; object-fit: contain; }
+
+/* Inside the run shell the figure gives space back to the statement, between a floor that
+   keeps a road sign legible and a ceiling that stops it dominating a one-line question. */
+.screen.run .plate {
+  flex: 1 1 0; min-height: clamp(104px, 19vh, 150px); max-height: 34vh;
+  margin-bottom: var(--md);
+  /* An explicit width is required, not cosmetic: the base rule centres the plate with
+     `margin: 0 auto`, and auto side margins in a flex column stop `stretch` from applying,
+     so the box falls back to its CONTENT width — which is zero once the figure below is
+     absolutely positioned. The sign then computes to width: 0 and paints nothing. */
+  width: min(100%, 300px); margin-inline: auto;
+  padding: 0;
+  /* block, overriding the base rule's grid. Measured: Chrome lays both out identically
+     once the width above is explicit, so this is not the fix for anything — it is here so
+     the absolutely positioned figure below resolves against a plain padding box instead of
+     against however a given engine treats a grid container with no in-flow items left. */
+  display: block; position: relative; overflow: hidden;
+}
+/* Absolutely positioned so its size comes from the plate's USED height rather than from a
+   percentage resolved against a flex height the browser has not committed to; that
+   indirection made the figure render at natural size and spill over the statement.
+   Explicit 100%/100% rather than `inset: 0`, because an absolutely positioned REPLACED
+   element with auto width falls back to its intrinsic size and ignores the insets.
+   object-fit: contain letterboxes instead of cropping — a cropped ministerial sign changes
+   what the question is asking. */
+.screen.run .plate img {
+  position: absolute; top: 0; left: 0;
+  width: 100%; height: 100%; max-width: none; max-height: none;
+  object-fit: contain;
+}
+.screen.run .translation { margin-bottom: 0; }
+.screen.run .answers { flex: none; margin-top: var(--md); }
+.screen.run .q-meta { justify-content: flex-end; margin-bottom: var(--sm); }
 
 .statement {
   overflow-wrap: anywhere;
@@ -762,15 +861,70 @@ html, body { overflow-x: hidden; }
 .prep-sub { color: var(--text-2); font-size: var(--t-caption); margin: 0; }
 
 /* (.prep-bar / .prep-count are gone with the per-question requests that fed them. The
-   window is prepared in one call now, so there is no honest number to show mid-flight.) */
-.prep-spinner {
-  width: 34px; height: 34px; border-radius: 50%;
-  border: 3px solid var(--edge); border-top-color: var(--accent);
-  animation: prep-spin .9s linear infinite;
+   window is prepared in one call now, so there is no honest number to show mid-flight.
+   .prep-spinner is gone too: an unlabelled ring said "something is happening" and nothing
+   else, which is the least a loading screen can say.) */
+
+/* --- the car ------------------------------------------------------------
+   Sized in ch-free units against the container so it scales with the phone rather than
+   with the font. Capped so it does not dominate a tablet. */
+.road-scene { width: min(78vw, 300px); height: auto; display: block; }
+
+.road-base { stroke: var(--edge); stroke-width: 5; stroke-linecap: round; }
+/* The dashes are what actually sells the motion. Offsetting the pattern rather than
+   translating the line means it loops with no seam: after one dash+gap the picture is
+   identical to where it started. */
+.road-dash {
+  stroke: var(--text-3); stroke-width: 5; stroke-linecap: round;
+  stroke-dasharray: 22 22;
+  animation: road-run 1.1s linear infinite;
 }
-@keyframes prep-spin { to { transform: rotate(360deg); } }
+@keyframes road-run { to { stroke-dashoffset: 44; } }
+
+.car-body  { fill: var(--accent); }
+.car-glass { fill: var(--glass); }
+.car-lamp  { fill: var(--gold); }
+.car-tyre  { fill: var(--tyre); }
+.car-hub   { fill: var(--hub); }
+.car-spokes { stroke: var(--hub); stroke-width: 2; stroke-linecap: round; fill: none; }
+
+/* A small vertical bob, not a bounce: the car is driving, not hopping. Two thirds of a
+   pixel at this viewBox scale reads as suspension travel and nothing more. */
+.car { animation: car-bob .55s ease-in-out infinite alternate; }
+@keyframes car-bob { to { transform: translateY(-1.2px); } }
+
+/* Without transform-box the wheel rotates about the SVG's origin and flies off the canvas.
+   fill-box + 50% 50% lands on the wheel's own centre exactly — the tyre circle dominates
+   the group's bounding box and is drawn symmetrically about (cx, 85) — so no per-wheel
+   origin has to be threaded through from the markup, and it works on older WebKit where
+   transform-box: view-box does not. */
+.car-wheel {
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+  animation: wheel-spin 1.1s linear infinite;
+}
+@keyframes wheel-spin { to { transform: rotate(360deg); } }
+
+/* --- the rotating tip ----------------------------------------------------
+   The slot keeps its height across the swap. Without it the box grows and shrinks every
+   4.5 seconds and the whole screen jitters — worse than no tips. */
+.prep-tip-slot {
+  display: grid; align-items: center;
+  min-height: 3.4em; max-width: 30ch; margin-top: var(--md);
+}
+.prep-tip {
+  margin: 0; color: var(--text-2);
+  font-size: var(--t-caption); line-height: var(--lh-caption);
+  text-wrap: balance;
+  transition: opacity .26s ease;   /* keep in step with TIP_FADE in main.ts */
+}
+.prep-tip.out { opacity: 0; }
+
+/* Everything above is decoration over a wait. Someone who has asked for less motion gets
+   the same scene, standing still, and tips that cut rather than fade. */
 @media (prefers-reduced-motion: reduce) {
-  .prep-spinner { animation: none; border-top-color: var(--edge); }
+  .road-dash, .car, .car-wheel { animation: none; }
+  .prep-tip { transition: none; }
 }
 
 /* ======================================================================

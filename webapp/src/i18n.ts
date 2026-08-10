@@ -179,6 +179,8 @@ const STRINGS = {
     v_sub: "{n} parole d'esame",
     v_credit: "Glossario a cura di",
     v_test: "Allenati",
+    sheet_title: "Il tuo foglio",
+    sheet_left: "Ancora {n} da rispondere",
     v_cards: "Carte",
     v_card_tap: "Tocca per vedere la traduzione",
     v_card_grade: "La sapevi?",
@@ -399,6 +401,8 @@ const STRINGS = {
     v_sub: "{n} экзаменационных слов",
     v_credit: "Словарь составил",
     v_test: "Тренировка",
+    sheet_title: "Ваш лист",
+    sheet_left: "Осталось без ответа: {n}",
     v_cards: "Карточки",
     v_card_tap: "Нажмите, чтобы увидеть перевод",
     v_card_grade: "Вы знали это слово?",
@@ -619,6 +623,8 @@ const STRINGS = {
     v_sub: "{n} exam words",
     v_credit: "Word list compiled by",
     v_test: "Practise",
+    sheet_title: "Your answer sheet",
+    sheet_left: "{n} still unanswered",
     v_cards: "Cards",
     v_card_tap: "Tap to see the translation",
     v_card_grade: "Did you know it?",
@@ -839,6 +845,8 @@ const STRINGS = {
     v_sub: "{n} ta imtihon so'zi",
     v_credit: "Lug'atni tuzgan",
     v_test: "Mashq",
+    sheet_title: "Sizning varaqangiz",
+    sheet_left: "Yana {n} ta javob berilmagan",
     v_cards: "Kartochkalar",
     v_card_tap: "Tarjimani ko'rish uchun bosing",
     v_card_grade: "Bu so\u2018zni bilarmidingiz?",
@@ -914,6 +922,33 @@ export function t(key: Key, vars?: Record<string, string | number>): string {
 
 export function lang(): Lang {
   return current;
+}
+
+
+/** Facts shown while a quiz is being prepared.
+ *
+ *  Not encouragement. The wait is a few seconds of a learner's attention that would
+ *  otherwise be spent on a spinner, and the only thing worth spending it on is something
+ *  they will be tested on. Each one is short enough to finish in the time it is on screen.
+ *
+ *  Every fact here was checked against the Codice della Strada by four independent passes
+ *  before it was written down, because a wrong one does not merely fail to help — it
+ *  teaches a learner something that will cost them the exam. The bar for adding one is the
+ *  same: cite the rule, or leave it out.
+ *
+ *  Kept out of STRINGS because it is a list, not a string, and t() would have to become a
+ *  different function to serve it. */
+export const TIPS: Record<Lang, readonly string[]> = {
+  it: [],
+  ru: [],
+  en: [],
+  uz: [],
+};
+
+/** The current language's tips, falling back to English for the same reason t() does. */
+export function tips(): readonly string[] {
+  const mine = TIPS[current];
+  return mine.length ? mine : TIPS.en;
 }
 
 

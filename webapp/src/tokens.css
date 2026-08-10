@@ -91,6 +91,12 @@
      In light this is invisible; in dark it becomes the plate that makes them look placed
      rather than pasted. */
   --figure-plate: transparent;
+  /* The car on the loading screen. Its own tokens rather than borrowed ones: the tyre has
+     to stay dark in BOTH themes, so it cannot be --text (which inverts), and it has to stay
+     clear of --bg in dark, so it cannot be the same near-black as the light theme's. */
+  --glass: #dbeafe;
+  --tyre:  #1e293b;
+  --hub:   #e2e8f0;
 
   /* --- radii --------------------------------------------------------- */
   --r-sm: 12px;
@@ -211,6 +217,11 @@
 
   /* The white sign figures get a plate, so they read as placed rather than pasted. */
   --figure-plate: #f8fafc;
+  --glass: #1e3a5f;
+  /* Lifted off the light theme's #1e293b: against --bg #0f1420 a true black tyre loses its
+     lower half to the page and the car reads as floating. */
+  --tyre:  #1a2436;
+  --hub:   #64748b;
 
   --tint-info: #16233a;
   --tint-info-edge: #24365a;

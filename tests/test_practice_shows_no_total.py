@@ -32,22 +32,49 @@ def test_every_locale_can_count_without_a_total():
     assert i18n.count("question_n:") == 4
 
 
+def _run_bar() -> tuple[str, str]:
+    """runBar()'s exam branch and its practice branch, separately.
+
+    Both counters used to live in one `.q-meta` row and these tests anchored on that string.
+    The counter now lives in the run bar's position chip, so the anchor moved — the property
+    did not, and asserting it per branch is stronger than the old "both words appear
+    somewhere in the next 600 characters".
+    """
+    main = source("src/main.ts")
+    block = main[main.index("function runBar("):]
+    block = block[:block.index("\nfunction ")]
+    # Sliced from `if (exam) {` onwards, not from the first `} else {` in the function —
+    # runBar opens with an `if (run.deadline)` whose else came first and made both slices
+    # empty, which passed nothing and failed loudly rather than quietly, but for the wrong
+    # reason.
+    start = block.index("if (exam) {")
+    split = block.index("} else {", start)
+    return block[start:split], block[split:block.index("bar.append(chip);", split)]
+
+
 def test_the_counter_is_chosen_by_mode():
     """Not "always show the total" and not "never" — the exam genuinely has thirty and
     saying so is useful there."""
-    main = source("src/main.ts")
-    block = main[main.index("const meta = el(\"div\", \"q-meta\")"):][:600]
-    assert "question_of" in block and "question_n" in block
-    assert 'mode === "exam"' in block
+    exam, practice = _run_bar()
+    assert "question_count" in exam, "the exam should say how many questions there are"
+    assert "question_n" in practice, "practice counts up"
+    assert "question_count" not in practice, (
+        "practice's question_count is only the batch fetched so far; rendering it as a "
+        "total promises a finish line that moves"
+    )
 
 
 def test_the_answer_sheet_is_exam_only():
     """It stands for the paper in front of a candidate. Practice has no paper, and the
     row of cells is drawn one per question in the session — so in practice it would grow
-    every time the sitting extended."""
-    main = source("src/main.ts")
-    i = main.index("wrap.append(answerSheet(run))")
-    assert 'mode === "exam"' in main[max(0, i - 400):i]
+    every time the sitting extended.
+
+    It is now reached by tapping the position chip, so "exam only" means the chip opens it
+    in the exam branch and does nothing in the practice one."""
+    exam, practice = _run_bar()
+    assert "openAnswerSheet" in exam
+    assert "openAnswerSheet" not in practice
+    assert "disabled = true" in practice
 
 
 def test_practice_results_do_not_report_unanswered():

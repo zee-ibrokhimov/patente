@@ -1,7 +1,7 @@
 import { admin, api, ApiError, leaderboard, sessions, vocab } from "./api";
 import { readinessGauge } from "./gauge";
 import { icons } from "./icons";
-import { TRANSLATION_LANGUAGES, lang, setLang, t } from "./i18n";
+import { TRANSLATION_LANGUAGES, lang, setLang, t, tips } from "./i18n";
 import {
   applyTheme,
   ask,
@@ -417,7 +417,8 @@ async function submitAnswer(given: boolean): Promise<void> {
     } else {
       // Exam: the response carries no verdict at all, by design. Advance immediately.
       void (res as ExamAnswer);
-      if (run.index < run.session.question_count - 1) run.index += 1;
+      const next = nextUnanswered(run);
+      if (next !== null) run.index = next;
       keepAhead();
     }
   } catch (err) {
@@ -428,8 +429,9 @@ async function submitAnswer(given: boolean): Promise<void> {
     // running exam is Submit. Treating it as done is what the state actually is.
     if (isAlreadyAnswered(err)) {
       run.answered.add(ordinal);
-      if (run.session.mode !== "practice" && run.index < run.session.question_count - 1) {
-        run.index += 1;
+      if (run.session.mode !== "practice") {
+        const next = nextUnanswered(run);
+        if (next !== null) run.index = next;
       }
     } else {
       // Non-destructive: the sitting survives, the user can tap again.
@@ -918,59 +920,114 @@ function translationToggle(): HTMLElement | null {
   return row;
 }
 
-function runScreen(): HTMLElement {
-  const run = state.run!;
-  const wrap = el("section", "screen");
-  const question = currentQuestion(run);
+/** One row carrying what governs the sitting, where you are in it, and the way out.
+ *
+ *  Replaces a 136px timer card plus a 119px answer sheet plus a counter row — 295px of
+ *  furniture above every question, on a screen whose complaint was that the answer buttons
+ *  were below the fold.
+ *
+ *  The three slots are the same in both modes and only their fillings change: an exam is
+ *  governed by a clock, practice by nothing, so practice shows its name where the clock
+ *  would be. Two different bars would be two things to learn. */
+function runBar(run: Run): HTMLElement {
+  const exam = run.session.mode === "exam";
+  const bar = el("div", `runbar ${exam ? "exam" : "practice"}`);
 
   if (run.deadline) {
-    const bar = el("div", "timer-card");
     bar.append(timerDial());
-    const mid = el("div", "timer-mid");
     timerNode = el("div", "timer-value", "--:--");
-    mid.append(timerNode, el("div", "timer-label", t("time_left")));
-    bar.append(mid);
-
-    const submit = el("button", "timer-submit");
-    submit.append(icons.flag(18), document.createTextNode(t("submit_short")));
-    submit.onclick = confirmFinish;
-    bar.append(submit);
-    wrap.append(bar);
-    tick();
+    bar.append(timerNode);
+  } else {
+    bar.append(el("div", "runbar-mode", t("practice")));
   }
 
-  // The answer sheet is an EXAM object: thirty numbered cells standing for the paper in
-  // front of you, showing which you have done. Practice has no paper — it is a stream
-  // that ends when you end it — so the row would grow without bound and imply a finish
-  // line that does not exist.
-  if (run.session.mode === "exam") wrap.append(answerSheet(run));
+  const chip = el("button", "runbar-chip");
+  chip.type = "button";
+  if (exam) {
+    // "12/30", and tapping it opens the paper. In practice there is no paper: the total is
+    // only the current batch and would silently become 60, so the promise is not made.
+    chip.append(el("b", "runbar-at", String(run.index + 1)),
+                document.createTextNode(`/${run.session.question_count}`));
+    chip.setAttribute("aria-label", t("sheet_title"));
+    chip.onclick = openAnswerSheet;
+  } else {
+    chip.classList.add("plain");
+    chip.textContent = t("question_n", { n: run.index + 1 });
+    chip.disabled = true;
+  }
+  bar.append(chip);
+
+  // Practice ends here; an exam is handed in from inside the answer sheet, where you can
+  // see what is still blank before you commit.
+  if (!exam) {
+    const end = el("button", "runbar-end");
+    end.type = "button";
+    end.append(icons.flag(18));
+    end.setAttribute("aria-label", t("end_test"));
+    end.onclick = confirmFinish;
+    bar.append(end);
+  }
+
+  if (run.deadline) tick();
+  return bar;
+}
+
+/** The next question still needing an answer, wrapping around; null when the paper is full.
+ *
+ *  `index + 1` was right while an exam was a one-way conveyor. Now that the answer sheet can
+ *  jump backwards, answering question 7 after skipping to it would land the candidate on 8 —
+ *  which they answered ten minutes ago — and then 9, and so on, walking them through work
+ *  they have already done instead of back to the blanks. */
+function nextUnanswered(run: Run): number | null {
+  const total = run.session.question_count;
+  for (let step = 1; step <= total; step++) {
+    const index = (run.index + step) % total;
+    if (!run.answered.has(index + 1)) return index;
+  }
+  return null;   // everything is answered; stay where we are and let them submit
+}
+
+function runScreen(): HTMLElement {
+  const run = state.run!;
+  const question = currentQuestion(run);
+  const answeredHere = run.answered.has(run.index + 1);
+  // A practice verdict carries an explanation of unbounded length. Pinning that inside a
+  // viewport-height shell would trap it in a box; while it is up the screen goes back to
+  // being an ordinary scrolling page. An exam never shows one, so an exam is always pinned.
+  const reading = run.session.mode === "practice" && !!run.verdict && answeredHere;
+
+  const wrap = el("section", reading ? "screen" : "screen run");
+  wrap.append(runBar(run));
 
   const meta = el("div", "q-meta");
-  // "Question 5 of 30" is a promise in practice, and a false one: the total is only the
-  // current batch and silently becomes 60, then 90. Practice counts up, with no total.
-  meta.append(el("div", "q-index", run.session.mode === "exam"
-    ? t("question_of", { n: run.index + 1, total: run.session.question_count })
-    : t("question_n", { n: run.index + 1 })));
   const tr = translationToggle();
   if (tr) meta.append(tr);
+  // Rendered even when empty so the translation switch keeps one place to live across
+  // modes and entitlements, rather than moving when it happens to be absent.
   wrap.append(meta);
 
   if (!question) { wrap.append(el("div", "spinner")); return wrap; }
 
+  // Everything the candidate READS. The one part of the screen allowed to scroll, so the
+  // controls above and below it never move — which is the actual defect being fixed here:
+  // the position of the answer buttons was a function of how long the question happened
+  // to be.
+  const body = el("div", "run-body");
   if (question.image) {
     const plate = el("div", "plate");
     const img = el("img");
     img.src = api.figureUrl(question.image);
     img.alt = "";
     plate.append(img);
-    wrap.append(plate);
+    body.append(plate);
   }
+  if (question.stem_it) body.append(el("p", "caption", question.stem_it));
+  body.append(el("p", "statement", question.statement_it));
+  body.append(translationSlot(question));
+  if (reading && run.verdict) body.append(verdictBox(run.verdict));
+  wrap.append(body);
+  watchOverflow(body);
 
-  if (question.stem_it) wrap.append(el("p", "caption", question.stem_it));
-  wrap.append(el("p", "statement", question.statement_it));
-  wrap.append(translationSlot(question));
-
-  const answeredHere = run.answered.has(run.index + 1);
   if (!answeredHere) {
     const row = el("div", "answers");
     const vero = el("button", "btn vero", t("vero"));
@@ -980,28 +1037,33 @@ function runScreen(): HTMLElement {
     falso.onclick = () => void submitAnswer(false);
     row.append(vero, falso);
     wrap.append(row);
-  } else if (run.session.mode === "practice" && run.verdict) {
-    wrap.append(verdictBox(run.verdict));
-  } else {
+  } else if (!reading) {
     const next = el("button", "btn primary", t("next"));
     next.onclick = advance;
     wrap.append(next);
   }
 
-  // The practice verdict box carries its own "End test" beside Next, where the decision is
-  // actually being made. Rendering the footer as well put two identical controls one above
-  // the other, a few pixels apart — which reads as a mistake and makes the user wonder
-  // whether the two do different things.
-  const duplicated = run.session.mode === "practice" && !!run.verdict && answeredHere;
-
-  const foot = el("div", "run-foot");
-  const finish = el("button", "link-btn");
-  finish.append(icons.flag(18),
-    document.createTextNode(run.session.mode === "exam" ? t("submit_short") : t("end_test")));
-  finish.onclick = confirmFinish;
-  foot.append(finish);
-  if (!duplicated) wrap.append(foot);
+  // The exam's Submit lives in the answer sheet and the practice End sits in the bar, so
+  // the old footer — which rendered a SECOND identical control a few pixels below the
+  // verdict box's own — has nothing left to add.
   return wrap;
+}
+
+/** Tell a scrolling region when it has more below, so a clipped line reads as "there is
+ *  more" rather than as a rendering fault.
+ *
+ *  Only the longest few percent of questions overflow at all; a permanent fade would dim
+ *  the last line of every other one. */
+function watchOverflow(node: HTMLElement): void {
+  const update = () => {
+    const more = node.scrollHeight - node.scrollTop - node.clientHeight > 4;
+    node.classList.toggle("more", more);
+  };
+  node.addEventListener("scroll", update, { passive: true });
+  // After layout: scrollHeight is meaningless until the element is in the document, and
+  // taller still once the figure decodes.
+  requestAnimationFrame(update);
+  window.setTimeout(update, 400);
 }
 
 /** Leave a sitting without finishing it.
@@ -1047,7 +1109,9 @@ function timerDial(): SVGSVGElement {
   node.setAttribute("width", "46"); node.setAttribute("height", "46");
   node.setAttribute("class", "timer-dial");
   node.setAttribute("aria-hidden", "true");
-  node.innerHTML = `<circle cx="24" cy="24" r="17" fill="#fff" stroke="currentColor" stroke-width="3"/>
+  // The face was a literal #fff, which on the dark theme's --bg is a bright white disc
+  // punched into the page. --card is white in light mode, so nothing changes there.
+  node.innerHTML = `<circle cx="24" cy="24" r="17" fill="var(--card)" stroke="currentColor" stroke-width="3"/>
     <path d="M24 24 V9 A15 15 0 0 1 37.5 30 Z" fill="currentColor" opacity=".35"/>
     <path d="M24 24 L33 19" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
     <circle cx="24" cy="24" r="2.4" fill="currentColor"/>
@@ -1056,16 +1120,70 @@ function timerDial(): SVGSVGElement {
 }
 
 /** The answer sheet: numbered, and it NEVER shows correctness. In a real exam you do not
- *  find out until the end, and that is the property exam mode exists to preserve. */
-function answerSheet(run: Run): HTMLElement {
+ *  find out until the end, and that is the property exam mode exists to preserve.
+ *
+ *  It used to sit permanently above the question, costing 119px of every exam screen while
+ *  being made of <i> elements nothing could tap — the single most expensive piece of pure
+ *  decoration in the app. It now lives behind the position chip, where the same thirty
+ *  cells are buttons that jump to a question. The server has always allowed that: `answer()`
+ *  looks an item up by (session, ordinal) and refuses only a SECOND answer to the same one,
+ *  so ordinals may be taken in any order.
+ *
+ *  `jump` is null when the sheet is being rendered read-only. */
+function answerSheet(run: Run, jump: ((index: number) => void) | null = null): HTMLElement {
   const sheet = el("div", "sheet");
   for (let i = 0; i < run.session.question_count; i++) {
-    const cell = el("i", "cell", String(i + 1));
+    const cell = el(jump ? "button" : "i", "cell", String(i + 1));
     if (run.answered.has(i + 1)) cell.classList.add("done");
     if (i === run.index) cell.classList.add("here");
+    if (jump && cell instanceof HTMLButtonElement) {
+      cell.type = "button";
+      cell.onclick = () => jump(i);
+    }
     sheet.append(cell);
   }
   return sheet;
+}
+
+/** The paper, on demand: which questions are done, and a way back to any of them.
+ *
+ *  Also where an exam is handed in. The submit control could sit in the top bar beside the
+ *  clock, but the top strip is where a downward drag minimises the Mini App on clients
+ *  below Bot API 7.7, and it is the wrong place for the one irreversible control on a timed
+ *  screen. Here the order matches the intent: look at what is still blank, then hand in.
+ */
+function openAnswerSheet(): void {
+  const run = state.run;
+  if (!run) return;
+
+  const scrim = el("div", "modal");
+  const card = el("div", "modal-card");
+  const close = () => {
+    scrim.remove();
+    // The screen underneath owns the back button again. Without this, leaving the sheet
+    // leaves Telegram's arrow wired to a closure over a detached node.
+    setBackButton(backTarget());
+  };
+
+  card.append(el("h3", "sheet-title", t("sheet_title")));
+  card.append(el("p", "sheet-sub", t("sheet_left", {
+    n: run.session.question_count - run.answered.size,
+  })));
+  card.append(answerSheet(run, (index) => {
+    run.index = index;
+    close();
+    render();
+  }));
+
+  const hand = el("button", "btn primary sheet-submit", t("submit_short"));
+  hand.type = "button";
+  hand.onclick = () => { close(); void confirmFinish(); };
+  card.append(hand);
+
+  scrim.append(card);
+  scrim.onclick = (ev) => { if (ev.target === scrim) close(); };
+  setBackButton(close);
+  document.body.append(scrim);
 }
 
 /** A quiet line when the explanation is not in the reader's own language. */
@@ -3543,13 +3661,110 @@ function backTarget(): (() => void) | null {
  *  Names the mode so the wait is attached to something the learner just chose, and says
  *  what is happening rather than spinning silently — "preparing your questions" is a
  *  reason to wait, an unlabelled spinner is not. */
+/** The car and the road it is driving down.
+ *
+ *  Drawn rather than shipped as an image so it costs no request on the one screen whose
+ *  entire problem is that the user is already waiting, and so it can take its colours from
+ *  the palette and work in both themes. Everything that moves is a class, because the
+ *  motion is turned off wholesale under prefers-reduced-motion and that is easier to be
+ *  sure of when it lives in one stylesheet rather than in inline attributes.
+ *
+ *  The road moves, not the car. A car that drives off the right edge has to be reset, and
+ *  the reset is visible; a scrolling road loops forever with nothing to notice. */
+function roadScene(): SVGSVGElement {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 240 112");
+  svg.setAttribute("class", "road-scene");
+  svg.setAttribute("aria-hidden", "true");   // decoration; the text below says what is happening
+  const wheel = (cx: number) => `<g class="car-wheel">
+      <circle cx="${cx}" cy="85" r="12" class="car-tyre"/>
+      <circle cx="${cx}" cy="85" r="4.5" class="car-hub"/>
+      <g class="car-spokes">
+        <path d="M${cx} 76.5 v3"/><path d="M${cx} 90.5 v3"/>
+        <path d="M${cx - 8.5} 85 h3"/><path d="M${cx + 5.5} 85 h3"/>
+      </g>
+    </g>`;
+  // Static markup with no interpolated user data — the textContent-only rule is about
+  // content from the API, and there is none here.
+  svg.innerHTML = `
+    <line x1="0" y1="97" x2="240" y2="97" class="road-base"/>
+    <line x1="6" y1="97" x2="234" y2="97" class="road-dash"/>
+    <g class="car">
+      <path class="car-body" d="M44 82 h19 a14 14 0 0 0 28 0 h48 a14 14 0 0 0 28 0 h15 q9 0 9-9
+        v-6 q0-7-7-9 l-21-4 -15-13 q-6-5-14-5 h-28 q-7 0-12 4 l-14 12 -22 5 q-9 2-9 11
+        v6 q0 8 8 8 z"/>
+      <path class="car-glass" d="M80 57 l12-10 q3-2 6-2 h11 v14 z"/>
+      <path class="car-glass" d="M114 45 h13 q5 0 8 3 l12 10 h-33 z"/>
+      <rect class="car-lamp" x="186" y="66" width="10" height="7" rx="3"/>
+      ${wheel(77)}${wheel(153)}
+    </g>`;
+  return svg;
+}
+
+/** The rotating tip.
+ *
+ *  Updated in place on an interval, for the same reason the exam clock is: render()
+ *  replaces the whole tree, and routing a 4.5-second text change through it would restart
+ *  the road animation and re-run every other effect on the screen.
+ *
+ *  The order is shuffled per visit. A fixed order means the same two facts every time for
+ *  anyone who starts more quizzes than they finish, and the later tips are never read. */
+let tipNode: HTMLElement | null = null;
+let tipTimer: number | undefined;
+let tipOrder: readonly string[] = [];
+let tipAt = 0;
+
+const TIP_EVERY = 4_500;
+const TIP_FADE = 260;      // must stay in step with the transition in .prep-tip
+
+function startTips(node: HTMLElement): void {
+  stopTips();
+  const pool = tips();
+  if (pool.length === 0) return;
+  tipOrder = [...pool].sort(() => Math.random() - 0.5);
+  tipAt = 0;
+  tipNode = node;
+  node.textContent = tipOrder[0]!;
+  if (tipOrder.length < 2) return;   // nothing to rotate to
+  tipTimer = window.setInterval(() => {
+    const target = tipNode;
+    if (!target) { stopTips(); return; }
+    target.classList.add("out");
+    window.setTimeout(() => {
+      if (tipNode !== target) return;   // the screen went away mid-fade
+      tipAt = (tipAt + 1) % tipOrder.length;
+      target.textContent = tipOrder[tipAt]!;
+      target.classList.remove("out");
+    }, TIP_FADE);
+  }, TIP_EVERY);
+}
+
+function stopTips(): void {
+  window.clearInterval(tipTimer);
+  tipTimer = undefined;
+  tipNode = null;
+}
+
 function preparingScreen(): HTMLElement {
   const wrap = el("section", "screen prep");
   const box = el("div", "prep-box");
-  box.append(el("div", "prep-spinner"));
+  box.append(roadScene());
   box.append(el("h2", "prep-title",
     state.preparing?.mode === "exam" ? t("exam") : t("practice")));
   box.append(el("p", "prep-sub", t("preparing_quiz")));
+
+  // The wait is dead time; a fact the learner will be tested on is the only thing worth
+  // putting in it. Reserved height so the box does not resize under a one-line tip.
+  // Only when there is something to show. The slot reserves height so the box does not
+  // resize under a one-line tip, and reserving it for nothing would leave a hole under the
+  // car on any locale whose list is empty.
+  if (tips().length) {
+    const slot = el("div", "prep-tip-slot");
+    const tip = el("p", "prep-tip");
+    slot.append(tip);
+    box.append(slot);
+    startTips(tip);
+  }
 
   // No progress bar. There was one, driven by a per-question call; the window is now
   // prepared in a single request, and between sending it and receiving it the client knows
@@ -3583,6 +3798,9 @@ function render(): void {
   }
   // Preparing outranks every screen: the learner has tapped Start and nothing else is
   // happening until the quiz opens.
+  // Stopped BEFORE the branch below can start it again: leaving it running would leave an
+  // interval poking a node that replaceChildren() has already thrown away.
+  if (!state.preparing) stopTips();
   if (state.preparing) screen = preparingScreen();
   if (back && !nativeBack) screen.prepend(fallbackBack(back));
   root.append(screen);
