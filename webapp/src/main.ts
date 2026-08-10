@@ -16,6 +16,7 @@ import {
 } from "./telegram";
 import type { Theme } from "./telegram";
 import type {
+  Analysis,
   AnswerResult,
   ExamAnswer,
   Me,
@@ -43,7 +44,7 @@ import type {
 import "./style.css";
 
 type Screen = "home" | "run" | "results" | "profile" | "stats" | "settings" | "vocab"
-  | "ratings" | "admin";
+  | "ratings" | "admin" | "analysis";
 
 /** The author of the vocabulary list, and the condition on which it may be used.
  *
@@ -162,9 +163,12 @@ const state: {
                query: string; segment: string; busy: boolean } | null;
   /** A quiz being prepared. Non-null only between tapping Start and the first question. */
   preparing: { mode: Mode; source: RepeatSource } | null;
+  /** The error breakdown. Fetched when the screen opens, never on boot: it is one screen
+   *  behind a tap and costs a query nobody has asked for otherwise. */
+  analysis: Analysis | null;
 } = { me: null, screen: "home", run: null, results: null, stats: null, profile: null,
       resumable: null, reviewWrongOnly: true, ratings: null, adminData: null,
-      preparing: null,
+      preparing: null, analysis: null,
       vocab: { view: "test", round: null, index: 0, current: null, right: 0, typed: "",
                cards: null, cardIndex: 0, flipped: false, knew: 0,
                busy: false, list: null, query: "", stats: null, locked: false } };
@@ -1925,6 +1929,103 @@ function severity(rate: number): string {
 const BOX_TINT = ["var(--exam-tint)", "#fff7ed", "#fefce8", "var(--practice-tint)", "#ecfdf5"];
 const BOX_INK = ["var(--bad)", "#ea580c", "#ca8a04", "var(--ok)", "var(--ok)"];
 
+async function loadAnalysis(): Promise<void> {
+  try {
+    state.analysis = await api.analysis();
+    render();
+  } catch (err) {
+    reportError(err);
+  }
+}
+
+/** Where the marks are going.
+ *
+ *  The stats screen already showed an error rate. It was measured over all time, so it
+ *  barely moved once a learner had a few hundred answers behind them, and the topic list
+ *  under it was sorted by error rate — which puts "2 wrong out of 3" above "120 wrong out of
+ *  300". This screen answers the question the number raises: which of these is actually
+ *  costing me the exam.
+ *
+ *  Everything here can refuse to answer. Below 100 answers there is no percentage, and a
+ *  family with fewer than ten questions behind it says "not tested yet" rather than
+ *  inventing a rate. That makes the COLD START the important case, not an edge case: on day
+ *  one almost every row is untested, and without the progress line and the coverage bars
+ *  this reads as a broken screen rather than an honest one.
+ */
+function analysisScreen(): HTMLElement {
+  const wrap = el("section", "screen");
+  const a = state.analysis;
+  if (!a) {
+    wrap.append(el("div", "spinner"));
+    void loadAnalysis();
+    return wrap;
+  }
+
+  wrap.append(el("h1", "h1", t("where_errors")));
+
+  // --- the headline ---------------------------------------------------------
+  const head = el("div", "card an-head");
+  if (a.predicted_mistakes === null) {
+    // Nothing measurable yet. Say what is missing rather than printing a zero, and say how
+    // far off it is — "47 / 100" is the only thing on this screen a new learner can act on.
+    head.append(el("div", "an-big", `${a.headline.sample} / ${a.headline.min_sample}`));
+    head.append(el("p", "an-sub", t("an_need_more")));
+  } else {
+    const pass = a.predicted_mistakes <= a.exam_max_errors;
+    head.classList.add(pass ? "ok" : "bad");
+    head.append(el("div", "an-big", a.predicted_mistakes.toFixed(1)));
+    head.append(el("p", "an-sub",
+      t("an_predicted", { total: a.exam_questions, allowed: a.exam_max_errors })));
+    // Never printed as a plain exam prediction: practice deliberately re-serves what you
+    // got wrong, so this is an upper bound on the questions the learner has actually met,
+    // and it speaks for only part of the paper until they have covered more of it.
+    head.append(el("p", "an-caveat",
+      t("an_covers", { pct: Math.round(a.predicted_covers * 100) })));
+  }
+  if (a.headline.rate !== null) {
+    head.append(el("p", "an-rate",
+      t("an_recent", { pct: Math.round(a.headline.rate * 100),
+                       n: a.headline.min_sample })));
+  }
+  head.append(el("p", "an-lifetime",
+    t("an_lifetime", { n: a.headline.lifetime_answers })));
+  wrap.append(head);
+
+  // --- the families ---------------------------------------------------------
+  const list = el("div", "an-list");
+  for (const f of a.families) {
+    const row = el("div", `an-row ${f.enough ? "" : "untested"}`);
+
+    const top = el("div", "an-row-top");
+    top.append(el("div", "an-name", t(`fam_${f.family}` as Key)));
+    top.append(el("div", "an-cost", f.predicted_mistakes === null
+      ? t("an_untested")
+      : t("an_marks", { n: f.predicted_mistakes.toFixed(1) })));
+    row.append(top);
+
+    row.append(el("p", "an-meta", t("an_share", {
+      per: f.per_exam.toFixed(1), total: a.exam_questions,
+      rate: f.error_rate === null ? "—" : `${Math.round(f.error_rate * 100)}%`,
+    })));
+
+    // Coverage, on every row and never optional: 0% errors on 12 of 662 information-sign
+    // questions is not mastery, and the ranking would otherwise present it as a strength.
+    const bar = el("div", "an-bar");
+    const fill = el("div", "an-bar-fill");
+    fill.style.width = `${Math.max(1, Math.round(f.coverage * 100))}%`;
+    bar.append(fill);
+    row.append(bar);
+    row.append(el("p", "an-cov", t("an_coverage", {
+      seen: f.answered, total: f.questions_in_bank,
+      pct: Math.round(f.coverage * 100),
+    })));
+
+    list.append(row);
+  }
+  wrap.append(list);
+  return wrap;
+}
+
 function statsScreen(): HTMLElement {
   const wrap = el("section", "screen");
   if (!state.stats) {
@@ -1957,6 +2058,15 @@ function statsScreen(): HTMLElement {
     tile(icons.target(20), "var(--exam-tint)", t("error_rate"), `${Math.round(s.error_rate * 100)}`, "%"),
   );
   wrap.append(tiles);
+
+  // "Error rate when user will pres this button web app should show where he is making
+  // errors". The tile above is the number; this is what to do about it.
+  const dig = el("button", "btn secondary");
+  dig.type = "button";
+  dig.style.marginTop = "var(--md)";
+  dig.textContent = t("where_errors");
+  dig.onclick = () => { state.screen = "analysis"; render(); };
+  wrap.append(dig);
 
   // --- spaced repetition ---
   const boxCard = el("div", "card");
@@ -3979,6 +4089,9 @@ function backTarget(): (() => void) | null {
   // Vocabulary is entered from the home screen rather than the tab bar, so it is the one
   // tab-bar-visible screen with somewhere unambiguous to go back to.
   if (state.screen === "vocab") return goHome;
+  // Reached by tapping the error-rate tile, so Back belongs on the screen that tile is on
+  // — not home, which would make the number harder to get back to than it was to leave.
+  if (state.screen === "analysis") return () => { state.screen = "stats"; render(); };
   if (state.screen === "admin") {
     // People is a page inside the panel, so Back must land on the panel rather than
     // leaving it — otherwise the only way back to the overview is to reopen Admin.
@@ -4129,6 +4242,7 @@ function render(): void {
     case "results": screen = resultsScreen(); break;
     case "profile": screen = profileScreen(); break;
     case "stats": screen = statsScreen(); break;
+    case "analysis": screen = analysisScreen(); break;
     case "settings": screen = settingsScreen(); break;
     case "vocab": screen = vocabScreen(); break;
     case "ratings": screen = ratingsScreen(); break;

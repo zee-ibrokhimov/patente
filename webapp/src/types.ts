@@ -192,6 +192,41 @@ export interface SessionResults {
   items: SessionItem[];
 }
 
+/** --- where the marks are lost -------------------------------------------- */
+
+export interface ErrorHeadline {
+  /** NULL below `min_sample`. Not a placeholder for zero — the screen declining to put a
+   *  percentage in front of somebody deciding whether to book a paid exam. */
+  rate: number | null;
+  sample: number;
+  min_sample: number;
+  lifetime_answers: number;
+}
+
+export interface FamilyStat {
+  family: string;
+  questions_in_bank: number;
+  share: number;
+  per_exam: number;
+  answered: number;
+  wrong: number;
+  error_rate: number | null;
+  enough: boolean;
+  coverage: number;
+  predicted_mistakes: number | null;
+}
+
+export interface Analysis {
+  headline: ErrorHeadline;
+  families: FamilyStat[];
+  predicted_mistakes: number | null;
+  /** What share of an exam that prediction speaks for. Without showing it, a number
+   *  measured on a third of the paper reads as describing all of it. */
+  predicted_covers: number;
+  exam_questions: number;
+  exam_max_errors: number;
+}
+
 /** --- profile ------------------------------------------------------------ */
 
 export interface ExamHistory {

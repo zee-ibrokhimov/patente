@@ -4,6 +4,7 @@
 
 import { tg } from "./telegram";
 import type {
+  Analysis,
   AnswerResult,
   ExamAnswer,
   ExplanationResult,
@@ -109,6 +110,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ text }),
     }),
+
+  /** Where the learner is losing marks. Free — it is what makes the paid analysis worth
+   *  tapping, and a paywall here leaves somebody with a percentage and no idea what to do. */
+  analysis: () => request<Analysis>("/analysis"),
 
   report: (questionId: number) =>
     request<unknown>("/reports", {

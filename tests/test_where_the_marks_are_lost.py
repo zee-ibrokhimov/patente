@@ -24,6 +24,7 @@ because a topic silently missing from the map would vanish from the screen with 
 from __future__ import annotations
 
 import json
+import pathlib
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -46,6 +47,7 @@ from shared.constants import (
 
 TOKEN = "8918020834:AAEtest-token-not-real-only-for-tests"
 OWNER = 42
+ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
 @pytest.fixture(autouse=True)
@@ -316,3 +318,93 @@ async def test_it_is_free(client, registered, api_db):
     await end_trial(api_db, OWNER)
     r = await client.get("/webapp/analysis", headers=auth())
     assert r.status_code == 200
+
+
+# --- the screen -------------------------------------------------------------
+
+def _main() -> str:
+    return (ROOT / "webapp" / "src" / "main.ts").read_text(encoding="utf-8")
+
+
+def _i18n() -> str:
+    return (ROOT / "webapp" / "src" / "i18n.ts").read_text(encoding="utf-8")
+
+
+def _screen() -> str:
+    src = _main()
+    block = src[src.index("function analysisScreen("):]
+    return block[:block.index("\nfunction ")]
+
+
+def test_the_error_rate_tile_leads_somewhere():
+    """"Error rate when user will pres this button web app should show where he is making
+    errors". The tile is the number; this is what to do about it."""
+    src = _main()
+    stats = src[src.index("function statsScreen("):]
+    stats = stats[:stats.index("\nfunction ")]
+    assert 'state.screen = "analysis"' in stats
+
+
+def test_a_null_rate_is_rendered_as_a_refusal_not_a_zero():
+    """`rate: null` means "we decline to say", and a client that treats it as 0 tells
+    somebody with twelve answers that they never make mistakes."""
+    block = _screen()
+    assert "a.predicted_mistakes === null" in block
+    assert "an_need_more" in block
+    assert "a.headline.sample" in block and "a.headline.min_sample" in block, (
+        "the cold start has to show how far off the estimate is — it is the only thing on "
+        "this screen a new learner can act on"
+    )
+
+
+def test_the_prediction_is_never_printed_as_a_plain_exam_forecast():
+    """Practice re-serves what you got wrong, so the measured rate is pessimistic against a
+    fresh paper. The number is an upper bound on the questions the learner has MET, and the
+    screen has to say which share of the exam that is."""
+    block = _screen()
+    assert "an_covers" in block
+    assert "predicted_covers" in block
+
+
+def test_coverage_is_drawn_on_every_row():
+    """0% errors on 12 of 662 information-sign questions is not mastery. Without the bar the
+    ranking presents it as the learner's strongest area.
+
+    The bar's WIDTH has to come from coverage. Asserting that `f.coverage` appears somewhere
+    in the function let a hardcoded `width: 100%` through — mutation caught it, and a bar
+    stuck at full is precisely the lie this row exists to prevent.
+    """
+    block = _screen()
+    assert "an_coverage" in block
+    width = next(ln for ln in block.splitlines() if "fill.style.width" in ln)
+    assert "f.coverage" in width, width
+
+
+def test_an_untested_family_says_so_rather_than_showing_a_zero():
+    block = _screen()
+    assert "an_untested" in block
+    assert "f.predicted_mistakes === null" in block
+
+
+def test_the_verdict_colour_is_only_taken_when_there_is_evidence():
+    """Green and red are a position. Neutral while the sample is too small, because a colour
+    is a claim."""
+    block = _screen()
+    head = block[block.index("const head ="):block.index("wrap.append(head)")]
+    assert "a.exam_max_errors" in head, "the colour must be judged against the real 3-in-30 bar"
+    assert head.index("predicted_mistakes === null") < head.index("classList.add"), (
+        "the cold-start branch must come before any colour is applied"
+    )
+
+
+def test_back_returns_to_the_screen_it_was_opened_from():
+    src = _main()
+    block = src[src.index("function backTarget("):]
+    block = block[:block.index("\n}") + 2]
+    assert '"analysis"' in block and 'state.screen = "stats"' in block
+
+
+@pytest.mark.parametrize("family", list(TOPIC_FAMILIES))
+def test_every_family_has_a_name_in_every_language(family):
+    """A missing name renders the raw key — `fam_signs_vertical` — at a learner."""
+    assert _i18n().count(f"fam_{family}:") == 4

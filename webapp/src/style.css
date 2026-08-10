@@ -272,6 +272,48 @@ html, body { overflow-x: hidden; }
 }
 .suggest > svg:first-child { flex: none; color: var(--accent); }
 
+/* --- where the marks are lost ------------------------------------------- */
+
+.an-head { text-align: center; margin-bottom: var(--lg); }
+/* Green when the learner would pass, red when they would not — the only place on this
+   screen that takes a position, and it takes it against the real 3-in-30 bar. Neutral
+   while there is not enough evidence, because a colour is a verdict. */
+.an-head.ok  { background: var(--practice-tint); border-color: var(--practice-chip); }
+.an-head.bad { background: var(--exam-tint);     border-color: var(--exam-chip); }
+.an-big {
+  font-size: var(--t-verdict); line-height: 1; font-weight: var(--w-verdict);
+  letter-spacing: -.02em; font-variant-numeric: tabular-nums;
+}
+.an-head.ok  .an-big { color: var(--practice-deep); }
+.an-head.bad .an-big { color: var(--exam-deep); }
+.an-sub { margin: var(--sm) 0 0; font-size: var(--t-body); font-weight: 600; }
+.an-caveat, .an-rate, .an-lifetime {
+  margin: var(--sm) 0 0; font-size: var(--t-caption); color: var(--text-2);
+}
+.an-lifetime { color: var(--text-3); }
+
+.an-list { display: grid; gap: var(--sm); }
+.an-row {
+  background: var(--card); border: 1px solid var(--edge);
+  border-radius: var(--r); padding: var(--md);
+}
+/* Not hidden and not greyed into unreadability: a family with too little data is the most
+   ACTIONABLE row on the screen for a new learner — it is what to go and do. */
+.an-row.untested { background: var(--surface); }
+.an-row-top { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sm); }
+.an-name { font-weight: 700; min-width: 0; }
+/* nowrap: the figure is the point of the row, and "0.8 ошибок" breaking across two lines
+   under a long family name reads as two separate things. The name wraps instead. */
+.an-cost {
+  font-weight: 800; font-variant-numeric: tabular-nums; color: var(--exam-deep);
+  white-space: nowrap; flex: none;
+}
+.an-row.untested .an-cost { color: var(--text-3); font-weight: 600; font-size: var(--t-caption); }
+.an-meta { margin: var(--xs) 0 var(--sm); font-size: var(--t-caption); color: var(--text-2); }
+.an-bar { height: 6px; border-radius: 999px; background: var(--track, var(--surface)); overflow: hidden; }
+.an-bar-fill { height: 100%; background: var(--accent); border-radius: 999px; }
+.an-cov { margin: var(--xs) 0 0; font-size: var(--t-caption); color: var(--text-3); }
+
 .suggest-box {
   width: 100%; box-sizing: border-box; margin: var(--md) 0;
   padding: var(--md); resize: vertical;
