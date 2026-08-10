@@ -466,8 +466,20 @@ async def results(
                               if i.question_id in questions else ""),
                 "stem": (questions[i.question_id].stem_it
                          if i.question_id in questions else None),
+                # The ministerial key, and ONLY for a question this learner answered.
+                #
+                # A graded exam still lists the questions it never reached — a blank counts
+                # against the candidate exactly as in the real thing, and the review exists
+                # to show them. But listing one is not the same as answering it for them,
+                # and the difference was worth two HTTP requests: start an exam, submit it
+                # having answered nothing, and the response carried the correct answer to
+                # all thirty. Around two thousand of those covers the whole bank.
+                #
+                # The learner loses nothing they should have. A question they never reached
+                # is one to practise, not one to be handed; and the item is still here, still
+                # marked unanswered, so "you left seventeen blank" survives intact.
                 "answer": (questions[i.question_id].answer
-                           if i.question_id in questions else None),
+                           if i.given is not None and i.question_id in questions else None),
                 "image": (questions[i.question_id].image_path
                           if i.question_id in questions else None),
                 "translation": (translations[i.question_id].statement

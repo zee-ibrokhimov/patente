@@ -339,3 +339,37 @@ async def test_the_owner_can_tell_an_exit_from_a_submission(client, registered, 
     finished = [e for e in events if e["type"] == "exam_finished"]
     assert finished, events
     assert finished[0]["state"] == SESSION_ABANDONED, finished[0]
+
+
+async def test_submitting_an_empty_exam_hands_back_no_answers(client, registered, api_db):
+    """Two requests used to buy the whole paper's key.
+
+    Start an exam, submit it having answered nothing, and every item came back carrying the
+    ministerial correct answer — about two thousand of those covers the 7,106-question bank.
+    A graded exam still LISTS what it never reached, because a blank counts against the
+    candidate and the review exists to show them; listing a question is not the same as
+    answering it for them.
+    """
+    started = (await client.post("/webapp/sessions", headers=auth(),
+                                 json={"mode": MODE_EXAM})).json()
+    body = (await client.post(f"/webapp/sessions/{started['id']}/finish",
+                              headers=auth())).json()
+
+    assert body["answered"] == 0
+    assert len(body["items"]) == started["question_count"], (
+        "the blanks still belong in the review — they are what the candidate lost marks on"
+    )
+    assert all(i["answer"] is None for i in body["items"]), (
+        "an unanswered question came back with its correct answer"
+    )
+
+
+async def test_the_key_still_comes_back_for_what_was_answered(client, registered, api_db):
+    """The other half. Withholding it everywhere would gut the review."""
+    started = await sit(client, api_db, answer=2, wrong=1)
+    body = (await client.post(f"/webapp/sessions/{started['id']}/finish",
+                              headers=auth())).json()
+
+    answered = [i for i in body["items"] if i["given"] is not None]
+    assert len(answered) == 2
+    assert all(i["answer"] is not None for i in answered)
