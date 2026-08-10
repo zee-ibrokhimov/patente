@@ -128,7 +128,7 @@ const state: {
   /** The owner's console. Loaded on entry and never at boot — it is one person's screen
    *  and everybody else would be paying for a request that 404s. */
   adminData: { overview: AdminOverview | null; users: AdminUser[]; links: AdminLink[];
-               reports: AdminReport[]; openReports: number;
+               reports: AdminReport[]; openReports: number; userTotal: number;
                query: string; segment: string; busy: boolean } | null;
   /** A quiz being prepared. Non-null only between tapping Start and the first question. */
   preparing: { mode: Mode; source: RepeatSource } | null;
@@ -2234,7 +2234,7 @@ function isStaff(): boolean {
 async function openAdmin(): Promise<void> {
   state.screen = "admin";
   state.adminData = { overview: null, users: [], links: [], reports: [], openReports: 0,
-                      query: "", segment: "", busy: true };
+                      userTotal: 0, query: "", segment: "", busy: true };
   render();
   await refreshAdmin();
 }
@@ -2252,6 +2252,7 @@ async function refreshAdmin(): Promise<void> {
       ...state.adminData,
       overview,
       users: users.users,
+      userTotal: users.total ?? users.users.length,
       links: links.links,
       reports: reports.reports,
       openReports: reports.open,
@@ -2739,14 +2740,21 @@ function adminReports(reports: AdminReport[], open: number): HTMLElement {
 function adminUsers(users: AdminUser[]): HTMLElement {
   const card = el("div", "card");
   card.style.marginTop = "var(--md)";
-  card.append(el("div", "row-title", "Users"));
+  // The count, not the list.
+  //
+  // Every user was rendered on the page the owner opens most, capped at 50 — which is 50
+  // rows of noise today and no better at 500. Nobody opens an admin panel to read their
+  // whole user base; they open it to find ONE person, or to see who is about to lapse.
+  // So this answers "how many" and waits to be asked "which".
+  const total = state.adminData?.userTotal ?? 0;
+  card.append(el("div", "row-title", `Users · ${total}`));
 
   // The same segments the group grant targets — now something to LOOK at rather than only
   // a destination for free days. "Who runs out this week so I can ask them to renew" is the
   // conversation that produces money, and it had no screen.
   const chips = el("div", "chips");
   for (const [value, label] of [
-    ["", "All"], ["expiring", "Ending soon"], ["lapsed", "Expired"],
+    ["expiring", "Ending soon"], ["lapsed", "Expired"],
     ["quiet", "Quiet"], ["trial", "Trial"], ["active", "Active"],
   ] as const) {
     const chip = el("button", `chip${state.adminData?.segment === value ? " on" : ""}`, label);
@@ -2770,6 +2778,14 @@ function adminUsers(users: AdminUser[]): HTMLElement {
     void refreshAdmin();
   };
   card.append(search);
+
+  // Rows only once asked. See the note on the header: the panel opens on this card, and a
+  // list of everybody is noise at six users and unusable at six hundred.
+  const asked = Boolean(state.adminData?.query || state.adminData?.segment);
+  if (!asked) {
+    card.append(el("p", "caption", "Search for someone, or pick a filter above."));
+    return card;
+  }
 
   for (const u of users.slice(0, 25)) {
     const row = el("div", "admin-row");
@@ -2858,6 +2874,10 @@ function adminUsers(users: AdminUser[]): HTMLElement {
     card.append(row);
   }
   if (!users.length) card.append(el("p", "caption", "Nobody matches."));
+  else if (total > users.length) {
+    card.append(el("p", "caption",
+      `Showing ${users.length} of ${total}. Narrow the search to see the rest.`));
+  }
   return card;
 }
 

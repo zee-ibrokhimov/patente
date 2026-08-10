@@ -154,7 +154,7 @@ export const admin = {
   /** `segment` reuses the same four the group grant targets, so the list and the grant can
    *  never disagree about who is in one. Empty means everybody. */
   users: (q = "", segment = "") =>
-    request<{ users: AdminUser[]; segment: string }>(
+    request<{ users: AdminUser[]; segment: string; total: number }>(
       `/admin/users?q=${encodeURIComponent(q)}&segment=${encodeURIComponent(segment)}`),
   grant: (chatId: number, days: number, reason: string, notify: boolean,
           amountCents = 0) =>

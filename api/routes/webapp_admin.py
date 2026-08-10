@@ -232,8 +232,14 @@ async def list_users(
         ):
             seen[chat_id] = last
 
+    # How many the filter matches, not how many are being returned. The card shows this
+    # instead of a list, so it has to be the real total rather than min(total, limit).
+    matching = await session.scalar(
+        select(func.count()).select_from(stmt.order_by(None).limit(None).subquery()))
+
     return {
         "segment": segment,
+        "total": matching or 0,
         "users": [
             {
                 "chat_id": u.chat_id,

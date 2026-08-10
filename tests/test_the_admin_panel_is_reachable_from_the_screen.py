@@ -90,3 +90,38 @@ def test_the_preview_and_the_send_use_the_same_filter():
     assert filters[0] == filters[1], (
         f"preview filters on {filters[0]} but the send filters on {filters[1]} — "
         f"the confirmed count would describe a different population")
+
+
+# --- the panel does not dump the user base on its front page ------------------
+
+def test_the_user_list_waits_to_be_asked():
+    """Every user was rendered on the page the owner opens most, capped at 50 — 50 rows of
+    noise today and no better at 500. Nobody opens an admin panel to read their whole user
+    base; they open it to find ONE person, or to see who is about to lapse.
+
+    So the card answers "how many" and renders rows only once a search or a filter has been
+    given. Asserting the GUARD exists, since the alternative is a list that grows without
+    limit on the busiest screen in the panel.
+    """
+    start = MAIN.index("function adminUsers(")
+    block = MAIN[start:MAIN.index("\n}\n", start)]
+
+    assert "const asked" in block, "the list no longer waits to be asked"
+    assert "return card" in block.split("const asked")[1][:400], \
+        "nothing stops the rows rendering before a filter is chosen"
+
+
+def test_the_card_reports_the_real_total():
+    """`users.length` is capped by the endpoint's limit, so rendering it as the count would
+    say "Users · 50" for a thousand — a number that is wrong in the one direction that
+    matters."""
+    assert "userTotal" in MAIN, "the card counts what it rendered rather than what exists"
+    assert "users.total" in MAIN, "the client never reads the server's total"
+
+
+def test_a_truncated_result_says_so():
+    """Showing 50 of 400 without saying so is indistinguishable from having 50."""
+    start = MAIN.index("function adminUsers(")
+    block = MAIN[start:MAIN.index("\n}\n", start)]
+    assert "total > users.length" in block, \
+        "a truncated list does not admit it is truncated"
