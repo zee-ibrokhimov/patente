@@ -20,6 +20,7 @@ import type {
   AdminPayments,
   AdminPerson,
   AdminReport,
+  AdminSuggestion,
   AdminSpend,
   AdminUser,
   BroadcastSent,
@@ -300,6 +301,11 @@ export const admin = {
   regenerateReported: (id: number) =>
     request<{ id: number; outcome: string; explanation: string | null }>(
       `/admin/reports/${id}/regenerate`, { method: "POST" }),
+  /** What learners asked for. Unhandled first — see api/services/suggestions.py. */
+  suggestions: () =>
+    request<{ suggestions: AdminSuggestion[]; open: number }>("/admin/suggestions"),
+  handleSuggestion: (id: number) =>
+    request<{ id: number }>(`/admin/suggestions/${id}/handled`, { method: "POST" }),
 };
 
 export const leaderboard = {

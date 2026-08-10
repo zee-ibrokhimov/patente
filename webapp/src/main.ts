@@ -36,6 +36,7 @@ import type {
   AdminOverview,
   AdminPerson,
   AdminReport,
+  AdminSuggestion,
   AdminUser,
   Leaderboard,
   RepeatSource,
@@ -158,6 +159,10 @@ const state: {
    *  and everybody else would be paying for a request that 404s. */
   adminData: { overview: AdminOverview | null; users: AdminUser[]; links: AdminLink[];
                reports: AdminReport[]; openReports: number; userTotal: number;
+               /** What learners asked for. The form has existed since the suggestions
+                *  migration and nothing ever displayed what it collected — the inbox was
+                *  written on the server and never opened. */
+               suggestions: AdminSuggestion[]; openSuggestions: number;
                /** Which page of the panel. People is its own screen: finding one learner
                 *  and acting on them is a different job from "how is the product doing",
                 *  done at a different moment. */
@@ -3195,6 +3200,7 @@ function isStaff(): boolean {
 async function openAdmin(): Promise<void> {
   state.screen = "admin";
   state.adminData = { overview: null, users: [], links: [], reports: [], openReports: 0,
+                      suggestions: [], openSuggestions: 0,
                       userTotal: 0, view: "home", query: "", segment: "", busy: true };
   render();
   await refreshAdmin();
@@ -3203,11 +3209,12 @@ async function openAdmin(): Promise<void> {
 async function refreshAdmin(): Promise<void> {
   if (!state.adminData) return;
   try {
-    const [overview, users, links, reports] = await Promise.all([
+    const [overview, users, links, reports, suggestions] = await Promise.all([
       admin.overview(),
       admin.users(state.adminData.query, state.adminData.segment),
       admin.links(),
       admin.reports(),
+      admin.suggestions(),
     ]);
     state.adminData = {
       ...state.adminData,
@@ -3217,6 +3224,8 @@ async function refreshAdmin(): Promise<void> {
       links: links.links,
       reports: reports.reports,
       openReports: reports.open,
+      suggestions: suggestions.suggestions,
+      openSuggestions: suggestions.open,
       busy: false,
     };
   } catch (err) {
@@ -3390,6 +3399,7 @@ function adminScreen(): HTMLElement {
   // and a queue placed below three other cards is a queue that gets read once.
   wrap.append(adminMoney());
   wrap.append(adminReports(data.reports, data.openReports));
+  wrap.append(adminSuggestions(data.suggestions, data.openSuggestions));
 
   const peopleCard = el("div", "card");
   peopleCard.style.marginTop = "var(--md)";
@@ -3723,6 +3733,56 @@ function adminReports(reports: AdminReport[], open: number): HTMLElement {
 
     actions.append(again, done);
     item.append(actions);
+    card.append(item);
+  }
+  return card;
+}
+
+
+/** What learners asked for, and whether it has been read.
+ *
+ *  The form in Settings has been collecting these since it shipped, and both endpoints
+ *  existed — but nothing rendered them, so every request went into a table nobody opened.
+ *  A feedback form with no inbox is worse than no form: it asks people to spend effort and
+ *  then silently discards it.
+ *
+ *  `chat_id` is shown, and it is the only screen in the client that shows one. It is how
+ *  the owner replies to the person who wrote in, which is the entire point of asking. The
+ *  console is staff-only and every endpoint behind it 404s for anybody else.
+ */
+function adminSuggestions(rows: AdminSuggestion[], open: number): HTMLElement {
+  const card = el("div", "card");
+  card.style.marginTop = "var(--md)";
+  card.append(el("div", "row-title", `Requests${open ? ` · ${open} new` : ""}`));
+
+  if (!rows.length) {
+    card.append(el("p", "caption", "Nobody has asked for anything yet."));
+    return card;
+  }
+
+  for (const row of rows) {
+    // Handled ones stay on the list rather than vanishing: "did I already deal with this"
+    // is the question somebody asks a minute after marking it, and a list that only holds
+    // the unread has no answer to it.
+    const item = el("div", `report${row.handled ? " done" : ""}`);
+    item.append(el("div", "report-meta",
+      `#${row.id} · ${row.lang} · ${row.created_at.slice(0, 10)} · ${row.chat_id}`));
+    item.append(el("p", "report-statement", row.text));
+
+    if (!row.handled) {
+      const actions = el("div", "report-actions");
+      const done = el("button", "btn secondary", "Mark read");
+      done.type = "button";
+      done.onclick = async () => {
+        done.disabled = true;
+        try {
+          await admin.handleSuggestion(row.id);
+          await refreshAdmin();
+        } catch (err) { done.disabled = false; reportError(err); }
+      };
+      actions.append(done);
+      item.append(actions);
+    }
     card.append(item);
   }
   return card;

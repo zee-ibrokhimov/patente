@@ -193,3 +193,63 @@ def test_settings_opens_a_form_and_not_a_chat_link():
     # The sent state, in place of the box. A toast fades in three seconds and leaves the
     # person looking at the same empty field wondering whether it went.
     assert "suggest_thanks" in form
+
+
+# --- the inbox, which is the half that was missing ---------------------------
+#
+# Both admin endpoints and the whole service existed and were tested. Nothing in the client
+# ever called them, so every request a learner sent went into a table with no screen. That
+# failure is invisible from the server side — the tests below are server tests and all of
+# them passed — so these assertions are made against the client source.
+
+from pathlib import Path                                              # noqa: E402
+
+SRC = Path(__file__).resolve().parent.parent / "webapp" / "src"
+
+
+def _main() -> str:
+    return (SRC / "main.ts").read_text(encoding="utf-8")
+
+
+def _block(name: str) -> str:
+    """One function's body, stopping at the next top-level function.
+
+    Stops at `async function` too. A version that did not would let an assertion pass on a
+    completely different function further down the file.
+    """
+    text = _main()
+    start = text.index(f"function {name}(")
+    end = len(text)
+    for marker in ("\nfunction ", "\nasync function "):
+        at = text.find(marker, start + 10)
+        if at != -1:
+            end = min(end, at)
+    return text[start:end]
+
+
+def test_the_client_actually_asks_for_the_suggestions():
+    """The specific defect: an endpoint nobody calls. Asserted on the loader, not on the
+    api module, because a client method that exists and is never invoked is the same
+    silence."""
+    assert "admin.suggestions()" in _block("refreshAdmin")
+
+
+def test_the_admin_screen_renders_them():
+    assert "adminSuggestions(" in _block("adminScreen")
+
+
+def test_the_inbox_can_mark_one_read():
+    body = _block("adminSuggestions")
+    assert "admin.handleSuggestion(" in body
+    assert "refreshAdmin()" in body, "marking one read must refresh, or the list lies"
+
+
+def test_the_inbox_shows_who_wrote_in():
+    """`chat_id` is the only way to reply, and replying is the point of asking."""
+    assert "row.chat_id" in _block("adminSuggestions")
+
+
+def test_a_handled_request_is_not_offered_a_second_button():
+    body = _block("adminSuggestions")
+    assert "if (!row.handled)" in body, \
+        "a handled row must not render a Mark-read button that does nothing"

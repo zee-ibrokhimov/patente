@@ -825,6 +825,10 @@ html, body { overflow-x: hidden; }
 }
 .streak-won-flame { font-size: 16px; line-height: 1; }
 
+/* A request already dealt with. Dimmed rather than removed: "did I already answer this?"
+   is asked a minute after marking it, and a list holding only the unread cannot say. */
+.report.done { opacity: .5; }
+
 /* The readiness gauge. A semicircle so the 90% pass threshold can sit ON the same scale
    as the score — a bare percentage floats, a percentage against a marked bar does not. */
 .gauge-wrap { text-align: center; }

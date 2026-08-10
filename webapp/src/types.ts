@@ -456,6 +456,20 @@ export interface AdminButton {
  *  `statement` and `explanation` are joined in server-side on purpose: a report is only
  *  actionable next to the sentence being reported, and looking the cluster up by hand is
  *  the friction that leaves a queue unread. */
+/** One thing a learner asked for, from the form in Settings.
+ *
+ *  `chat_id` is here and nowhere else in the client: it is the only way for the owner to
+ *  reply to the person who wrote it, and this screen is staff-only. `lang` says which
+ *  language to reply in. */
+export interface AdminSuggestion {
+  id: number;
+  chat_id: number;
+  text: string;
+  lang: string;
+  created_at: string;
+  handled: boolean;
+}
+
 export interface AdminReport {
   id: number;
   chat_id: number;
