@@ -30,6 +30,7 @@ from functools import partial
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps import get_session
@@ -146,8 +147,13 @@ async def webapp_user(
     # RANKED (see leaderboard.py); throwing the name away as well would mean it silently
     # went missing if they ever opted back in.
     name = (telegram.first_name or "").strip()[:32] or None
+
+    # WHAT GOES IN HERE NEVER TOUCHES THE REQUEST'S OWN TRANSACTION. See
+    # `_store_warm_fields` — assigning these to `user` is what took the app down on
+    # 2026-08-10, and it is a two-line change to put it back.
+    warm: dict = {}
     if name != user.display_name:
-        user.display_name = name
+        warm["display_name"] = name
 
     # Channel membership is a source of Premium, so it has to be known before entitlement
     # is evaluated — but only the FIRST check blocks. Someone whose status has never been
@@ -155,18 +161,98 @@ async def webapp_user(
     # they paid to join, which is the worst possible first impression. After that it
     # refreshes in the background on a 15-minute TTL and the request never waits.
     if user.channel_status is None:
-        await channel.refresh(session, user)
+        status = await channel.fetch_status(user.chat_id)
+        # A failed lookup leaves the previous answer alone and does NOT stamp the timer, so
+        # the next request tries again rather than trusting a value we could not confirm.
+        if status is not None:
+            warm["channel_status"] = status
+            warm["channel_checked_at"] = datetime.now(timezone.utc)
     elif channel.is_stale(user.channel_checked_at):
         background.add_task(_refresh_channel, user.chat_id)
+
+    if warm and await _store_warm_fields(user.chat_id, warm):
+        # Read back what was just committed elsewhere. Two things depend on this: the
+        # entitlement in THIS response reflects a membership discovered a moment ago, and
+        # the object is left clean, so nothing is waiting to be flushed into a later query.
+        await session.refresh(user)
     return user
 
 
-async def _refresh_channel(chat_id: int) -> None:
-    """Background refresh, on its own session.
+# A user-facing request may wait at most this long for the write lock before giving up on
+# keeping a cache warm. Deliberately a fraction of the 5 s global busy_timeout: the point of
+# the fix is that the learner never waits on optional work, and a retry that blocks for five
+# seconds is a spinner, which is the same failure wearing a different hat.
+WARM_LOCK_WAIT_MS = 250
 
-    Its own session for the reason quiz.py documents: FastAPI runs a yield-dependency's
-    exit code AFTER background tasks, so borrowing the request's session would hold a
-    transaction open across a network call to Telegram.
+
+async def _store_warm_fields(chat_id: int, values: dict) -> bool:
+    """Persist derived, cached fields — and never fail the request that noticed them.
+
+    THIS FUNCTION EXISTS BECAUSE OF A PRODUCTION OUTAGE (2026-08-10 23:19-23:21). Fifty
+    `database is locked` 500s in two minutes, on every screen the owner opened.
+
+    `webapp_user` runs on every authenticated request and keeps two cached fields fresh: the
+    Telegram display name and the channel-membership status. It used to assign them straight
+    onto `user`, on the REQUEST's session. Every route begins with a SELECT, so by then the
+    transaction is already a reader; the assignment then had to be flushed as an UPDATE, and
+    that is a transaction upgrade.
+
+        SQLite refuses a deferred read->write upgrade IMMEDIATELY, and does not honour
+        busy_timeout on that path.
+
+    It cannot wait — two readers both waiting to upgrade is a deadlock — so it fails one
+    instead. `PRAGMA busy_timeout=5000` was set, live and verified in production, and was
+    never consulted. The Mini App fires several requests at once and the admin console fires
+    six, so one learner opening one screen produced six writers to one row.
+
+    Two things fix it, and both are needed:
+
+      · its OWN transaction, whose first statement is the UPDATE. A transaction that opens
+        by writing takes the lock there and then, which is the case where busy_timeout does
+        apply — so this waits its turn instead of failing instantly;
+      · the request's session is left with nothing pending, so no later SELECT in any route
+        can autoflush a write into itself. That is why six DIFFERENT endpoints all broke
+        from one line in a shared dependency, and why tolerating the error alone would only
+        have moved the failure somewhere harder to find.
+
+    Losing one of these writes costs nothing: every one of them is recomputed from scratch
+    on the next request, and there is a test that the name really does land the second time.
+    Never trying at all would be a different bug, and there are tests for that too.
+    """
+    from sqlalchemy import text, update
+
+    from shared.db import async_session_factory
+
+    factory = async_session_factory()
+    try:
+        async with factory() as own:
+            # Scoped to this connection and restored below, because connections are pooled
+            # and a 250 ms timeout left behind would silently apply to real writes.
+            await own.execute(text(f"PRAGMA busy_timeout = {WARM_LOCK_WAIT_MS}"))
+            try:
+                await own.execute(
+                    update(User).where(User.chat_id == chat_id).values(**values))
+                await own.commit()
+            finally:
+                await own.execute(text("PRAGMA busy_timeout = 5000"))
+        return True
+    except OperationalError as exc:
+        # Expected under contention, and not an error anybody should be paged about. INFO
+        # rather than WARNING for that reason — but logged, because a cache that stops
+        # warming permanently would otherwise be invisible.
+        log.info("skipped a warm write for %s (%s): %s", chat_id, ",".join(values), exc)
+        return False
+
+
+async def _refresh_channel(chat_id: int) -> None:
+    """Background refresh of the membership cache, after the response has gone out.
+
+    Its own session for the reason quiz.py documents: FastAPI runs a yield-dependency's exit
+    code AFTER background tasks, so borrowing the request's session would hold a transaction
+    open across a network call to Telegram.
+
+    The lookup happens here; the WRITE goes through `_store_warm_fields`, so a background
+    task cannot take the lock in a way that fails whatever request is in flight beside it.
     """
     from shared.db import async_session_factory
 
@@ -175,8 +261,12 @@ async def _refresh_channel(chat_id: int) -> None:
         user = await own.get(User, chat_id)
         if user is None:
             return
-        await channel.refresh(own, user)
-        await own.commit()
+        status = await channel.fetch_status(chat_id)
+    if status is None:
+        return
+    await _store_warm_fields(
+        chat_id, {"channel_status": status,
+                  "channel_checked_at": datetime.now(timezone.utc)})
 
 
 @router.get("/me", response_model=UserOut)

@@ -65,11 +65,30 @@ async def api_db(tmp_path):
     that passed every automatic gate is now served and `flagged` is what gets withheld
     (STATUS.md §13). Same fixture, opposite assertion.
     """
-    engine = make_async_engine(f"sqlite+aiosqlite:///{(tmp_path / 'api.db').as_posix()}")
+    url = f"sqlite+aiosqlite:///{(tmp_path / 'api.db').as_posix()}"
+    engine = make_async_engine(url)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
     factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    # Point the PROCESS-WIDE factory at this database too.
+    #
+    # Overriding `get_session` only redirects code that asks for the request's session. Any
+    # code opening its own — the background channel refresh, and now the warm-field write
+    # that exists because of the 2026-08-10 outage — went through `shared.db` and therefore
+    # through whatever `DATABASE_URL` happens to say. In a test run that is the developer's
+    # real database: those paths were writing to it, and every assertion about them was
+    # being made against a file the test never looked at.
+    import shared.db as shared_db
+
+    from shared.config import settings as app_settings
+
+    saved = (shared_db._async_engine, shared_db._async_session_factory,
+             app_settings.database_url)
+    app_settings.database_url = url
+    shared_db._async_engine = engine
+    shared_db._async_session_factory = factory
     async with factory() as s:
         s.add_all([
             Topic(id=1, name="Segnali di divieto"),
@@ -109,6 +128,9 @@ async def api_db(tmp_path):
         await s.commit()
 
     yield factory
+
+    (shared_db._async_engine, shared_db._async_session_factory,
+     app_settings.database_url) = saved
     await engine.dispose()
 
 
