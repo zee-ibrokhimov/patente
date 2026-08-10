@@ -2,7 +2,19 @@ import { admin, api, ApiError, leaderboard, sessions, vocab } from "./api";
 import { readinessGauge } from "./gauge";
 import { icons } from "./icons";
 import { TRANSLATION_LANGUAGES, lang, setLang, t } from "./i18n";
-import { ask, haptic, inTelegram, initTelegram, openChat, setBackButton, tg } from "./telegram";
+import {
+  applyTheme,
+  ask,
+  haptic,
+  inTelegram,
+  initTelegram,
+  openChat,
+  preferredTheme,
+  setBackButton,
+  setTheme,
+  tg,
+} from "./telegram";
+import type { Theme } from "./telegram";
 import type {
   AnswerResult,
   ExamAnswer,
@@ -819,7 +831,7 @@ function trialBanner(days: number): HTMLElement {
 function resumeCard(session: Session): HTMLElement {
   const card = el("button", "premium-strip");
   card.type = "button";
-  card.style.cssText = "background:#eff6ff;border-color:#bfdbfe;margin-top:var(--lg)";
+  card.style.cssText = "background:var(--tint-info);border-color:#bfdbfe;margin-top:var(--lg)";
   card.append(icons.refresh(24));
   const body = el("div");
   body.append(el("div", "premium-strip-title", t("resume")),
@@ -1529,7 +1541,7 @@ function severity(rate: number): string {
   return "var(--ok)";
 }
 
-const BOX_TINT = ["#fef2f2", "#fff7ed", "#fefce8", "#f0fdf4", "#ecfdf5"];
+const BOX_TINT = ["var(--exam-tint)", "#fff7ed", "#fefce8", "var(--practice-tint)", "#ecfdf5"];
 const BOX_INK = ["var(--bad)", "#ea580c", "#ca8a04", "var(--ok)", "var(--ok)"];
 
 function statsScreen(): HTMLElement {
@@ -1559,9 +1571,9 @@ function statsScreen(): HTMLElement {
     return d;
   };
   tiles.append(
-    tile(icons.eye(20), "#eff6ff", t("questions_seen"), String(s.questions_seen), `/${s.questions_total}`),
-    tile(icons.check(20), "#f0fdf4", t("answers_given"), String(s.answers_given)),
-    tile(icons.target(20), "#fef2f2", t("error_rate"), `${Math.round(s.error_rate * 100)}`, "%"),
+    tile(icons.eye(20), "var(--tint-info)", t("questions_seen"), String(s.questions_seen), `/${s.questions_total}`),
+    tile(icons.check(20), "var(--practice-tint)", t("answers_given"), String(s.answers_given)),
+    tile(icons.target(20), "var(--exam-tint)", t("error_rate"), `${Math.round(s.error_rate * 100)}`, "%"),
   );
   wrap.append(tiles);
 
@@ -1576,7 +1588,7 @@ function statsScreen(): HTMLElement {
     const box = el("div", "box");
     box.style.background = BOX_TINT[i - 1]!;
     const n = el("div", "box-n", String(i));
-    n.style.cssText = `background:#fff;color:${BOX_INK[i - 1]}`;
+    n.style.cssText = `background:var(--card);color:${BOX_INK[i - 1]}`;
     box.append(n);
     box.append(el("div", "box-label", t(`box${i}` as never)));
     const count = el("div", "box-c", String(s.boxes[String(i)] ?? 0));
@@ -1851,6 +1863,31 @@ function settingsScreen(): HTMLElement {
   lbRow.append(lbToggle);
   lbCard.append(lbRow);
   wrap.append(lbCard);
+
+  // --- day or night ---
+  //
+  // Follows Telegram by default and remembers an override on this device. Placed here
+  // rather than hidden behind a menu because it is the setting people go looking for, and
+  // stored locally rather than on the account: it describes this screen, not this person.
+  const themeCard = el("div", "card");
+  themeCard.style.marginTop = "var(--md)";
+  const themeRow = el("div", "row");
+  const themeText = el("div", "row-main");
+  themeText.append(el("div", "row-title", t("dark_mode")),
+                   el("div", "row-sub", t("dark_mode_sub")));
+  themeRow.append(themeText);
+
+  const dark = document.documentElement.dataset.theme === "dark";
+  const themeToggle = el("button", `switch ${dark ? "on" : ""}`);
+  themeToggle.type = "button";
+  themeToggle.onclick = () => {
+    const next: Theme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+    setTheme(next);
+    render();
+  };
+  themeRow.append(themeToggle);
+  themeCard.append(themeRow);
+  wrap.append(themeCard);
 
   // --- the owner's console ---
   //
@@ -3465,6 +3502,8 @@ async function recoverOpenSitting(): Promise<void> {
 
 async function boot(): Promise<void> {
   initTelegram();
+  // Before the first render, so nothing paints light and then flips.
+  applyTheme(preferredTheme());
   if (!inTelegram) {
     // Wrapped in .screen and routed through i18n, like every other message in the app.
     // This was a bare <p> against the page edge, in English only — and English is the one

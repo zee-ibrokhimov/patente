@@ -165,3 +165,49 @@ export function openChat(url: string): boolean {
   }
   return false;
 }
+
+/** --- theme ---------------------------------------------------------------
+ *
+ *  Light or dark, and who decides.
+ *
+ *  Telegram tells a Mini App which theme the client is in (`colorScheme`), and following it
+ *  is the right default: the app opens inside Telegram, and a light page inside a dark
+ *  client reads as a page that has not finished loading. But it is only a DEFAULT — a
+ *  learner who prefers the other one should be able to say so, and that choice must
+ *  outlive the session, so it is stored locally rather than on the server. It is a display
+ *  preference on this device, not a fact about the account.
+ *
+ *  Applied to the ROOT element as `data-theme`, which is what tokens.css keys the dark
+ *  palette on, plus `color-scheme` so the browser paints form controls and the scroll
+ *  gutter to match. */
+
+export type Theme = "light" | "dark";
+
+const STORED = "patente:theme";
+
+export function preferredTheme(): Theme {
+  const saved = localStorage.getItem(STORED);
+  if (saved === "light" || saved === "dark") return saved;
+  // Telegram first, then the OS, then light.
+  if (tg?.colorScheme === "dark") return "dark";
+  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+export function applyTheme(theme: Theme): void {
+  document.documentElement.dataset.theme = theme;
+  document.documentElement.style.colorScheme = theme;
+  // Repaint Telegram's own chrome to match, or a dark app sits under a white header and
+  // reads as broken rather than as deliberate — the same reasoning as CHROME_BG.
+  const chrome = theme === "dark" ? "#0f1420" : CHROME_BG;
+  try {
+    tg?.setBackgroundColor?.(chrome);
+    tg?.setHeaderColor?.(chrome);
+  } catch {
+    /* an old client that has the method but rejects the value is not worth failing over */
+  }
+}
+
+export function setTheme(theme: Theme): void {
+  localStorage.setItem(STORED, theme);
+  applyTheme(theme);
+}

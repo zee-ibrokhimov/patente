@@ -56,7 +56,7 @@ export function readinessGauge({ value, threshold }: GaugeOptions): SVGSVGElemen
       </linearGradient>
     </defs>
 
-    <path d="${arc(0, 1)}" fill="none" stroke="#e9edf2" stroke-width="17" stroke-linecap="round"/>
+    <path d="${arc(0, 1)}" fill="none" stroke="var(--track)" stroke-width="17" stroke-linecap="round"/>
 
     ${value === null ? "" : `
     <path d="${arc(0, 1)}" fill="none" stroke="url(#gaugeSweep)" stroke-width="17"
@@ -64,7 +64,7 @@ export function readinessGauge({ value, threshold }: GaugeOptions): SVGSVGElemen
           stroke-dasharray="${(SWEEP * shown).toFixed(2)} ${SWEEP.toFixed(2)}"/>`}
 
     <path d="M${tick.x.toFixed(2)} ${tick.y.toFixed(2)} L${tickOut.x.toFixed(2)} ${tickOut.y.toFixed(2)}"
-          stroke="#0f172a" stroke-width="2.5" stroke-linecap="round"/>
+          stroke="var(--text)" stroke-width="2.5" stroke-linecap="round"/>
 
     <text x="10"  y="126" font-size="11" fill="#98a2b3" font-weight="600">0%</text>
     <text x="190" y="126" font-size="11" fill="#98a2b3" font-weight="600" text-anchor="end">100%</text>

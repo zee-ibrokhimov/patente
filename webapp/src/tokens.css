@@ -17,9 +17,11 @@
  */
 
 :root {
-  /* The design is specified light. The app deliberately does NOT inherit Telegram's
-     theme: the mode cards and the premium blocks carry meaning in their tint, and a dark
-     repaint would erase exactly that. */
+  /* Light by default; dark is a token flip, not a redesign.
+     The reason this said "light, unconditionally" was real: the mode cards carried their
+     meaning IN THEIR TINT, so inverting them erased the signal. That is fixed — the colour
+     lives in a coloured tile now (see .tile in style.css), the card is one neutral surface,
+     and the whole theme is the values below. */
   color-scheme: light;
 
   /* --- core ---------------------------------------------------------- */
@@ -31,13 +33,21 @@
      on link rows, and the settings globe. Both already asked for `var(--text-3)` while no
      such token existed. An undefined custom property is invalid at computed-value time, so
      `color` fell back to INHERIT rather than to anything grey — every one of those chevrons
-     rendered at full --text near-black, as loud as the label beside it. */
-  --text-3: #94a3b8;
+     rendered at full --text near-black, as loud as the label beside it.
+     #94a3b8 measured 2.56:1 on white — under the 3:1 floor for non-text UI, so the chevrons
+     were decorative rather than visible. This clears it while staying clearly the quietest
+     of the three steps. */
+  --text-3: #808da3;
 
   --accent: #2563eb;          /* actions and navigation, nothing else */
   --ok: #16a34a;              /* success and progress */
   --bad: #dc2626;             /* urgency, countdowns, errors */
-  --warn: #d4a017;
+  /* NOT the same value as --gold, though it was. --warn's only consumer is
+     `.timer-value.warn` — the five-minute countdown — and #d4a017 measures 2.38:1 on a white
+     card. At display size the bar is 3:1, so the warning that a timed exam is nearly over
+     was the least legible text on the screen. Amber-700 clears 4.9:1 and still reads as a
+     warning rather than as an error, which --bad already owns. */
+  --warn: #b45309;
 
   /* --- premium (gold) ------------------------------------------------ */
   /* Reserved for subscription promotion. See the rule above. */
@@ -64,10 +74,23 @@
   --edge: #e5e7eb;
   --surface: #f1f5f9;
 
+  /* Surfaces that were written as literals in a dozen places. Named here so they flip.
+     --tint-info is the pale blue block used by the tip, the premium strip and the stats
+     header; --scrim is the sheet backdrop; --track is the unfilled part of a gauge or bar. */
+  --tint-info: #eff6ff;
+  --tint-info-edge: #bfdbfe;
+  --scrim: rgba(15, 23, 42, .45);
+  --track: #e9edf2;
+
   /* --- cards --------------------------------------------------------- */
   --card-radius: 24px;
   --card-pad: 24px;
   --card-shadow: 0 6px 20px rgba(15, 23, 42, .06);
+  /* Behind a ministerial figure. The 409 sign JPEGs have WHITE backgrounds and are official
+     content that must not be recoloured, so on a dark page they float as bright rectangles.
+     In light this is invisible; in dark it becomes the plate that makes them look placed
+     rather than pasted. */
+  --figure-plate: transparent;
 
   /* --- radii --------------------------------------------------------- */
   --r-sm: 12px;
@@ -129,4 +152,75 @@
   --btn-secondary-size: 18px; --btn-secondary-weight: 600;
 
   --ease: cubic-bezier(.22, .61, .36, 1);
+}
+
+
+/* ======================================================================
+   DARK
+   ======================================================================
+   A palette, not a second design. Every rule in style.css already reads these tokens, so
+   the whole app flips on the values below — which is only true because the mode cards stopped
+   carrying meaning in their background. See .tile.
+
+   THE TINTS ARE NOT "THE SAME COLOUR, DARKER". --exam-tint is a pale wash meant to hold DARK
+   text; the dark counterpart is a near-black surface with a hint of the hue, holding LIGHT
+   text. Inverting the lightness alone gives a muddy red that fails contrast both ways.
+
+   THE ACCENTS LIFT. #2563eb reads well on white and muddy on near-black, so each semantic
+   colour moves up a step or two in lightness. The MEANING is identical — red is still the
+   test you can fail, gold is still Premium — which is the property that must survive.
+   ====================================================================== */
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: #0f1420;              /* near-black with a blue cast, not pure black */
+  --card: #171d2b;
+  --surface: #1f2637;
+  --edge: #2a3244;
+
+  --text: #eef2f8;
+  --text-2: #9aa6bd;
+  --text-3: #7c88a4;   /* lifted to clear 4.5:1; it is furniture, but cheap to make readable */
+
+  /* Lifted so they read on a dark surface. Same meanings. */
+  --accent: #5b8cff;
+  --ok: #34d399;
+  --bad: #f87171;
+  --warn: #f0c14b;
+
+  --gold: #f0c14b;
+  --gold-light: #4a3c14;
+  --gold-dark: #f7dd8f;       /* "dark" is the EMPHASIS step, so in dark mode it lightens */
+  --gold-bg: #241d0c;
+  --gold-border: #4a3c14;
+
+  --exam: var(--bad);
+  --exam-tint: #2a1618;
+  --exam-deep: #fca5a5;
+  --exam-chip: #3a1d20;
+
+  --practice: var(--ok);
+  --practice-tint: #10241d;
+  --practice-deep: #6ee7b7;
+  --practice-chip: #16342a;
+
+  /* A shadow tuned for a light page reads as a smudge on a dark one; depth comes from the
+     surface steps above instead. */
+  --card-shadow: none;
+
+  /* The white sign figures get a plate, so they read as placed rather than pasted. */
+  --figure-plate: #f8fafc;
+
+  --tint-info: #16233a;
+  --tint-info-edge: #24365a;
+  --scrim: rgba(0, 0, 0, .6);
+  --track: #2a3244;
+
+  /* The three inks. `-deep` and `-dark` are LIGHT-mode names — an ink is only "deep" when
+     the surface under it is pale — so in dark they lighten. Renaming the tokens would touch
+     twenty call sites for a cosmetic gain; the comment carries the warning instead. */
+  --exam-deep: #fca5a5;
+  --practice-deep: #86efac;
+  --gold-dark: #fcd34d;
 }

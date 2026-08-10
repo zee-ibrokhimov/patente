@@ -22,10 +22,9 @@
 @import url('/fonts/fonts.css');
 @import url('./tokens.css');
 
-/* Light, unconditionally. The app ignores Telegram's themeParams on purpose — the
-   palette carries meaning (red = the test you can fail, gold = Premium) that a dark
-   repaint would erase. See the note in src/telegram.ts. */
-html { color-scheme: light; }
+/* color-scheme comes from the tokens now — :root for light, :root[data-theme="dark"] for
+   dark — so the browser paints form controls and the scroll gutter to match whichever is
+   active. Pinning it here would override both. */
 
 * { box-sizing: border-box; }
 
@@ -321,11 +320,11 @@ html, body { overflow-x: hidden; }
   aspect-ratio: 1; border-radius: 50%;
   display: grid; place-items: center;
   font-size: clamp(10px, 3.1vw, 12px); font-weight: 600;
-  background: #fff; color: var(--text-2);
+  background: var(--card); color: var(--text-2);
   border: 1.5px solid transparent;
 }
 .cell.done { background: var(--ok); color: #fff; }
-.cell.here { background: #fff; color: var(--accent); border-color: var(--accent); font-weight: 700; }
+.cell.here { background: var(--card); color: var(--accent); border-color: var(--accent); font-weight: 700; }
 
 .q-index { text-align: center; color: var(--text-2); font-size: var(--t-caption); margin-bottom: var(--md); }
 
@@ -337,6 +336,14 @@ html, body { overflow-x: hidden; }
 .plate {
   display: grid; place-items: center; margin: 0 auto var(--lg); max-width: 300px;
   min-height: min(32vh, 220px);
+  /* A plate behind the figure. The 409 ministerial sign images are JPEGs with WHITE
+     backgrounds and are official content that must not be recoloured — so on a dark page
+     they float as bright rectangles with hard edges. The plate is transparent in light,
+     where it does nothing, and near-white in dark, where it makes the figure read as
+     placed rather than pasted. */
+  background: var(--figure-plate);
+  border-radius: var(--r);
+  padding: var(--sm);
 }
 .plate img { display: block; max-width: 100%; max-height: 32vh; object-fit: contain; }
 
@@ -365,7 +372,7 @@ html, body { overflow-x: hidden; }
   background: var(--card); border: 1.5px solid var(--edge);
   font-size: clamp(18px, 5.6vw, 22px); font-weight: 800; letter-spacing: .01em;
 }
-.btn.vero { color: var(--accent); border-color: #bfdbfe; background: #eff6ff; }
+.btn.vero { color: var(--accent); border-color: var(--tint-info-edge); background: var(--tint-info); }
 .btn.falso { color: var(--text); }
 
 .run-foot {
@@ -389,7 +396,7 @@ html, body { overflow-x: hidden; }
   display: flex; gap: var(--lg); align-items: center;
   border-radius: var(--r-lg); padding: var(--lg); margin-top: var(--lg);
 }
-.verdict.ok  { background: #f0fdf4; }
+.verdict.ok  { background: var(--practice-tint); }
 .verdict.bad { background: var(--exam-tint); }
 .verdict-mark {
   width: 52px; height: 52px; border-radius: 50%; flex: none;
@@ -405,7 +412,7 @@ html, body { overflow-x: hidden; }
 
 .explain {
   display: flex; gap: var(--md); align-items: flex-start;
-  background: #eff6ff; border-radius: var(--r-lg); padding: var(--lg); margin-top: var(--md);
+  background: var(--tint-info); border-radius: var(--r-lg); padding: var(--lg); margin-top: var(--md);
 }
 .explain svg { flex: none; color: var(--accent); }
 .explain h3 { margin: 0 0 var(--xs); font-size: 18px; font-weight: 700; }
@@ -418,14 +425,14 @@ html, body { overflow-x: hidden; }
 .res-head { text-align: center; color: var(--text-2); font-size: 16px; margin-bottom: var(--lg); }
 
 .esito { border-radius: var(--card-radius); padding: var(--xl); text-align: center; }
-.esito.pass { background: #f0fdf4; }
+.esito.pass { background: var(--practice-tint); }
 .esito.fail { background: var(--exam-tint); }
 .esito-mark {
   width: clamp(72px, 24.6vw, 96px); aspect-ratio: 1; border-radius: 50%; margin: 0 auto var(--lg);
   display: grid; place-items: center;
 }
-.esito.pass .esito-mark { background: #dcfce7; color: var(--ok); }
-.esito.fail .esito-mark { background: #fee2e2; color: var(--bad); }
+.esito.pass .esito-mark { background: var(--practice-chip); color: var(--ok); }
+.esito.fail .esito-mark { background: var(--exam-chip); color: var(--bad); }
 .esito-verdict {
   font-size: var(--t-verdict); font-weight: var(--w-verdict); letter-spacing: -.01em;
   margin: 0; line-height: 1;
@@ -449,7 +456,7 @@ html, body { overflow-x: hidden; }
 
 .tip {
   display: flex; gap: var(--md); align-items: flex-start;
-  background: #eff6ff; border-radius: var(--r-lg); padding: var(--lg); margin-top: var(--lg);
+  background: var(--tint-info); border-radius: var(--r-lg); padding: var(--lg); margin-top: var(--lg);
 }
 .tip svg { flex: none; color: var(--accent); }
 .tip h3 { margin: 0 0 var(--xs); font-size: 18px; font-weight: 700; }
@@ -461,7 +468,7 @@ html, body { overflow-x: hidden; }
 
 .tabs {
   position: sticky; bottom: 0; z-index: 10; display: flex;
-  background: rgba(255,255,255,.94); backdrop-filter: blur(12px);
+  background: color-mix(in srgb, var(--bg) 94%, transparent); backdrop-filter: blur(12px);
   border-top: 1px solid var(--edge);
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
@@ -502,7 +509,7 @@ html, body { overflow-x: hidden; }
   border: 1.5px solid var(--edge); background: var(--card); color: var(--text);
   border-radius: var(--r); padding: 12px 20px; font-size: 16px; font-weight: 600;
 }
-.chip.on { background: #eff6ff; color: var(--accent); border-color: var(--accent); }
+.chip.on { background: var(--tint-info); color: var(--accent); border-color: var(--accent); }
 
 /* ======================================================================
    PROFILE
@@ -535,7 +542,7 @@ html, body { overflow-x: hidden; }
 
 .gauge-note {
   display: flex; gap: var(--md); align-items: center;
-  background: #f0fdf4; border-radius: var(--r); padding: var(--md) var(--lg);
+  background: var(--practice-tint); border-radius: var(--r); padding: var(--md) var(--lg);
   margin-top: var(--lg); text-align: left;
 }
 .gauge-note svg { flex: none; color: var(--ok); }
@@ -624,7 +631,7 @@ html, body { overflow-x: hidden; }
   border: 1.5px solid var(--edge); background: var(--card); color: var(--text);
   border-radius: var(--r); padding: var(--md) 4px; text-align: center;
 }
-.lang.on { border-color: var(--accent); background: #eff6ff; }
+.lang.on { border-color: var(--accent); background: var(--tint-info); }
 .lang-code { font-size: clamp(16px, 4.9vw, 19px); font-weight: 800; }
 .lang.on .lang-code { color: var(--accent); }
 .lang-name { font-size: 12px; color: var(--text-2); margin-top: 2px; }
@@ -674,12 +681,12 @@ html, body { overflow-x: hidden; }
 
 .note {
   display: flex; gap: var(--sm); align-items: flex-start;
-  background: #eff6ff; border-radius: var(--r); padding: var(--md);
+  background: var(--tint-info); border-radius: var(--r); padding: var(--md);
   margin-top: var(--md); color: var(--text-2); font-size: var(--t-caption); line-height: 1.4;
 }
 .note svg { flex: none; color: var(--accent); }
 
-.sub-active { background: #f0fdf4; border: 1px solid #bbf7d0; }
+.sub-active { background: var(--practice-tint); border: 1px solid var(--practice-chip); }
 .sub-badge {
   display: inline-flex; align-items: center; gap: 6px;
   background: var(--practice-chip); color: var(--practice-deep);
@@ -1250,7 +1257,7 @@ html, body { overflow-x: hidden; }
    the middle one aborted a sale silently. */
 .sheet {
   position: fixed; inset: 0; z-index: 60;
-  background: rgba(15, 23, 42, .45);
+  background: var(--scrim);
   display: grid; align-items: end;
   padding: var(--gutter);
   padding-bottom: calc(var(--gutter) + env(safe-area-inset-bottom, 0px));

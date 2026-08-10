@@ -2,11 +2,13 @@
 <html lang="it">
   <head>
     <meta charset="utf-8" />
-    <!-- The app is light-only by design (see src/telegram.ts). Declaring it here too
-         stops the browser painting a dark scroll gutter or form controls around a light
-         page when the device is in dark mode. -->
-    <meta name="color-scheme" content="light" />
-    <meta name="theme-color" content="#f8fafc" />
+    <!-- Both themes are supported now. Declaring both here lets the browser paint the
+         scroll gutter and form controls correctly BEFORE the script runs; applyTheme then
+         pins the actual choice on documentElement. Declaring only "light" here made a
+         dark-mode device flash a white gutter around a dark page on every open. -->
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f8fafc" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f1420" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Quiz Patente</title>
     <!-- The app shipped with no icon of any kind, so a browser tab, a bookmark and an
