@@ -43,13 +43,30 @@ def _run_bar() -> tuple[str, str]:
     main = source("src/main.ts")
     block = main[main.index("function runBar("):]
     block = block[:block.index("\nfunction ")]
-    # Sliced from `if (exam) {` onwards, not from the first `} else {` in the function —
-    # runBar opens with an `if (run.deadline)` whose else came first and made both slices
-    # empty, which passed nothing and failed loudly rather than quietly, but for the wrong
-    # reason.
-    start = block.index("if (exam) {")
-    split = block.index("} else {", start)
-    return block[start:split], block[split:block.index("bar.append(chip);", split)]
+
+    def body_after(marker: str) -> str:
+        """The braced block that follows `marker`, matched by counting braces.
+
+        Sliced by hand twice and got it wrong twice — first catching an inner if/else, then
+        swallowing the comment that follows the block, and with it the very words being
+        asserted absent. Counting braces is the only version that does not need rewriting
+        every time a comment moves.
+        """
+        i = block.index(marker) + len(marker)
+        depth, start = 1, i
+        while depth:
+            i += 1
+            if block[i] == "{":
+                depth += 1
+            elif block[i] == "}":
+                depth -= 1
+        return block[start:i]
+
+    # The clock branch is the exam's left slot; its else is practice's. The 12/30 chip has
+    # its own `if (exam)` block, so the exam half is the two together.
+    practice = body_after("} else {")
+    exam = body_after("if (run.deadline) {") + body_after("if (exam) {")
+    return exam, practice
 
 
 def test_the_counter_is_chosen_by_mode():
@@ -74,7 +91,10 @@ def test_the_answer_sheet_is_exam_only():
     exam, practice = _run_bar()
     assert "openAnswerSheet" in exam
     assert "openAnswerSheet" not in practice
-    assert "disabled = true" in practice
+    # Stronger than the old "practice renders it disabled": practice renders no chip at all.
+    # A disabled control is a dead thing on screen that someone eventually files as a bug,
+    # and the counter it used to carry now sits in the slot the clock occupies in an exam.
+    assert "runbar-chip" not in practice
 
 
 def test_practice_results_do_not_report_unanswered():

@@ -410,18 +410,21 @@ async def results(
         .order_by(QuizSessionItem.ordinal)
     ))
 
-    # An EXITED exam reveals only what the learner actually answered.
+    # A review shows what the learner ANSWERED, with exactly one exception.
     #
-    # Not a display preference — every item below carries `answer`, the ministerial key. A
-    # sitting that is exited on the first question would otherwise hand back the correct
-    # answer to all thirty, and starting an exam and leaving it costs nothing, so the paper
-    # becomes an answer-key tap. Filtering in the client is not a fix: the payload is what
-    # is on the wire.
+    # The exception is a graded exam. There a blank counts against the candidate, precisely
+    # as in the real thing, so the questions never reached are part of the result and the
+    # review exists to show them.
     #
-    # SUBMITTED and EXPIRED still return everything, and must: there the learner has spent
-    # the sitting, a blank counts against them exactly as in the real exam, and the whole
-    # point of the review is to show what they got wrong INCLUDING what they never reached.
-    if row.state == SESSION_ABANDONED and row.mode == MODE_EXAM:
+    # Everywhere else the unanswered items are not a result, they are an artefact — the
+    # paper an exited exam never got to, or the unserved tail of a practice batch that the
+    # learner never saw and never will. Returning them is wrong twice over. Every item below
+    # carries `answer`, the ministerial key, so a sitting left on question one hands back the
+    # correct answer to the whole paper for the asking; and the client's "mistakes only"
+    # filter treats a null verdict as not-correct, so those artefacts are listed to the
+    # learner AS MISTAKES. Filtering in the client fixes neither: the payload is the wire.
+    graded_exam = row.mode == MODE_EXAM and row.state != SESSION_ABANDONED
+    if not graded_exam:
         items = [i for i in items if i.given is not None]
     questions = {
         q.id: q

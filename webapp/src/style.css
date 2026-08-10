@@ -341,12 +341,18 @@ html, body { overflow-x: hidden; }
   font-weight: 600; font-variant-numeric: tabular-nums;
 }
 .runbar-at { color: var(--exam); font-weight: 800; }
-/* Practice's counter is a label, not a control — there is no paper to open. */
-.runbar-chip.plain { background: transparent; cursor: default; color: var(--practice-deep); }
+/* One rule, not two. This was a fixed 38px square, and the labelled variant arrived as a
+   second bare rule for the same class — exactly what test_no_two_rules_claim_one_class
+   exists to stop. The last time two rules claimed one class, a full-screen overlay landed
+   on top of a running exam. (Written without an opening brace on purpose: that guard reads
+   the stylesheet with a regex, and a brace in a comment stops it parsing.) */
 .runbar-end {
   flex: none; appearance: none; cursor: pointer; border: 0;
   background: var(--practice-chip); color: var(--practice-deep); border-radius: 12px;
-  width: 38px; height: 38px; display: grid; place-items: center;
+  height: 38px; min-width: 38px; display: grid; place-items: center;
+  width: auto; gap: 5px; grid-auto-flow: column; align-items: center;
+  padding-inline: 10px;
+  font-family: inherit;
 }
 
 /* The five-minute warning. tick() has always toggled `.warn` on this node, and no rule
@@ -396,13 +402,9 @@ html, body { overflow-x: hidden; }
 .sheet-exit { margin-top: var(--sm); }
 /* The exam's bar control is an EXIT, not an end-and-grade, so it does not wear the
    practice green that .runbar-end carries. Neutral: leaving is neither good nor bad. */
-/* Labelled, so it stops being a fixed 38px square and becomes a pill that sizes to its
-   word — "Выйти", "Chiqish", "Esci" are all different lengths. */
-.runbar-end.exam {
-  background: var(--card); color: var(--text-2);
-  width: auto; gap: 5px; grid-auto-flow: column; align-items: center;
-  padding-inline: 10px;
-}
+/* Neutral rather than practice-green: exiting an exam is neither good nor bad, and it is
+   not the primary action on a screen whose primary action is answering. */
+.runbar-end.exam { background: var(--card); color: var(--text-2); }
 .runbar-end-label { font-size: var(--t-caption); font-weight: 600; }
 /* Below 340px the bar carries a clock, a 12/30 chip and this, and the countdown is the one
    thing a candidate is watching — so the word goes and the door stays. The aria-label does

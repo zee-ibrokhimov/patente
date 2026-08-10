@@ -22,7 +22,8 @@ import pathlib
 
 import pytest
 
-SRC = pathlib.Path(__file__).resolve().parent.parent / "webapp" / "src"
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+SRC = ROOT / "webapp" / "src"
 
 
 def results_screen() -> str:
@@ -78,15 +79,22 @@ def test_unanswered_is_reported_only_where_a_blank_is_a_mistake():
     )
 
 
-def test_the_review_lists_only_what_was_answered_after_an_exit():
-    """"show questions where user give answer" — and the questions never reached must not
-    appear under a heading that reads as mistakes."""
+def test_the_client_does_not_keep_its_own_copy_of_the_review_rule():
+    """"show questions where user give answer" is enforced on the SERVER, in `results()`,
+    and it has to be: every item carries the correct answer, so anything the client merely
+    hides is still on the wire. A second copy of the rule here would be the version that
+    looks like it is doing the work while the payload leaks anyway."""
     main = (SRC / "main.ts").read_text(encoding="utf-8")
     block = main[main.index("function reviewList()"):]
     block = block[:block.index("\nfunction ")]
-    assert 'r.state === "abandoned"' in block
-    assert "i.given !== null" in block, (
-        "an exited review must filter on whether the learner actually answered"
+    assert "i.given !== null" not in block, (
+        "the client is re-filtering what the server already decided"
+    )
+
+    quiz = (ROOT / "api" / "services" / "quiz_sessions.py").read_text(encoding="utf-8")
+    body = quiz[quiz.index("async def results("):]
+    assert "graded_exam = " in body and "i.given is not None" in body, (
+        "the server must be the one deciding which items a review contains"
     )
 
 

@@ -40,9 +40,16 @@ def auth(chat_id: int = OWNER) -> dict:
          "auth_date": str(int(time.time()))}, TOKEN)}
 
 
-async def sat_exam(client, answers: list[bool] | None = None):
-    """Start a sitting, answer some of it, submit."""
-    r = await client.post("/webapp/sessions", headers=auth(), json={"mode": "practice"})
+async def sat_exam(client, answers: list[bool] | None = None, mode: str = "exam"):
+    """Start a sitting, answer some of it, submit.
+
+    EXAM by default, which is what this file is named for and what most of it asserts. It
+    used to start a practice round — convenient (no clock) and wrong: the review's rules
+    differ by mode, so `test_an_unanswered_question_is_distinguishable_from_a_wrong_one`
+    was checking exam blank-semantics against a practice sitting that does not have them.
+    That went unnoticed until practice stopped returning the questions it never served.
+    """
+    r = await client.post("/webapp/sessions", headers=auth(), json={"mode": mode})
     session = r.json()
     for i, given in enumerate(answers or [True, False], start=1):
         await client.post(f"/webapp/sessions/{session['id']}/answers", headers=auth(),

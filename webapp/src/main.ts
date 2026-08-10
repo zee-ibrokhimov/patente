@@ -938,24 +938,25 @@ function runBar(run: Run): HTMLElement {
     timerNode = el("div", "timer-value", "--:--");
     bar.append(timerNode);
   } else {
-    bar.append(el("div", "runbar-mode", t("practice")));
+    // The counter, not the mode name. "Practice" tells a learner who just tapped Practice
+    // nothing they do not know, and the row has to hold a labelled control as well —
+    // carrying both overflowed the bar by 39px even on a wide phone.
+    bar.append(el("div", "runbar-mode", t("question_n", { n: run.index + 1 })));
   }
 
-  const chip = el("button", "runbar-chip");
-  chip.type = "button";
+  // Exam only. "12/30", and tapping it opens the paper — in practice there is no paper: the
+  // total is only the current batch and would silently become 60, so the promise is not made,
+  // and a third element does not fit beside a mode name and a labelled control anyway. The
+  // practice counter lives in the left slot above, where the clock sits in an exam.
   if (exam) {
-    // "12/30", and tapping it opens the paper. In practice there is no paper: the total is
-    // only the current batch and would silently become 60, so the promise is not made.
+    const chip = el("button", "runbar-chip");
+    chip.type = "button";
     chip.append(el("b", "runbar-at", String(run.index + 1)),
                 document.createTextNode(`/${run.session.question_count}`));
     chip.setAttribute("aria-label", t("sheet_title"));
     chip.onclick = openAnswerSheet;
-  } else {
-    chip.classList.add("plain");
-    chip.textContent = t("question_n", { n: run.index + 1 });
-    chip.disabled = true;
+    bar.append(chip);
   }
-  bar.append(chip);
 
   // Practice ENDS here and is graded; an exam is handed in from inside the answer sheet,
   // where you can see what is still blank before committing.
@@ -966,16 +967,20 @@ function runBar(run: Run): HTMLElement {
   // minimises the Mini App on clients below Bot API 7.7. Exit creates no result at all: it
   // closes the sitting as uncounted and hands back the review. Putting it here is the
   // answer to "there is no exit" — a way out that needs no instruction to find.
+  // LABELLED in both modes, not a bare glyph. The report was "there is no exit mode" — a
+  // discovery failure — and an icon on its own is something the learner has to guess at; an
+  // aria-label fixes that for a screen reader and for nobody else.
+  //
+  // Two different words on purpose, because the two do different things. Exiting an exam
+  // produces NO result; finishing a practice round produces one and keeps it. Naming both
+  // "Exit" would put the whole difference in a dialog that a learner can dismiss without
+  // reading, and the difference is the entire point.
   const end = el("button", `runbar-end ${exam ? "exam" : ""}`);
   end.type = "button";
   end.append(exam ? icons.exit(18) : icons.flag(18));
-  if (exam) {
-    // LABELLED, not a bare glyph. The report was "there is no exit mode" — a discovery
-    // failure — and a door icon on its own is something the learner has to guess at. An
-    // aria-label fixes it for a screen reader and for nobody else.
-    end.append(el("span", "runbar-end-label", t("exit_label")));
-  }
-  end.setAttribute("aria-label", exam ? t("exit_label") : t("end_test"));
+  const label = exam ? t("exit_label") : t("end_test");
+  end.append(el("span", "runbar-end-label", label));
+  end.setAttribute("aria-label", label);
   end.onclick = exam ? confirmExit : confirmFinish;
   bar.append(end);
 
@@ -1148,7 +1153,12 @@ async function exitRun(): Promise<void> {
 async function confirmFinish(): Promise<void> {
   const run = state.run;
   if (!run) return;
-  if (run.session.mode === "exam" && !(await ask(t("confirm_submit")))) return;
+  // Practice asks too, now that it is reachable from a labelled control rather than from a
+  // glyph nobody pressed by accident. Its question is the MIRROR of the exam exit's: this
+  // one is kept. A learner offered two ways out of two modes should be told, at the moment
+  // of choosing, which of them records anything.
+  const question = run.session.mode === "exam" ? t("confirm_submit") : t("confirm_end_practice");
+  if (!(await ask(question))) return;
   void finishRun();
 }
 
@@ -1418,18 +1428,15 @@ function reviewList(): HTMLElement {
   }
   wrap.append(seg);
 
-  // An EXITED sitting lists only what the learner actually answered. The user asked for
-  // "questions where user give answer", and the reason is not just brevity: in a submitted
-  // exam a blank genuinely counts against you, which is why the filter below files an
-  // unanswered question with the mistakes. On an exit the untouched questions were never
-  // reached, and showing eighteen of them under a red heading would tell someone who
-  // stopped after twelve that they got eighteen wrong.
-  const dropped = r.mode === "exam" && r.state === "abandoned";
-  const sat = dropped ? r.items.filter((i) => i.given !== null) : r.items;
-
-  // `correct === false` and not `!correct`: an unanswered question is null, and in a
-  // submitted exam that counts against you, so it belongs in the mistakes list too.
-  const items = sat.filter((i) => (wrongOnly ? i.correct !== true : true));
+  // No client-side filtering by `given`. The server decides which items belong in a review
+  // — only a GRADED EXAM carries the questions that were never reached, because only there
+  // does a blank count against the candidate. Doing it here as well would be a second copy
+  // of that rule, in the place where it cannot actually help: every item carries the correct
+  // answer, so anything the client hides is still on the wire.
+  //
+  // `correct !== true` and not `!correct`: an unanswered question is null, and in a graded
+  // exam that counts against you, so it belongs in the mistakes list too.
+  const items = r.items.filter((i) => (wrongOnly ? i.correct !== true : true));
   if (items.length === 0) {
     wrap.append(el("p", "v-muted", t("review_none")));
     return wrap;
