@@ -18,6 +18,7 @@ from api.schemas import (
 )
 from api.services import events, explanations, stats, translations
 
+from api.services import pacing
 from api.services.answers import record_answer
 from api.services.content import question_payload
 from api.services.entitlement import Access, evaluate
@@ -112,9 +113,16 @@ async def submit_answer(
     if question is None:
         raise HTTPException(404, "unknown question")
 
-    result = await record_answer(
-        session, user, question, body.answer, evaluate(user)
-    )
+    try:
+        result = await record_answer(
+            session, user, question, body.answer, evaluate(user)
+        )
+    except pacing.TooFast as exc:
+        # 429 with Retry-After, not a silent drop. A client that cannot tell "refused"
+        # from "recorded" will show the learner a verdict for an answer that was never
+        # stored, and the next screen will disagree with it.
+        raise HTTPException(429, str(exc),
+                            headers={"Retry-After": str(exc.retry_after)}) from exc
     return AnswerOut(**result)
 
 

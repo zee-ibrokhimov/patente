@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.models import Progress, Question
-from api.services import events, explanations
+from api.services import events, explanations, pacing
 from api.services.entitlement import Entitlement, evaluate
 from api.services.leitner import schedule
 from shared.constants import EV_ANSWER_GIVEN, FIRST_BOX
@@ -67,6 +67,11 @@ async def record_answer(
     and did answer it, and stats would lie otherwise.
     """
     now = now or datetime.now(timezone.utc)
+    # Before anything is written, so the verdict can be stamped on the event itself. Placed
+    # in the shared write path rather than in the routes, so a route added later cannot
+    # quietly skip it. Raises only for the daily cap; a too-fast answer is recorded and
+    # simply does not count.
+    credited = await pacing.check(session, user.chat_id, now)
     correct = given == question.answer
 
     progress = await session.get(Progress, (user.chat_id, question.id))
@@ -137,6 +142,10 @@ async def record_answer(
         # Wrong answers before purchase is the core conversion metric (§4.3), and
         # it is only reconstructable if entitlement is stamped on the event.
         has_pass=entitlement.has_pass,
+        # Whether this answer may count toward a streak, a league point or a reward.
+        # Stamped here because `events` is append-only: a credit rule re-derived later from
+        # timestamps would change retroactively every time it was edited.
+        credited=credited,
     )
 
     # Serves the explanation if warming already produced it, and never generates one

@@ -63,6 +63,7 @@ from api.schemas import (
     VocabStatsOut,
 )
 from api.services import (
+    pacing,
     channel,
     content,
     explanations,
@@ -594,6 +595,9 @@ async def answer_session(
         )
     except quiz_sessions.SessionError as exc:
         raise HTTPException(exc.status, str(exc)) from exc
+    except pacing.TooFast as exc:
+        raise HTTPException(429, str(exc),
+                            headers={"Retry-After": str(exc.retry_after)}) from exc
 
     if row.mode == MODE_EXAM:
         return ExamAnswerOut(**payload)
