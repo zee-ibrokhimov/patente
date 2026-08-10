@@ -41,6 +41,7 @@ async def record_answer(
     *,
     update_schedule: bool = True,
     offer_explanation: bool = True,
+    session_id: int | None = None,
 ) -> dict:
     """Record one answer.
 
@@ -126,6 +127,13 @@ async def record_answer(
         # So an exam answer is separable from a studied one in the funnel forever.
         # Events cannot be backfilled, so this has to be stamped at write time.
         graded=update_schedule,
+        # Which sitting it came from, if any. Readiness is accuracy over recent ANSWERS and
+        # deliberately counts the ones given inside an exam the learner then exited — a
+        # decision, not an oversight, argued in `quiz_sessions.abandon`. But it is a
+        # decision that can only ever be REVISITED if the events carry enough to tell those
+        # answers apart, and this table is append-only: a discriminator not written today
+        # cannot be recovered tomorrow. One JSON key, no migration.
+        session_id=session_id,
         # Wrong answers before purchase is the core conversion metric (§4.3), and
         # it is only reconstructable if entitlement is stamped on the event.
         has_pass=entitlement.has_pass,

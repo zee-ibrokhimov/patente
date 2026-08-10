@@ -957,16 +957,27 @@ function runBar(run: Run): HTMLElement {
   }
   bar.append(chip);
 
-  // Practice ends here; an exam is handed in from inside the answer sheet, where you can
-  // see what is still blank before you commit.
-  if (!exam) {
-    const end = el("button", "runbar-end");
-    end.type = "button";
-    end.append(icons.flag(18));
-    end.setAttribute("aria-label", t("end_test"));
-    end.onclick = confirmFinish;
-    bar.append(end);
+  // Practice ENDS here and is graded; an exam is handed in from inside the answer sheet,
+  // where you can see what is still blank before committing.
+  //
+  // An exam's control here is EXIT instead, and the difference in cost is what justifies
+  // the difference in placement. Submit is irreversible and creates a permanent result, so
+  // it was deliberately kept out of the top strip — the band where a downward drag
+  // minimises the Mini App on clients below Bot API 7.7. Exit creates no result at all: it
+  // closes the sitting as uncounted and hands back the review. Putting it here is the
+  // answer to "there is no exit" — a way out that needs no instruction to find.
+  const end = el("button", `runbar-end ${exam ? "exam" : ""}`);
+  end.type = "button";
+  end.append(exam ? icons.exit(18) : icons.flag(18));
+  if (exam) {
+    // LABELLED, not a bare glyph. The report was "there is no exit mode" — a discovery
+    // failure — and a door icon on its own is something the learner has to guess at. An
+    // aria-label fixes it for a screen reader and for nobody else.
+    end.append(el("span", "runbar-end-label", t("exit_label")));
   }
+  end.setAttribute("aria-label", exam ? t("exit_label") : t("end_test"));
+  end.onclick = exam ? confirmExit : confirmFinish;
+  bar.append(end);
 
   if (run.deadline) tick();
   return bar;
@@ -1094,6 +1105,46 @@ function goHome(): void {
   render();
 }
 
+/** Leave an exam without sitting it.
+ *
+ *  Asked before it happens, and the question says both halves out loud: this attempt will
+ *  not be counted, AND you will see your answers. A learner who thinks Exit throws their
+ *  work away will not press it, and one who thinks it counts as a failure will not press it
+ *  either — so the confirmation is the feature as much as the button is.
+ */
+async function confirmExit(): Promise<void> {
+  const run = state.run;
+  if (!run) return;
+  if (!(await ask(t("exit_confirm")))) return;
+  await exitRun();
+}
+
+async function exitRun(): Promise<void> {
+  const run = state.run;
+  if (!run) return;
+  try {
+    const results = await sessions.exit(run.session.id);
+    stopTicking();
+    state.results = results;
+    state.run = null;
+    // The sitting is closed, so there is nothing left to resume. Leaving `resumable` set
+    // would put a "continue your exam" card on the home screen pointing at a session the
+    // server has already finished.
+    state.resumable = null;
+    // Cleared for the same reason finishing clears them: the answers given are still
+    // answers, so readiness and the per-topic figures have moved. Not "still count as
+    // practice" — an exam answer does not touch the Leitner schedule at all
+    // (MODE_UPDATES_SCHEDULE). What moved is the accuracy window; the SITTING is not
+    // recorded either way.
+    state.profile = null;
+    state.stats = null;
+    state.screen = "results";
+    render();
+  } catch (err) {
+    reportError(err);
+  }
+}
+
 async function confirmFinish(): Promise<void> {
   const run = state.run;
   if (!run) return;
@@ -1179,6 +1230,13 @@ function openAnswerSheet(): void {
   hand.type = "button";
   hand.onclick = () => { close(); void confirmFinish(); };
   card.append(hand);
+
+  // The same exit as the one in the bar. Both ways out live together here, which is where
+  // someone looking at what they have left blank is actually deciding between them.
+  const leave = el("button", "btn secondary sheet-exit", t("exit_label"));
+  leave.type = "button";
+  leave.onclick = () => { close(); void confirmExit(); };
+  card.append(leave);
 
   scrim.append(card);
   scrim.onclick = (ev) => { if (ev.target === scrim) close(); };
@@ -1360,9 +1418,18 @@ function reviewList(): HTMLElement {
   }
   wrap.append(seg);
 
-  // `correct === false` and not `!correct`: an unanswered question is null, and in an
-  // exam that counts against you, so it belongs in the mistakes list too.
-  const items = r.items.filter((i) => (wrongOnly ? i.correct !== true : true));
+  // An EXITED sitting lists only what the learner actually answered. The user asked for
+  // "questions where user give answer", and the reason is not just brevity: in a submitted
+  // exam a blank genuinely counts against you, which is why the filter below files an
+  // unanswered question with the mistakes. On an exit the untouched questions were never
+  // reached, and showing eighteen of them under a red heading would tell someone who
+  // stopped after twelve that they got eighteen wrong.
+  const dropped = r.mode === "exam" && r.state === "abandoned";
+  const sat = dropped ? r.items.filter((i) => i.given !== null) : r.items;
+
+  // `correct === false` and not `!correct`: an unanswered question is null, and in a
+  // submitted exam that counts against you, so it belongs in the mistakes list too.
+  const items = sat.filter((i) => (wrongOnly ? i.correct !== true : true));
   if (items.length === 0) {
     wrap.append(el("p", "v-muted", t("review_none")));
     return wrap;
@@ -1456,8 +1523,18 @@ function resultsScreen(): HTMLElement {
   const r = state.results!;
   const wrap = el("section", "screen");
 
+  // `r.state === "abandoned"` and not `r.passed === null`: PRACTICE sittings are also null
+  // — their max_errors is null so _grade never assigns one — and they need their own
+  // branch, not this one. State is the fact; passed being null is a consequence of it.
+  const dropped = r.mode === "exam" && r.state === "abandoned";
+
+  // Only a graded EXAM is a pass or a fail. `const passed = r.passed === true` used to feed
+  // the tone directly, so everything null landed in the fail branch — which meant a perfect
+  // 10/10 practice round was drawn on a red card under a red cross, on every practice
+  // sitting this app has ever finished. Practice is not something you fail.
+  const graded = r.mode === "exam" && !dropped;
   const passed = r.passed === true;
-  const esito = el("div", `esito ${passed ? "pass" : "fail"}`);
+  const esito = el("div", `esito ${graded ? (passed ? "pass" : "fail") : "dropped"}`);
 
   // The medallion. `.esito-mark` and its pass/fail tints have been in style.css from the
   // start and NO .ts file ever emitted the class, so the end of an exam — the moment this
@@ -1465,13 +1542,20 @@ function resultsScreen(): HTMLElement {
   // to size 44, a size used nowhere else in the app: they were drawn for this 72-96px
   // circle and then never wired to it.
   const mark = el("div", "esito-mark");
-  mark.append(passed ? icons.tick(44) : icons.cross(44));
+  // The exit door, matching the button they pressed, rather than a clock — a clock on this
+  // screen reads as "you ran out of time", which is a different outcome that IS graded.
+  // Practice gets the target it has been aiming at, and neither gets a tick or a cross.
+  mark.append(graded ? (passed ? icons.tick(44) : icons.cross(44))
+                     : dropped ? icons.exit(44) : icons.target(44));
   esito.append(mark);
 
   // `esito-sub` below, not `esito-line`. style.css styles the former; the latter has no
   // rule anywhere in the project, so this sentence rendered at browser-default <p> size
   // and margins instead of the 600-weight body copy it was drawn as.
-  if (r.mode === "exam") {
+  if (dropped) {
+    esito.append(el("p", "esito-verdict", t("not_counted")));
+    esito.append(el("p", "esito-sub", t("not_counted_sub")));
+  } else if (r.mode === "exam") {
     esito.append(el("p", "esito-verdict", passed ? t("passed") : t("failed")));
     esito.append(el("p", "esito-sub",
       `${r.wrong} ${t("errors").toLowerCase()} / ${r.max_errors} ${t("allowed").toLowerCase()}`));
@@ -1499,7 +1583,11 @@ function resultsScreen(): HTMLElement {
     // In practice `question_count - answered` is nothing but the unserved tail of the
     // last batch — not questions the learner skipped — so showing it as "unanswered"
     // reports slack in the fetching as if it were a failure. Show what they got right.
-    r.mode === "exam"
+    // "Unanswered" is a failure figure: in a real exam a blank counts against you, which is
+    // why a submitted or expired sitting reports it. An exited one did not reach those
+    // questions at all, so reporting them as a third column would turn stopping early into
+    // a score. Show what they got right instead, as practice does.
+    r.mode === "exam" && !dropped
       ? stat(r.question_count - r.answered, t("unanswered"))
       : stat(r.answered - r.wrong, t("correct")),
   );

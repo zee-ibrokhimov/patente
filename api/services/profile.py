@@ -180,15 +180,24 @@ async def _exams(session: AsyncSession, chat_id: int) -> dict:
                 QuizSession.chat_id == chat_id,
                 QuizSession.mode == MODE_EXAM,
                 QuizSession.state != SESSION_OPEN,
+                # "Taken" means SAT — submitted, or run out of time. Not "started and
+                # walked away from", which is what an abandoned row is and which `_grade`
+                # leaves ungraded.
+                #
+                # IN SQL, not in Python afterwards. The filter used to run over the twenty
+                # rows this query returned, so ungraded sittings consumed slots in the
+                # window and evicted real exams from it — from the history list AND from
+                # `taken`, `passed` and `avg_errors`, all of which are computed from the
+                # same twenty. Twenty-one abandoned rows and a learner's entire exam record
+                # read as zero. Harmless while abandoning took a deliberate detour through
+                # starting another sitting; a live defect the moment Exit became a button.
+                QuizSession.passed.is_not(None),
             )
             .order_by(QuizSession.started_at.desc())
             .limit(20)
         )
     )
-    # "Taken" means SAT — submitted, or run out of time. Not "started and walked away
-    # from", which is what an abandoned row is, and which `_grade` now leaves ungraded.
-    # Counting those made the screen claim exams the learner never took.
-    graded = [r for r in rows if r.passed is not None]
+    graded = rows
     return {
         "taken": len(graded),
         "passed": sum(1 for r in graded if r.passed),

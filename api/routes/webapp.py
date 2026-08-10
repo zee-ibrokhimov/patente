@@ -620,6 +620,32 @@ async def finish_session(
         raise HTTPException(exc.status, str(exc)) from exc
 
 
+@router.post("/sessions/{session_id}/exit", response_model=SessionResultsOut)
+async def exit_session(
+    session_id: int,
+    user: User = Depends(webapp_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Leave an exam without sitting it, and get the review anyway.
+
+    Returns the same payload as `finish` on purpose: the learner still wants to know how the
+    questions they DID answer went, and that is the one moment they most want the material.
+    What differs is `passed`, which stays null — the client renders that as "not counted"
+    rather than as a fail, and the profile never counts the sitting at all.
+
+    Idempotent, like finish: a retried exit returns the review rather than an error.
+    """
+    now = datetime.now(timezone.utc)
+    try:
+        row = await quiz_sessions.load_owned(session, user, session_id, now)
+        await quiz_sessions.abandon(session, user, row, now)
+        return SessionResultsOut(
+            **await quiz_sessions.results(session, row, user, evaluate(user))
+        )
+    except quiz_sessions.SessionError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+
+
 @router.post("/sessions/{session_id}/extend", response_model=SessionOut)
 async def extend_session(
     session_id: int,

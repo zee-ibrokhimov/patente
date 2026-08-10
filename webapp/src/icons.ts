@@ -135,6 +135,11 @@ export const icons = {
 
   flag: (size = 20) => svg(`<path d="M6 20V4M6 5h11l-2.5 4L17 13H6"/>`, size),
 
+  /** A door with an arrow leaving it. Deliberately not an X: a cross reads as "close this
+   *  dialog" or "delete", and this ends a sitting. */
+  exit: (size = 20) =>
+    svg(`<path d="M14 20H6a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h8"/><path d="M17 15l3-3-3-3"/><path d="M20 12h-9"/>`, size),
+
   clock: (size = 44) =>
     svg(`<circle cx="12" cy="12" r="9"/><path d="M12 6.5V12l4 2.2"/>`, size),
 

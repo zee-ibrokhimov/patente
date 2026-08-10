@@ -317,5 +317,11 @@ export const sessions = {
   finish: (id: number) =>
     request<SessionResults>(`/sessions/${id}/finish`, { method: "POST" }),
 
+  /** Leave an exam without sitting it. Returns the same review as `finish`, but the sitting
+   *  comes back ABANDONED with `passed: null` — not a result, and never counted as one.
+   *  Idempotent server-side, so a retry after a lost response is safe. */
+  exit: (id: number) =>
+    request<SessionResults>(`/sessions/${id}/exit`, { method: "POST" }),
+
   results: (id: number) => request<SessionResults>(`/sessions/${id}/results`),
 };

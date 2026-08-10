@@ -393,6 +393,17 @@ html, body { overflow-x: hidden; }
 .sheet-title { margin: 0; font-size: var(--t-title); font-weight: 800; }
 .sheet-sub { margin: var(--xs) 0 0; color: var(--text-2); font-size: var(--t-caption); }
 .sheet-submit { margin-top: var(--sm); }
+.sheet-exit { margin-top: var(--sm); }
+/* The exam's bar control is an EXIT, not an end-and-grade, so it does not wear the
+   practice green that .runbar-end carries. Neutral: leaving is neither good nor bad. */
+/* Labelled, so it stops being a fixed 38px square and becomes a pill that sizes to its
+   word — "Выйти", "Chiqish", "Esci" are all different lengths. */
+.runbar-end.exam {
+  background: var(--card); color: var(--text-2);
+  width: auto; gap: 5px; grid-auto-flow: column; align-items: center;
+  padding-inline: 10px;
+}
+.runbar-end-label { font-size: var(--t-caption); font-weight: 600; }
 
 /* min-height reserves the figure's box BEFORE the image loads. Without it the plate is
    zero-high until the sign arrives over mobile data, so the statement and the Vero/Falso
@@ -532,12 +543,27 @@ html, body { overflow-x: hidden; }
 }
 .esito.pass .esito-mark { background: var(--practice-chip); color: var(--ok); }
 .esito.fail .esito-mark { background: var(--exam-chip); color: var(--bad); }
+/* Neither tint. Green would congratulate someone for stopping and red would tell them they
+   failed, and the whole point of this state is that it is not a result. --tint-info is the
+   app's neutral block, already used by the tip and the stats strip. */
+.esito.dropped { background: var(--tint-info); }
+.esito.dropped .esito-mark { background: var(--card); color: var(--text-2); }
 .esito-verdict {
   font-size: var(--t-verdict); font-weight: var(--w-verdict); letter-spacing: -.01em;
   margin: 0; line-height: 1;
 }
 .esito.pass .esito-verdict { color: var(--ok); }
 .esito.fail .esito-verdict { color: var(--bad); }
+/* Smaller than PASSED/FAILED, and deliberately so. Those are single words drawn at
+   --t-verdict; "Not counted" is a phrase in every language this app speaks and wrapped to
+   two lines at that size, with the Russian "Не засчитано" breaking mid-phrase across the
+   full width of the card. It is also not a verdict, and should not shout like one. */
+.esito.dropped .esito-verdict {
+  color: var(--text); font-size: var(--t-title); text-wrap: balance;
+}
+/* The practice score shares the neutral card but is a NUMBER, and the number is the whole
+   point of the screen. It keeps the full verdict size that the phrase above gives up. */
+.esito.dropped .esito-verdict.display { font-size: var(--t-verdict); }
 .esito-sub { margin: var(--md) 0 0; font-size: var(--t-body); font-weight: 600; }
 
 .score-card { text-align: center; margin-top: var(--lg); }

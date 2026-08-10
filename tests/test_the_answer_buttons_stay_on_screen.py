@@ -1,8 +1,8 @@
 """Vero and Falso must be reachable without scrolling, for every question in the bank.
 
 This is the one property the run screen exists to hold, and it is the one that was broken:
-on a 390x844 phone inside Telegram the pair used to begin at y=722 and end at y=846, with
-about 700px of usable viewport. The user's report was "user need to scroll".
+on a phone inside Telegram the pair used to begin at y=722 and end at y=846, with about
+700px of usable viewport. The user's report was "user need to scroll".
 
 Arithmetic over the stylesheet is not enough to check it. The two bugs that made the first
 attempt at this fix wrong were both invisible to arithmetic — `#app` is a flex column, so
@@ -38,6 +38,25 @@ pytestmark = pytest.mark.skipif(CHROMIUM is None, reason="chromium not installed
 
 # A 390x844 phone, less ~144px of Telegram header and safe area.
 VIEWPORT = 700
+
+# Headless Chromium refuses to lay out below 500 CSS px wide — --window-size is honoured on
+# the height axis and clamped on the width axis, in every flag combination tried. So these
+# measurements are of a 500x700 viewport, not a 390x700 one, and saying otherwise would be
+# a lie in a docstring that nobody would ever check.
+#
+# It does not weaken what is asserted here, because every assertion below is a claim about
+# HEIGHT and the layout's height does not depend on its width:
+#   · the answer row is pinned to the bottom of a 100dvh flex column, so its position is
+#     viewport height minus padding — the statement's length, and therefore the width it
+#     wraps at, cannot move it. That invariance IS the feature.
+#   · the figure's floor and ceiling are vh and a fixed px, never vw.
+#   · `.plate` is min(100%, 300px), and 100% exceeds 300 at both widths.
+# A narrower screen wraps the statement into MORE lines, which the old layout would have
+# handled worse — so 500px is the generous case for the bug and the honest case for the fix.
+#
+# Rendering at a true 390px does work through the --screenshot path, which is how the
+# reference images were produced; it is only the DOM-measurement path that clamps.
+LAYOUT_WIDTH = 500
 
 # Statements picked from patente.db by rendered line count. The p50 case matters as much as
 # the long ones: the first version of this fix was measured against the 6th-percentile
@@ -85,7 +104,7 @@ FIXTURE = """<!doctype html><html lang="it" data-theme="{theme}"><head><meta cha
   document.title = '__M__' + JSON.stringify({{
     answersTop: Math.round(r.top), answersBottom: Math.round(r.bottom),
     figureWidth: Math.round(plate.width), figureHeight: Math.round(plate.height),
-    viewport: window.innerHeight,
+    viewport: window.innerHeight, width: window.innerWidth,
   }});
 </script>
 </body></html>"""
@@ -143,8 +162,14 @@ def viewport_is_right():
     Everything below is a claim about a 700px screen. Numbers measured on any other size
     would look just as plausible and would be about a phone nobody owns.
     """
-    got = measure(CASES["p50"])["viewport"]
-    assert got == VIEWPORT, f"harness viewport is {got}, expected {VIEWPORT}"
+    m = measure(CASES["p50"])
+    assert m["viewport"] == VIEWPORT, f"harness viewport is {m['viewport']}, expected {VIEWPORT}"
+    # Asserted so that if a future Chromium stops clamping the width, the reasoning above
+    # gets revisited deliberately instead of the numbers quietly changing meaning.
+    assert m["width"] == LAYOUT_WIDTH, (
+        f"harness width is {m['width']}, expected {LAYOUT_WIDTH} — re-read the note at the "
+        "top of this file before trusting these numbers"
+    )
 
 
 @pytest.mark.parametrize("case", list(CASES))

@@ -215,6 +215,7 @@ async def answer(
         session, user, question, given, entitlement, now,
         update_schedule=MODE_UPDATES_SCHEDULE[row.mode],
         offer_explanation=MODE_OFFERS_EXPLANATION[row.mode],
+        session_id=row.id,
     )
 
     item.given = given
@@ -354,6 +355,34 @@ async def finish(
     if row.state != SESSION_OPEN:
         return row
     await _grade(session, row, state=SESSION_SUBMITTED, finished_at=now)
+    return row
+
+
+async def abandon(
+    session: AsyncSession, user, row: QuizSession, now: datetime | None = None
+) -> QuizSession:
+    """End a sitting WITHOUT it becoming a result — the learner walked away on purpose.
+
+    The distinction from `finish` is the whole feature. Submitting says "grade this"; exiting
+    says "I am not sitting this one", and an exam nobody sat is not an exam they failed. So
+    this routes through the same `_grade` as everything else but with SESSION_ABANDONED,
+    which leaves `passed = None` — and `profile._exams` counts only rows where `passed` is
+    not None, so the sitting never reaches "Exams taken", the pass rate, or the average
+    error count.
+
+    What it does NOT undo is the answers themselves. Twelve questions answered are twelve
+    real pieces of evidence about what this learner knows, and readiness is accuracy over
+    recent answers rather than over exams. Discarding them would make a learner who exits
+    look less practised than they are, and would quietly punish the honest use of a control
+    we are adding on purpose.
+
+    Idempotent for the same reason `finish` is: the client cannot distinguish a lost
+    response from a refused one, and a retried exit must not fail.
+    """
+    now = now or datetime.now(timezone.utc)
+    if row.state != SESSION_OPEN:
+        return row
+    await _grade(session, row, state=SESSION_ABANDONED, finished_at=now)
     return row
 
 

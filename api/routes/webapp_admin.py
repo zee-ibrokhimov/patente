@@ -1030,7 +1030,12 @@ async def one_user(
         .where(Event.chat_id == chat_id, Event.type == EV_ANSWER_GIVEN))
     exams = await session.scalar(
         select(func.count(QuizSession.id))
-        .where(QuizSession.chat_id == chat_id, QuizSession.mode == MODE_EXAM))
+        # `passed is not None` so the owner's count means what the learner's "Exams taken"
+        # means. Without it this counted every started-and-left sitting, so the console
+        # reported more exams than the person's own profile did — and the two numbers being
+        # asked to agree is the whole reason someone opens this pane.
+        .where(QuizSession.chat_id == chat_id, QuizSession.mode == MODE_EXAM,
+               QuizSession.passed.is_not(None)))
     reports = await session.scalar(
         select(func.count(Report.id)).where(Report.chat_id == chat_id))
 
