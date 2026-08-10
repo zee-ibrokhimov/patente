@@ -977,6 +977,12 @@ function runBar(run: Run): HTMLElement {
   // reading, and the difference is the entire point.
   const end = el("button", `runbar-end ${exam ? "exam" : ""}`);
   end.type = "button";
+  // Disabled while an answer is in flight. submitAnswer guards itself and the two answer
+  // buttons, but nothing guarded this one — and if the finish request overtakes the answer
+  // request the server refuses the answer with 409, so it is never recorded: no Progress
+  // row, no Leitner move, and a red error toast over the results screen. A narrow window,
+  // and a wider one now that this control is labelled and therefore actually pressed.
+  end.disabled = run.busy;
   end.append(exam ? icons.exit(18) : icons.flag(18));
   const label = exam ? t("exit_label") : t("end_test");
   end.append(el("span", "runbar-end-label", label));
@@ -1119,7 +1125,7 @@ function goHome(): void {
  */
 async function confirmExit(): Promise<void> {
   const run = state.run;
-  if (!run) return;
+  if (!run || run.busy) return;
   if (!(await ask(t("exit_confirm")))) return;
   await exitRun();
 }
@@ -1152,7 +1158,10 @@ async function exitRun(): Promise<void> {
 
 async function confirmFinish(): Promise<void> {
   const run = state.run;
-  if (!run) return;
+  // `run.busy`, same as the answer buttons. Not inside finishRun itself: the deadline path
+  // calls it too, and an exam whose twenty minutes are up has to end whatever else is in
+  // flight.
+  if (!run || run.busy) return;
   // Practice asks too, now that it is reachable from a labelled control rather than from a
   // glyph nobody pressed by accident. Its question is the MIRROR of the exam exit's: this
   // one is kept. A learner offered two ways out of two modes should be told, at the moment
@@ -1600,7 +1609,14 @@ function resultsScreen(): HTMLElement {
   );
   esito.append(tally);
   wrap.append(esito);
-  if (r.items?.length) wrap.append(reviewList());
+  if (r.items?.length) {
+    wrap.append(reviewList());
+  } else {
+    // Both dialogs that lead here promise a review — practice's says so outright and the
+    // exam exit's says "you will see your answers". End a round having answered nothing and
+    // the promised section simply was not drawn, leaving a bare 0/0 and no explanation.
+    wrap.append(el("p", "esito-note", t("nothing_to_review")));
+  }
 
   const again = el("button", "btn primary", t("again"));
   again.onclick = () => void startRun(r.mode);

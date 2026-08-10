@@ -210,5 +210,59 @@ def test_the_practice_dialog_promises_the_opposite_of_the_exam_one():
 
     ru_practice = next(ln for ln in practice if "Завершить" in ln)
     ru_exit = next(ln for ln in exits if "Выйти" in ln)
-    assert "сохранится" in ru_practice, ru_practice
+    assert "сохранятся" in ru_practice, ru_practice
     assert "не будет засчитана" in ru_exit, ru_exit
+
+
+def test_the_practice_dialog_promises_only_what_is_kept():
+    """"The result is saved" is more than the code does.
+
+    Nothing in the product ever shows a practice sitting again: the profile's history is
+    exam-only, and the two client calls that fetch results by id are recovery paths keyed
+    off an open session. The ROW is written and never displayed. What genuinely persists is
+    the answers — Progress rows and the event log — which is what the boxes, the per-topic
+    figures, readiness and the streak are all built from.
+
+    "Your answers are kept" is exactly true and still the opposite of the exam exit's "will
+    not be counted", which is the contrast the pair of dialogs exists to draw.
+    """
+    i18n = (SRC / "i18n.ts").read_text(encoding="utf-8")
+    for line in (ln for ln in i18n.splitlines()
+                 if ln.strip().startswith("confirm_end_practice:")):
+        assert "результат" not in line.lower() and "risultato" not in line.lower(), line
+        assert "natija" not in line.lower() and "the result" not in line.lower(), line
+
+
+def test_a_round_with_no_answers_says_why_there_is_no_review():
+    """Both dialogs leading to this screen promise a review. End a round having answered
+    nothing and `r.items` is empty, so the section was simply not drawn — a bare 0/0 with no
+    explanation, after a sentence that said otherwise."""
+    main = (SRC / "main.ts").read_text(encoding="utf-8")
+    block = main[main.index("function resultsScreen()"):]
+    block = block[:block.index("\nfunction ")]
+    assert "nothing_to_review" in block, (
+        "a results screen with no items must say why, not just omit the review"
+    )
+    i18n = (SRC / "i18n.ts").read_text(encoding="utf-8")
+    assert i18n.count("nothing_to_review:") == 4
+
+
+def test_ending_a_round_cannot_race_an_answer_still_in_flight():
+    """If the finish request overtakes the answer request the server refuses the answer with
+    409 and it is never recorded — no Progress row, no Leitner move — and the learner gets a
+    red error toast over their results. The answer buttons have always been disabled on
+    `run.busy`; the control that ends the round was not."""
+    main = (SRC / "main.ts").read_text(encoding="utf-8")
+    bar = main[main.index("function runBar("):]
+    bar = bar[:bar.index("\nfunction ")]
+    assert "end.disabled = run.busy" in bar
+
+    for fn in ("confirmFinish", "confirmExit"):
+        block = main[main.index(f"async function {fn}("):]
+        block = block[:block.index("\n}") + 2]
+        # The EXPRESSION, not the words. Asserting `"run.busy" in block` passed happily on
+        # the comment that explains the guard, so removing the guard itself changed nothing
+        # — caught by mutation, which is the only reason this line is specific.
+        assert "if (!run || run.busy) return;" in block, (
+            f"{fn} does not bail out while an answer is in flight"
+        )

@@ -405,6 +405,7 @@ html, body { overflow-x: hidden; }
 /* Neutral rather than practice-green: exiting an exam is neither good nor bad, and it is
    not the primary action on a screen whose primary action is answering. */
 .runbar-end.exam { background: var(--card); color: var(--text-2); }
+.runbar-end:disabled { opacity: .45; cursor: default; }
 .runbar-end-label { font-size: var(--t-caption); font-weight: 600; }
 /* Below 340px the bar carries a clock, a 12/30 chip and this, and the countdown is the one
    thing a candidate is watching — so the word goes and the door stays. The aria-label does
@@ -571,6 +572,8 @@ html, body { overflow-x: hidden; }
    point of the screen. It keeps the full verdict size that the phrase above gives up. */
 .esito.dropped .esito-verdict.display { font-size: var(--t-verdict); }
 .esito-sub { margin: var(--md) 0 0; font-size: var(--t-body); font-weight: 600; }
+/* Sits where the review would be, saying why there is not one. */
+.esito-note { margin: var(--xl) 0 var(--lg); color: var(--text-2); text-align: center; }
 
 .score-card { text-align: center; margin-top: var(--lg); }
 .score-line { font-size: clamp(18px, 5.6vw, 22px); font-weight: 800; }
