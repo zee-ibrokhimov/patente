@@ -485,6 +485,12 @@ html, body { overflow-x: hidden; }
 }
 
 .answers { display: grid; gap: var(--md); margin-top: var(--xl); }
+
+/* Where the answer buttons go once there is nothing left to answer. Same slot, so the
+   thing under the thumb does not move between the last question and this. */
+.run-done { display: grid; gap: var(--sm); margin-top: var(--md); justify-items: center; }
+.run-done-line { margin: 0 0 var(--xs); color: var(--text-2); font-size: var(--t-caption); }
+.run-done .btn { width: 100%; }
 .btn.vero, .btn.falso {
   background: var(--card); border: 1.5px solid var(--edge);
   font-size: clamp(18px, 5.6vw, 22px); font-weight: 800; letter-spacing: .01em;

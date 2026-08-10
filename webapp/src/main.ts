@@ -98,6 +98,10 @@ interface Run {
   /** The highest ordinal already asked for. Stops every answer re-requesting a window
    *  that mostly overlaps the last one. */
   prefetchedTo: number;
+  /** Fetching translations for a sitting that was started without them. Distinct from
+   *  `busy`, which is an answer in flight: this one leaves the question readable and only
+   *  covers the strip under it. */
+  warming: boolean;
 }
 
 /** The vocabulary trainer's own state.
@@ -375,6 +379,7 @@ function enterRun(session: Session): void {
   const done = new Set(session.answered_ordinals ?? []);
   state.run = {
     session,
+    warming: false,
     index: Math.min(session.answered, session.question_count - 1),
     answered: done,
     verdict: null,
@@ -494,6 +499,67 @@ async function hydrateTranslation(): Promise<void> {
     now.translation_state = "unavailable";
     const slot = document.getElementById("tr-slot");
     if (slot) slot.replaceWith(translationSlot(now));
+  }
+}
+
+/** Turning translations OFF has to take the one on screen with it.
+ *
+ *  The session's questions are held client-side with whatever `translation_state` and text
+ *  the server sent when they were fetched. Flipping the switch changed the SETTING and
+ *  re-rendered from that same cached payload, so the translation the learner had just asked
+ *  to be rid of stayed under the question until they moved on — the switch appeared not to
+ *  work, and then to work one question later.
+ *
+ *  Cleared for the whole paper, not just the current question, because every question
+ *  already fetched carries one. */
+function dropLoadedTranslations(): void {
+  const run = state.run;
+  if (!run) return;
+  for (const question of run.session.questions) {
+    question.translation = null;
+    // "off" is what the server sends for a learner who has the switch down, so the client
+    // ends up in the state a fresh fetch would have produced.
+    question.translation_state = "off";
+  }
+  if (run.verdict) run.verdict = { ...run.verdict };
+}
+
+/** Turning translations ON mid-sitting has to go and get them.
+ *
+ *  A quiz started with the switch down was prepared with the switch down: the opening
+ *  prefetch skipped translations entirely, and every question already fetched came back
+ *  `off`. Flipping the switch used to fetch exactly one — the question on screen — so the
+ *  next four arrived untranslated too, one wait at a time, and explanations behaved the
+ *  same way. The learner reads that as "I turned it on and nothing happened".
+ *
+ *  So it re-runs the same warm-up a quiz start does, over the window in front of them, and
+ *  shows the same loading state while it waits. The wait is the honest thing here: the
+ *  translations genuinely do not exist yet. */
+async function warmTranslations(): Promise<void> {
+  const run = state.run;
+  if (!run) return;
+
+  // The server decides `translation_state` from the setting it has just been told about,
+  // so the cached `off` on every question has to go before anything is re-fetched.
+  for (const question of run.session.questions) {
+    if (question.translation_state === "off") question.translation_state = "available";
+  }
+
+  const from = run.index + 1;
+  const count = Math.min(PREFETCH_WINDOW, run.session.question_count - run.index);
+  run.warming = true;
+  render();
+  try {
+    // `wait: true` — the same blocking call the loading screen makes. Fire-and-forget would
+    // put the spinner up and take it down before anything had been fetched.
+    await sessions.prefetch(run.session.id, from, count, true);
+    run.prefetchedTo = Math.max(run.prefetchedTo, from + count - 1);
+  } catch {
+    /* a failed warm-up is a slower question, not a broken sitting */
+  } finally {
+    run.warming = false;
+    render();
+    void hydrateTranslation();
   }
 }
 
@@ -906,12 +972,15 @@ function translationToggle(): HTMLElement | null {
   sw.setAttribute("role", "switch");
   sw.setAttribute("aria-checked", String(me.translations_on));
   sw.onclick = async () => {
+    const turningOn = !me.translations_on;
     try {
-      state.me = await api.settings({ translations_on: !me.translations_on });
-      render();
-      // Turning it ON mid-question must fetch the translation for the question already
-      // on screen; the usual fetch only runs when a question is first rendered.
-      if (state.me?.translations_on) void hydrateTranslation();
+      state.me = await api.settings({ translations_on: turningOn });
+      if (turningOn) {
+        await warmTranslations();
+      } else {
+        dropLoadedTranslations();
+        render();
+      }
     } catch (err) {
       reportError(err);
     }
@@ -1045,12 +1114,40 @@ function runScreen(): HTMLElement {
   }
   if (question.stem_it) body.append(el("p", "caption", question.stem_it));
   body.append(el("p", "statement", question.statement_it));
-  body.append(translationSlot(question));
+  if (run.warming) {
+    // The question stays readable and answerable — only the strip that is about to hold a
+    // translation says it is being fetched.
+    body.append(el("p", "hint", t("fetching_translations")));
+  } else {
+    body.append(translationSlot(question));
+  }
   if (reading && run.verdict) body.append(verdictBox(run.verdict));
   wrap.append(body);
   watchOverflow(body);
 
-  if (!answeredHere) {
+  // Every question answered, and the clock still running. Until now the candidate was left
+  // on the last question with a Next that wrapped them round the paper and no statement
+  // anywhere that they were done — the only way to hand in was the answer sheet, two taps
+  // away behind a chip. A paper with nothing left blank should say so.
+  const complete = run.session.mode === "exam"
+    && run.answered.size >= run.session.question_count;
+
+  if (complete) {
+    const done = el("div", "run-done");
+    done.append(el("p", "run-done-line", t("all_answered")));
+    const hand = el("button", "btn primary", t("finish_now"));
+    hand.type = "button";
+    hand.disabled = run.busy;
+    hand.onclick = () => void confirmHandIn();
+    done.append(hand);
+    // Still reachable, because "I want to look at 14 again" is the whole reason the
+    // confirmation below offers a way out.
+    const back = el("button", "link-btn", t("sheet_title"));
+    back.type = "button";
+    back.onclick = openAnswerSheet;
+    done.append(back);
+    wrap.append(done);
+  } else if (!answeredHere) {
     const row = el("div", "answers");
     const vero = el("button", "btn vero", t("vero"));
     const falso = el("button", "btn falso", t("falso"));
@@ -1154,6 +1251,22 @@ async function exitRun(): Promise<void> {
   } catch (err) {
     reportError(err);
   }
+}
+
+/** Handing in a paper with nothing left blank.
+ *
+ *  Different from the answer-sheet Submit, which is for handing in EARLY and warns about
+ *  what is still unanswered. Here nothing is unanswered, so the only thing worth saying is
+ *  the thing a candidate in a real exam room weighs: there is still time on the clock, and
+ *  checking your work is free. The default answer is to go back and look. */
+async function confirmHandIn(): Promise<void> {
+  const run = state.run;
+  if (!run || run.busy) return;
+  const left = Math.max(0, remainingMs());
+  const mm = String(Math.floor(left / 60_000)).padStart(2, "0");
+  const ss = String(Math.floor((left % 60_000) / 1000)).padStart(2, "0");
+  if (!(await ask(t("finish_confirm", { time: `${mm}:${ss}` })))) return;
+  void finishRun();
 }
 
 async function confirmFinish(): Promise<void> {
