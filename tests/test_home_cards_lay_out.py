@@ -37,9 +37,22 @@ def rule(selector: str) -> str:
 
 
 def mode_card_children() -> list[str]:
+    """Every child appended to the card, however it is constructed.
+
+    This matched `card.append(<identifier>)` only, so it counted variables and missed a
+    child appended as an expression — `card.append(icons.tile(...))`. It reported two
+    children against three columns and failed a card that was correct, which is the exact
+    inverse of the bug it exists to catch: it must count what the GRID has to place, not
+    what happens to have been given a name first.
+    """
     body = MAIN[MAIN.index("function modeCard"):]
     body = body[:body.index("\n}")]
-    return re.findall(r"card\.append\((\w+)\)", body)
+    # Each `card.append(` is one child — the calls here pass a single node apiece.
+    return [
+        # Name it by its first identifier, so a failure message stays readable.
+        re.match(r"[\w.]+", chunk).group(0)
+        for chunk in re.findall(r"card\.append\(\s*([^;]+?)\)?;", body, re.S)
+    ]
 
 
 def grid_columns(body: str) -> list[str]:

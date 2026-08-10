@@ -25,7 +25,65 @@ function svg(paths: string, size = 24, filled = false): SVGSVGElement {
   return node;
 }
 
+/* Declared ABOVE the `icons` literal that references them. `const` is block-scoped and
+   not hoisted, so defining these underneath compiles to "used before its declaration" —
+   and they have to be IN the literal, because `icons` is an object rather than a
+   namespace and a bare `export function` is not reachable as `icons.tile` however
+   correct it looks. tsc caught both; the bundler was happy with neither problem. */
+
+/** A glyph on a coloured rounded tile — the pattern the home cards use now.
+ *
+ *  Drawn as SVG rather than generated as images. A raster icon set would be seven sizes of
+ *  PNG for every mode, and this bundle is 103 KB total; these are ~300 bytes each, stay
+ *  crisp at any density, and take their colour from CSS so they flip with the theme instead
+ *  of needing a second set for dark.
+ *
+ *  The TILE is where the meaning now lives. It used to live in the card's background — a red
+ *  wash for the exam, a green one for practice — which is exactly what made a dark theme
+ *  impossible: repaint the card and the signal goes with it. Moving it here means the card
+ *  can be any colour and the exam still reads as the exam.
+ */
+function tileImpl(glyph: SVGSVGElement, kind: string): HTMLElement {
+  const box = document.createElement("div");
+  box.className = `tile tile-${kind}`;
+  box.append(glyph);
+  return box;
+}
+
+function glyph(paths: string, size = 26): SVGSVGElement {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("width", String(size));
+  svg.setAttribute("height", String(size));
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "2");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  svg.setAttribute("aria-hidden", "true");
+  svg.innerHTML = paths;
+  return svg;
+}
+
+/** A clipboard with a tick — a paper you are marked on. */
+const examGlyph = () => glyph(
+  '<rect x="5" y="4" width="14" height="17" rx="2"/>'
+  + '<path d="M9 4h6v3H9z"/><path d="M9 13l2.5 2.5L16 11"/>');
+
+/** Two arrows round a circle — the repeat of practice. */
+const practiceGlyph = () => glyph(
+  '<path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4v4h-4"/><path d="M12 8v4l3 2"/>');
+
+/** An open book — the glossary. */
+const vocabGlyph = () => glyph(
+  '<path d="M3 5.5A2.5 2.5 0 0 1 5.5 3H11v16H5.5A2.5 2.5 0 0 0 3 21.5z"/>'
+  + '<path d="M21 5.5A2.5 2.5 0 0 0 18.5 3H13v16h5.5a2.5 2.5 0 0 1 2.5 2.5z"/>');
+
 export const icons = {
+  tile: tileImpl,
+  examGlyph,
+  practiceGlyph,
+  vocabGlyph,
   /** The brand mark: a steering wheel. */
   wheel: (size = 26) =>
     svg(

@@ -1,6 +1,6 @@
 import { admin, api, ApiError, leaderboard, sessions, vocab } from "./api";
 import { readinessGauge } from "./gauge";
-import { art, icons } from "./icons";
+import { icons } from "./icons";
 import { TRANSLATION_LANGUAGES, lang, setLang, t } from "./i18n";
 import { ask, haptic, inTelegram, initTelegram, openChat, setBackButton, tg } from "./telegram";
 import type {
@@ -656,7 +656,9 @@ function vocabSize(): number {
 function vocabEntry(): HTMLElement {
   const card = el("button", "v-entry");
   card.type = "button";
-  card.append(el("span", "v-entry-icon", "\u{1F4DA}"));
+  // The same tile pattern, so the third card on the home screen belongs with the two
+  // above it rather than being an emoji in a row of drawn icons.
+  card.append(icons.tile(icons.vocabGlyph(), "vocab"));
   const body = el("span", "v-entry-body");
   body.append(el("span", "v-entry-title", t("v_title")),
               el("span", "v-entry-sub", t("v_sub", { n: vocabSize() })));
@@ -670,9 +672,18 @@ function modeCard(mode: Mode, title: string, desc: string, tag: string): HTMLEle
   const card = el("button", `mode ${mode}`);
   card.type = "button";
 
-  const artwork = el("div", "mode-art");
-  artwork.append(mode === "exam" ? art.exam() : art.practice());
-  card.append(artwork);
+  // A COLOURED TILE, not a tinted card.
+  //
+  // The card used to carry the meaning in its own background — a red wash for the exam, a
+  // green one for practice — and that is precisely what made a dark theme impossible:
+  // repaint the card and the signal goes with it. The colour now lives in the tile, so the
+  // card can be any surface and the exam still reads as the exam. Taken from the reference
+  // app the owner supplied, which does the same thing and is legible in the dark for it.
+  //
+  // It also replaces a 200x200 illustration that was being drawn at 64-92px. The picture
+  // was decoration; the tile, the title and the tag are what carry the meaning.
+  card.append(icons.tile(
+    mode === "exam" ? icons.examGlyph() : icons.practiceGlyph(), mode));
 
   const body = el("div", "mode-body");
   const pill = el("div", "mode-tag");
@@ -695,6 +706,7 @@ function modeCard(mode: Mode, title: string, desc: string, tag: string): HTMLEle
   card.onclick = () => void startRun(mode);
   return card;
 }
+
 
 /** The four Premium selling points, in one place.
  *
