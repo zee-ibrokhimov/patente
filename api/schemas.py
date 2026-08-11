@@ -425,14 +425,23 @@ class LeaderboardEntry(BaseModel):
     name: str | None = None
     score: int
     is_me: bool = False
+    # 1, 2 or 3 if they were on last season's podium. Its own field rather than part of the
+    # name, and its own element on the client, because Telegram names are unfiltered and
+    # somebody renaming themselves with a medal emoji must not be able to appear to have
+    # won one.
+    medal: int | None = None
 
 
 class LeaderboardMeOut(BaseModel):
     """Where the caller stands. `rank` is null when they have not scored this week."""
 
     rank: int | None = None
+    # The caller's own points, shown even when they are opted out or below the ranking floor.
+    # Telling somebody who answered fifty questions that their score is zero is simply wrong,
+    # and the running total makes the honest number free.
     score: int = 0
     opted_out: bool = False
+    medal: int | None = None
 
 
 class LeaderboardOut(BaseModel):
@@ -440,6 +449,10 @@ class LeaderboardOut(BaseModel):
     # How many learners are ranked in total, so the client can tell a real competition from
     # three people and say so instead of rendering a podium nobody can move on.
     ranked: int
+    # Whether a season with this many ranked learners awards anything at all. A different
+    # threshold from the client's "too quiet to draw as a competition" line, and deliberately
+    # so: three of ten is a podium, three of five is a participation trophy.
+    prize_eligible: bool = False
     entries: list[LeaderboardEntry]
     me: LeaderboardMeOut
 

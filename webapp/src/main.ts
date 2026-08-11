@@ -1488,6 +1488,19 @@ function verdictBox(a: AnswerResult): HTMLElement {
     box.append(won);
   }
 
+  // "+1 point" — said at the moment it happens, and only when it happened.
+  //
+  // Three separate rules can silently make a correct answer worth nothing: the question was
+  // already counted this week, the day is capped, the pace was not credited. A learner who
+  // sees a green tick and no movement on the board cannot tell any of those from a bug, and
+  // writes to support instead. The rules screen explains all three; this line is what makes
+  // somebody go and read it.
+  if (a.league_point) {
+    const point = el("div", "league-point");
+    point.append(el("span", "", t("league_point_earned")));
+    box.append(point);
+  }
+
   if (a.explanation_state === "shown" && a.explanation) {
     const panel = el("div", "explain");
     panel.append(icons.info(24));
@@ -4250,8 +4263,19 @@ async function loadRatings(): Promise<void> {
  *  why weekly rather than all-time, and why correct rather than attempted. */
 function ratingsScreen(): HTMLElement {
   const wrap = el("section", "screen");
-  const head = el("div", "v-head");
-  head.append(el("h2", "v-title", t("ratings")), el("p", "v-sub", t("ratings_week")));
+  const head = el("div", "v-head with-rules");
+  const heading = el("div");
+  heading.append(el("h2", "v-title", t("ratings")), el("p", "v-sub", t("ratings_week")));
+  head.append(heading);
+  // In the header, not in Settings. The people who need the rules are looking at the board
+  // right now and asking why their points did not move; a link they have to go and find is
+  // a support message instead.
+  const rules = el("button", "v-rules");
+  rules.type = "button";
+  rules.textContent = "?";
+  rules.setAttribute("aria-label", t("league_rules_title"));
+  rules.onclick = () => openLeagueRules();
+  head.append(rules);
   wrap.append(head);
 
   const board = state.ratings;
@@ -4291,6 +4315,7 @@ function ratingsScreen(): HTMLElement {
     seat.append(el("div", "podium-rank", String(entry.rank)));
     seat.append(el("div", "podium-name", entry.name || t("ratings_anon")));
     seat.append(el("div", "podium-score", String(entry.score)));
+    if (entry.medal) seat.append(medalMark(entry.medal));
     podium.append(seat);
   }
   wrap.append(podium);
@@ -4300,6 +4325,7 @@ function ratingsScreen(): HTMLElement {
     const row = el("div", `rank-row${entry.is_me ? " me" : ""}`);
     row.append(el("span", "rank-n", String(entry.rank)));
     row.append(el("span", "rank-name", entry.name || t("ratings_anon")));
+    if (entry.medal) row.append(medalMark(entry.medal));
     row.append(el("span", "rank-score", String(entry.score)));
     list.append(row);
   }
@@ -4318,6 +4344,60 @@ function ratingsScreen(): HTMLElement {
   }
 
   return wrap;
+}
+
+/** Last season's podium, as its own element and never as part of a name.
+ *
+ *  Telegram first names are whatever the person typed. Someone renaming themselves
+ *  "\u{1F947} Aziz" — free, one tap, no learning — would appear to be wearing a medal on
+ *  everyone else's board if the mark were concatenated into the name string. Its own column
+ *  means a fake one sits visibly in the wrong place.
+ *
+ *  Drawn as a numbered marker rather than in gold, silver and bronze. tokens.css reserves
+ *  gold exclusively for Premium — "the moment gold means two things it stops working" — and
+ *  a league medal is not a purchase.
+ */
+function medalMark(place: number): HTMLElement {
+  const mark = el("span", `medal m${place}`);
+  mark.textContent = String(place);
+  mark.title = t("league_medal_hint", { n: place });
+  return mark;
+}
+
+/** How points work, and — the part that decides the support load — why they sometimes do not.
+ *
+ *  Three separate rules can silently make a correct answer worth nothing: the question was
+ *  already answered this week, the day is capped, the pace was not credited. A learner who
+ *  is not told cannot tell any of those apart from a bug.
+ */
+function openLeagueRules(): void {
+  const body = el("div");
+  const cards: Array<[Key, Key]> = [
+    ["league_rule_season", "league_rule_season_body"],
+    ["league_rule_points", "league_rule_points_body"],
+    ["league_rule_prizes", "league_rule_prizes_body"],
+    ["league_rule_seen", "league_rule_seen_body"],
+    ["league_rule_why", "league_rule_why_body"],
+  ];
+  for (const [title, text] of cards) {
+    const card = el("div", "card league-rule");
+    card.append(el("div", "row-title", t(title)));
+    card.append(el("p", "caption", t(text)));
+    body.append(card);
+  }
+  const scrim = el("div", "modal");
+  const card = el("div", "modal-card");
+  const close = () => { scrim.remove(); setBackButton(backTarget()); };
+  card.append(el("h3", "sheet-title", t("league_rules_title")));
+  card.append(body);
+  const done = el("button", "btn secondary", t("close"));
+  done.type = "button";
+  done.onclick = close;
+  card.append(done);
+  scrim.append(card);
+  scrim.onclick = (ev) => { if (ev.target === scrim) close(); };
+  setBackButton(close);
+  document.body.append(scrim);
 }
 
 async function setLeaderboardOptOut(optOut: boolean): Promise<void> {

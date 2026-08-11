@@ -46,3 +46,8 @@ MAILTO=root
 # message arriving at 18:00 for half the year with nobody having changed anything.
 # Idempotent per Rome day from the event log, so a three-hour window sends one message.
 53 * * * * root docker exec $(docker ps -q --filter name=api-rboj5u2xk5dj4o4yto89ablh | head -1) python -c "import urllib.request;print(urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8000/admin/notify-streak-risk',method='POST'),timeout=60).read().decode())" >> /var/log/patente-janitor.log 2>&1
+
+# Trim the league's per-question ledger. Weekly, on Monday morning, just after the season
+# rolls over — `league_score` (the totals the board reads) is kept forever, and only the two
+# ledgers underneath it are pruned. See api/services/league.py:prune.
+17 4 * * 1 root docker exec $(docker ps -q --filter name=api-rboj5u2xk5dj4o4yto89ablh | head -1) python -c "import urllib.request;print(urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8000/admin/prune-league',method='POST'),timeout=300).read().decode())" >> /var/log/patente-janitor.log 2>&1

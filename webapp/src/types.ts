@@ -39,6 +39,10 @@ export interface AnswerResult {
   free_explanations_left: number;
   /** True on the single answer that completed today's streak goal, and on no other. */
   streak_earned_today?: boolean;
+  /** Whether this answer was worth a league point. False is the interesting case: a
+   *  correct answer scores nothing if the question was already counted this week, the daily
+   *  cap is spent, or the pace was not credited. */
+  league_point?: boolean;
 }
 
 export interface QuestionTranslation {
@@ -287,11 +291,16 @@ export interface Profile {
  *  learner's data to another, and a first name plus a score cannot be used to FIND
  *  somebody. See api/services/leaderboard.py. */
 export interface LeaderboardEntry {
-  /** Null for a word the learner added — it has no place in the shared sheet. */
   rank: number | null;
   name: string | null;
   score: number;
   is_me: boolean;
+  /** 1, 2 or 3 if they were on LAST season's podium; null otherwise.
+   *
+   *  Its own field, and rendered as its own element, never joined onto the name. Telegram
+   *  first names are unfiltered, so somebody renaming themselves with a medal emoji would
+   *  otherwise appear on every other learner's board wearing one they never won. */
+  medal?: number | null;
 }
 
 export interface Leaderboard {
@@ -299,8 +308,11 @@ export interface Leaderboard {
   /** Everyone ranked, not just those returned — so the client can tell a real competition
    *  from three people and say so rather than drawing a podium nobody can move on. */
   ranked: number;
+  /** Whether a season with this many players awards anything. A different threshold from
+   *  the one above, which only decides whether this screen draws a competition at all. */
+  prize_eligible?: boolean;
   entries: LeaderboardEntry[];
-  me: { rank: number | null; score: number; opted_out: boolean };
+  me: { rank: number | null; score: number; opted_out: boolean; medal?: number | null };
 }
 
 /** --- vocabulary trainer -------------------------------------------------- */

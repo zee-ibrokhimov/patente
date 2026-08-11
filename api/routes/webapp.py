@@ -44,8 +44,6 @@ from api.schemas import (
     OwnTermPatch,
     SuggestionIn,
     AnalysisOut,
-    AnswerIn,
-    AnswerOut,
     ExamAnswerOut,
     ExplanationOut,
     PracticeAnswerOut,
@@ -71,6 +69,7 @@ from api.schemas import (
 )
 from api.services import (
     coaching,
+    display_name,
     suggestions,
     analysis,
     pacing,
@@ -147,7 +146,11 @@ async def webapp_user(
     # Written even for someone who has opted out. The opt-out governs whether they are
     # RANKED (see leaderboard.py); throwing the name away as well would mean it silently
     # went missing if they ever opted back in.
-    name = (telegram.first_name or "").strip()[:32] or None
+    # `.strip()[:32]` handled length and nothing else. A first name is user-controlled text
+    # over the whole of Unicode, and this is the only string in the product that one learner
+    # types and another reads — see api/services/display_name.py for what is removed and why
+    # emoji deliberately are not.
+    name = display_name.clean(telegram.first_name)
 
     # WHAT GOES IN HERE NEVER TOUCHES THE REQUEST'S OWN TRANSACTION. See
     # `_store_warm_fields` — assigning these to `user` is what took the app down on
@@ -340,13 +343,23 @@ async def next_question(
     )
 
 
-@router.post("/answers", response_model=AnswerOut)
-async def answer(
-    body: AnswerIn,
-    user: User = Depends(webapp_user),
-    session: AsyncSession = Depends(get_session),
-):
-    return await quiz_route.submit_answer(body=body, user=user, session=session)
+# POST /webapp/answers IS DELETED, AND ITS ABSENCE IS THE POINT.
+#
+# It accepted ANY question id, with no sitting and no ownership check, and returned
+# `correct_answer` in the response. So the public internet had a free, exact oracle for the
+# whole 7,106-question bank: two requests per question, about 2,000 requests to own the lot.
+# Every threshold in the product — the streak's ten a day, the hundred answers that unlock
+# the analysis, twenty points to hold a rank, and now a league point per question — was
+# therefore a count of HTTP requests rather than of studying.
+#
+# It had no caller. `api.answer` exists in webapp/src/api.ts and nothing in main.ts invokes
+# it; the only answer path in the client is `sessions.answer`, inside a real sitting. The bot
+# does not use it either. It was reachable, useful only to somebody attacking the product,
+# and dead.
+#
+# The loopback twin POST /users/{chat_id}/answers stays: it takes its identity from the URL,
+# which is exactly why nginx proxies only /webapp/* and the Tribute webhook, and why that
+# surface must never be published. Tests exercise the write path through it.
 
 
 @router.post("/questions/{question_id}/translation", response_model=QuestionTranslationOut)

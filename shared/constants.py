@@ -225,6 +225,62 @@ LEADERBOARD_SIZE = 15
 # returns the rows; the client is told it is too quiet to display as a competition.
 LEADERBOARD_MIN_PLAYERS = 5
 
+# --- how a point is earned --------------------------------------------------
+#
+# One point per QUESTION per week, taken on the first answer to it. That single rule closes
+# all three farming routes at once, and each of them is real: a repeat round is an unlimited
+# stream of questions the learner already knows the answer to, an exam re-serves questions
+# they have seen, and practice hands a missed question back after ten minutes.
+#
+# The slot is spent by the FIRST answer even when it is wrong. Deliberately: refunding it
+# would make guess-then-retry the optimal play, which is the exact behaviour the product
+# exists to discourage.
+LEAGUE_POINTS_PER_ANSWER = 1
+
+# Passing a mock exam, at most once a UTC day.
+#
+# NOT the same number as the daily cap, and that is the whole point of choosing 35. With a
+# bonus equal to the cap, `score = answers + 40 x exams` is uniquely solvable from a single
+# screenshot — on a Monday any score between 41 and 80 is exactly one pass — so the board
+# would publish how many mock exams a NAMED learner has passed. That is the most sensitive
+# thing this product knows about somebody, to people who may be in their driving school. A
+# non-multiple destroys the clean division and costs nothing: the honest ceiling is still
+# 40 + 35 = 75 a day against a grinder's 40.
+LEAGUE_EXAM_BONUS = 35
+
+# Scoring answers per UTC day. Four times the streak goal, so no honest learner meets it by
+# accident — the heaviest genuine day in the log is 83 answers over 68 distinct questions,
+# and this trims the top of that. Daily rather than weekly so somebody who hits it is fresh
+# tomorrow instead of being told to stop studying for five days.
+#
+# UTC, not Rome, unlike the streak day. A UTC week contains eight distinct Rome dates, so a
+# Rome day would let the boundary Monday's cap straddle two seasons and would raise the
+# weekly ceiling from 280 to 320. The cost is that the cap rolls over at 02:00 Rome; that is
+# a smaller wrong than a cap that leaks across a season boundary.
+LEAGUE_DAILY_ANSWER_CAP = 40
+
+# Below this, a learner holds no rank at all. Two days of the streak goal. Without it one
+# correct answer occupies a place on a board that now carries medals.
+LEAGUE_MIN_POINTS = 20
+
+# Ranked learners a finished season needs before it awards anything. Three of ten is a
+# podium; three of five is a participation trophy.
+#
+# NOT the same number as LEADERBOARD_MIN_PLAYERS above, and not a duplicate of it. That one
+# is the client's "too quiet to draw as a competition" line and is mirrored in the frontend;
+# this one is the server's "too quiet to award". Merging them would silently change a screen.
+LEAGUE_PRIZE_MIN_RANKED = 10
+
+# Medals, for the immediately preceding season only. A stack of six beside one name rebuilds
+# the all-time board this design exists to avoid — a screen that tells everyone else they
+# have already lost. A learner's own history stays on their own profile.
+LEAGUE_MEDAL_PLACES = 3
+
+# How many finished seasons of per-question and per-day ledger to keep. The running totals
+# in `league_score` are small and kept; the two ledgers underneath them are one row per
+# question per learner per week and would otherwise grow without bound.
+LEAGUE_SEASONS_KEPT = 2
+
 
 # --- Leitner boxes ----------------------------------------------------------
 # Box 1 is "just got it wrong", box 5 is "solid". A wrong answer always drops

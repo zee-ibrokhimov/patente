@@ -25,7 +25,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.models import Question, QuizSession, QuizSessionItem, Translation
-from api.services import events, selection
+from api.services import events, league, selection
 from api.services.entitlement import evaluate
 from shared.constants import (
     EV_EXAM_FINISHED,
@@ -36,7 +36,6 @@ from shared.constants import (
     PRACTICE_BATCH,
     MODE_EXAM,
     REPEAT_SMART,
-    REPEAT_SOURCES,
     MODE_PRACTICE,
     TRANSLATION_LANGUAGES,
     SESSION_ABANDONED,
@@ -80,7 +79,8 @@ async def enforce_deadline(
     now = now or datetime.now(timezone.utc)
     if row.state != SESSION_OPEN or row.expires_at is None or now < row.expires_at:
         return row
-    await _grade(session, row, state=SESSION_EXPIRED, finished_at=row.expires_at)
+    await _grade(session, row, state=SESSION_EXPIRED, finished_at=row.expires_at,
+                 now=now)
     return row
 
 
@@ -106,7 +106,7 @@ async def create(
             # Still genuinely open — starting a new sitting abandons it. Kept as a row
             # rather than deleted: EV_SESSION_START already names this id, and the event
             # log is append-only.
-            await _grade(session, existing, state=SESSION_ABANDONED, finished_at=now)
+            await _grade(session, existing, state=SESSION_ABANDONED, finished_at=now, now=now)
 
     is_exam = mode == MODE_EXAM
     count = EXAM_QUESTIONS if is_exam else PRACTICE_BATCH
@@ -316,7 +316,15 @@ async def _grade(
     row: QuizSession,
     state: str,
     finished_at: datetime,
+    now: datetime | None = None,
 ) -> None:
+    """Close a sitting, record it, and pay the league bonus if it earned one.
+
+    `now` is separate from `finished_at` and both are needed. `finished_at` is when the
+    sitting actually ended — for an expired one that is its deadline, which may have passed
+    hours before anybody looked — and it is the honest instant to bucket the bonus into.
+    `now` is when we found out, and it decides whether that season is still open.
+    """
     row.state = state
     row.finished_at = finished_at
     if row.max_errors is not None and state != SESSION_ABANDONED:
@@ -342,6 +350,13 @@ async def _grade(
             wrong=row.wrong, passed=row.passed,
         )
 
+    # `is True`, never truthiness: `passed` is tri-state. It stays None for every practice
+    # sitting and for an abandoned exam — see the long comment above — and `if row.passed:`
+    # would treat those identically to a fail, which is right by accident here and wrong the
+    # moment anybody reads it as "did they pass".
+    if row.mode == MODE_EXAM and row.passed is True:
+        await league.score_exam_pass(session, row.chat_id, row.finished_at, now)
+
 
 async def finish(
     session: AsyncSession, user, row: QuizSession, now: datetime | None = None
@@ -354,7 +369,7 @@ async def finish(
     now = now or datetime.now(timezone.utc)
     if row.state != SESSION_OPEN:
         return row
-    await _grade(session, row, state=SESSION_SUBMITTED, finished_at=now)
+    await _grade(session, row, state=SESSION_SUBMITTED, finished_at=now, now=now)
     return row
 
 
@@ -382,7 +397,7 @@ async def abandon(
     now = now or datetime.now(timezone.utc)
     if row.state != SESSION_OPEN:
         return row
-    await _grade(session, row, state=SESSION_ABANDONED, finished_at=now)
+    await _grade(session, row, state=SESSION_ABANDONED, finished_at=now, now=now)
     return row
 
 

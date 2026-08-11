@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.models import Progress, Question
-from api.services import events, explanations, pacing, streak
+from api.services import events, explanations, league, pacing, streak
 from api.services.entitlement import Entitlement, evaluate
 from api.services.leitner import schedule
 from shared.constants import EV_ANSWER_GIVEN, FIRST_BOX
@@ -153,6 +153,12 @@ async def record_answer(
     # the cost is a handful of small queries a day and nothing at all once the goal is met.
     earned_day = credited and await streak.note_answer(session, user.chat_id, now)
 
+    # And whether it was worth a league point. Same placement and the same short-circuit as
+    # the streak above: an uncredited answer neither scores nor spends the question's slot
+    # for the week, so a blitz gains its author nothing and costs them nothing.
+    scored = credited and await league.score_answer(
+        session, user.chat_id, question.id, correct, now)
+
     # Serves the explanation if warming already produced it, and never generates one
     # here: paying for a call at this moment would charge for every user who answers and
     # moves on. `generate_if_missing=False` is that rule, and the client gets an
@@ -177,5 +183,10 @@ async def record_answer(
         # the moment it happens. A streak that only ever appears on the profile screen is
         # invisible to the person keeping it.
         "streak_earned_today": earned_day,
+        # Whether this answer scored. Three separate rules can silently make a correct
+        # answer worth zero points — the question was already answered this week, the day is
+        # capped, the pace was not credited — and a learner who is not told at the moment it
+        # happens writes to support instead.
+        "league_point": scored,
         **payload,
     }

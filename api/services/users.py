@@ -24,7 +24,16 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.models import Event, Progress, Report, User
+from api.models import (
+    Event,
+    LeagueDay,
+    LeagueScore,
+    LeagueSlot,
+    Progress,
+    Report,
+    StreakDay,
+    User,
+)
 from api.services import events, referrals
 from shared.constants import (
     DEFAULT_LANG,
@@ -164,6 +173,21 @@ async def delete_user(session: AsyncSession, chat_id: int) -> bool:
     )
     await session.execute(delete(Report).where(Report.chat_id == chat_id))
     await session.execute(delete(Progress).where(Progress.chat_id == chat_id))
+
+    # THE LEAGUE AND THE STREAK GO TOO, and this is not merely tidiness.
+    #
+    # Events are anonymised above rather than deleted, so every ledger derived from them
+    # resets on erasure — which is the intended reading of erasure. A ledger kept in a table
+    # keyed on chat_id does NOT reset, and `chat_id` is the permanent Telegram id: the same
+    # person taps /start, is recreated with the same key, and finds a season in which every
+    # question is already spent and a streak they cannot see the days of.
+    #
+    # The new league tables carry ON DELETE CASCADE and would go with the row below. They
+    # are named anyway, because this function does not rely on the cascade for `progress`
+    # either and the next person to add a table copies what they can see here.
+    for model in (LeagueSlot, LeagueDay, LeagueScore, StreakDay):
+        await session.execute(delete(model).where(model.chat_id == chat_id))
+
     await session.delete(user)
     await session.flush()
     return True

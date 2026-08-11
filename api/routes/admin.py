@@ -52,6 +52,27 @@ async def notify_quiet(session: AsyncSession = Depends(get_session)):
     return await reminders.run(session)
 
 
+@router.post("/prune-league")
+async def prune_league(session: AsyncSession = Depends(get_session)):
+    """Drop the per-question and per-day league ledgers of long-finished seasons.
+
+    `league_score` — the running totals the board reads — is one small row per learner per
+    week and is kept forever. The two tables underneath it are one row per QUESTION per
+    learner per week, which is about a gigabyte a year at ten thousand learners on a host
+    with six free. They answer "why do I have 34 points", which nobody asks about a season
+    two months gone.
+
+    Weekly, and never on a request path: it is a DELETE over a range, and the answer endpoint
+    must not wait behind it.
+    """
+    from api.services import league
+    from shared.constants import LEAGUE_SEASONS_KEPT
+
+    removed = await league.prune(session, LEAGUE_SEASONS_KEPT)
+    await session.commit()
+    return {"removed": removed, "seasons_kept": LEAGUE_SEASONS_KEPT}
+
+
 @router.post("/notify-streak-risk")
 async def notify_streak_risk(session: AsyncSession = Depends(get_session)):
     """"Your streak is at risk", to the people who have actually built one.

@@ -829,6 +829,41 @@ html, body { overflow-x: hidden; }
    is asked a minute after marking it, and a list holding only the unread cannot say. */
 .report.done { opacity: .5; }
 
+/* --- the league ---------------------------------------------------------- */
+
+/* The rules button, in the Ratings header. The people who need it are looking at the board
+   right now, asking why their points did not move. */
+/* The header only becomes a row on this screen. `.v-head` is shared with the vocabulary
+   screen, which has no second element in it, so making it flex globally would change a
+   layout that nobody asked to change. */
+.v-head.with-rules { display: flex; align-items: flex-start; gap: var(--sm); }
+.v-rules {
+  margin-left: auto; flex: none; width: 30px; height: 30px; border-radius: 999px;
+  border: 1px solid var(--edge); background: var(--surface); color: var(--text-2);
+  font: 700 15px/1 var(--font); cursor: pointer;
+}
+
+/* Last season's podium. A numbered marker, NOT gold/silver/bronze: tokens.css reserves gold
+   exclusively for Premium — "the moment gold means two things it stops working" — and a
+   league placing is not a purchase. Its own element so a medal emoji typed into a Telegram
+   name cannot sit where a real one would. */
+.medal {
+  flex: none; display: inline-grid; place-items: center;
+  width: 18px; height: 18px; border-radius: 999px;
+  background: var(--tint-info); border: 1px solid var(--tint-info-edge);
+  color: var(--accent); font-size: 11px; font-weight: 800; line-height: 1;
+}
+.podium-seat .medal { margin: var(--xs) auto 0; }
+.rank-row .medal { margin-left: var(--xs); }
+
+.league-point {
+  margin: var(--xs) 0 0; padding: var(--sm) var(--md);
+  border-radius: var(--card-radius); background: var(--tint-info);
+  font-size: var(--t-caption); font-weight: 700; color: var(--accent);
+}
+.league-rule { margin-bottom: var(--sm); }
+.league-rule .caption { margin: var(--xs) 0 0; }
+
 /* The readiness gauge. A semicircle so the 90% pass threshold can sit ON the same scale
    as the score — a bare percentage floats, a percentage against a marked bar does not. */
 .gauge-wrap { text-align: center; }

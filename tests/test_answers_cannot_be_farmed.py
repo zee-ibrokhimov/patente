@@ -4,6 +4,11 @@
 rule and no limit — verified against the running app before this was written: two identical
 posts of the same answer, back to back, both returned 200.
 
+THAT ROUTE IS NOW DELETED. It also returned `correct_answer` for any id, so it was a free
+exact oracle for the whole 7,106-question bank from the public internet, and it had no
+caller. These tests drive the loopback twin `POST /users/{chat_id}/answers`, which is where
+the write path lives — never published, because it takes its identity from the URL.
+
 Harmless while nothing depended on the count. Not harmless now: the streak, the league
 position and the free Premium days are all about to be derived from it, and every threshold
 in those designs is a count of HTTP requests. A hundred answers takes about thirty seconds
@@ -72,10 +77,8 @@ async def test_an_answer_in_the_same_instant_earns_nothing(
     ACCEPTED and RECORDED, and marked as not counting."""
     monkeypatch.setattr(pacing, "MIN_GAP", timedelta(seconds=1))
 
-    first = await client.post("/webapp/answers", headers=auth(),
-                              json={"question_id": 1, "answer": True})
-    second = await client.post("/webapp/answers", headers=auth(),
-                               json={"question_id": 2, "answer": True})
+    first = await client.post(f"/users/{OWNER}/answers", json={"question_id": 1, "answer": True})
+    second = await client.post(f"/users/{OWNER}/answers", json={"question_id": 2, "answer": True})
     assert first.status_code == second.status_code == 200, (
         "refusing a real answer mid-exam is worse than letting a farmer through"
     )
@@ -95,10 +98,8 @@ async def test_a_fast_answer_still_counts_as_study(client, registered, api_db, m
     from api.models import Progress
 
     monkeypatch.setattr(pacing, "MIN_GAP", timedelta(seconds=1))
-    await client.post("/webapp/answers", headers=auth(),
-                      json={"question_id": 1, "answer": True})
-    await client.post("/webapp/answers", headers=auth(),
-                      json={"question_id": 2, "answer": True})
+    await client.post(f"/users/{OWNER}/answers", json={"question_id": 1, "answer": True})
+    await client.post(f"/users/{OWNER}/answers", json={"question_id": 2, "answer": True})
 
     async with api_db() as s:
         seen = len(list(await s.scalars(
@@ -119,8 +120,7 @@ async def test_a_normal_pace_is_never_touched(client, registered, api_db):
     async with api_db() as s:
         ids = list(await s.scalars(select(Question.id)))
     for qid in ids:
-        r = await client.post("/webapp/answers", headers=auth(),
-                              json={"question_id": qid, "answer": True})
+        r = await client.post(f"/users/{OWNER}/answers", json={"question_id": qid, "answer": True})
         assert r.status_code == 200, f"a paced answer was refused: {r.text}"
 
     async with api_db() as s:
@@ -140,12 +140,10 @@ async def test_the_day_has_a_ceiling(client, registered, api_db, monkeypatch):
     monkeypatch.setattr(pacing, "DAILY_CAP", 3)
 
     for _ in range(3):
-        r = await client.post("/webapp/answers", headers=auth(),
-                              json={"question_id": 1, "answer": True})
+        r = await client.post(f"/users/{OWNER}/answers", json={"question_id": 1, "answer": True})
         assert r.status_code == 200
 
-    r = await client.post("/webapp/answers", headers=auth(),
-                          json={"question_id": 1, "answer": True})
+    r = await client.post(f"/users/{OWNER}/answers", json={"question_id": 1, "answer": True})
     assert r.status_code == 429
 
 
@@ -155,8 +153,7 @@ async def test_the_ceiling_rolls_rather_than_resetting_at_midnight(
     later, and a rolling window has no timezone to get wrong."""
     monkeypatch.setattr(pacing, "DAILY_CAP", 2)
     for _ in range(2):
-        await client.post("/webapp/answers", headers=auth(),
-                          json={"question_id": 1, "answer": True})
+        await client.post(f"/users/{OWNER}/answers", json={"question_id": 1, "answer": True})
 
     # Age the two answers past the window.
     async with api_db() as s:
@@ -165,8 +162,7 @@ async def test_the_ceiling_rolls_rather_than_resetting_at_midnight(
             e.created_at = old
         await s.commit()
 
-    r = await client.post("/webapp/answers", headers=auth(),
-                          json={"question_id": 1, "answer": True})
+    r = await client.post(f"/users/{OWNER}/answers", json={"question_id": 1, "answer": True})
     assert r.status_code == 200, "yesterday's answers are still holding the ceiling down"
 
 
@@ -215,14 +211,19 @@ async def test_one_learners_pace_does_not_limit_another(client, registered, monk
     monkeypatch.setattr(pacing, "DAILY_CAP", 2)
 
     for _ in range(2):
-        r = await client.post("/webapp/answers", headers=auth(),
-                              json={"question_id": 1, "answer": True})
+        r = await client.post(f"/users/{OWNER}/answers", json={"question_id": 1, "answer": True})
         assert r.status_code == 200
-    assert (await client.post("/webapp/answers", headers=auth(),
-                              json={"question_id": 1, "answer": True})).status_code == 429
+    assert (await client.post(f"/users/{OWNER}/answers", json={"question_id": 1, "answer": True})).status_code == 429
 
     # A different learner, untouched by the first one's spending.
-    other = await client.post("/webapp/answers", headers=auth(chat_id=99_001),
+    #
+    # The loopback route takes the chat id from the URL, so the second learner must be a
+    # second URL. When these tests drove the signed Mini App route the distinction lived in
+    # the header, and moving them over quietly collapsed both calls onto one account — the
+    # test then asserted that a learner who had just been refused was not refused, and failed
+    # honestly rather than passing as a stronger claim than it was making.
+    await client.post("/users", json={"chat_id": 99_314, "lang": "ru"})
+    other = await client.post("/users/99314/answers",
                               json={"question_id": 1, "answer": True})
     assert other.status_code == 200, (
         "one learner exhausting the cap locked out another"

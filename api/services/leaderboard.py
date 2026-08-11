@@ -37,11 +37,16 @@ from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.models import Event, User
-from shared.constants import EV_ANSWER_GIVEN, LEADERBOARD_SIZE
+from api.models import LeagueScore, User
+from shared.constants import (
+    LEADERBOARD_SIZE,
+    LEAGUE_MEDAL_PLACES,
+    LEAGUE_MIN_POINTS,
+    LEAGUE_PRIZE_MIN_RANKED,
+)
 
 
 def week_start(today: date | None = None) -> datetime:
@@ -57,38 +62,72 @@ def week_start(today: date | None = None) -> datetime:
     return datetime.combine(monday, time.min, tzinfo=timezone.utc)
 
 
-async def _scores(session: AsyncSession, since: datetime) -> list[tuple[int, str | None, int]]:
-    """(chat_id, display_name, correct answers) for everyone eligible, best first.
+async def _ranked_rows(session: AsyncSession, week: str, limit: int | None = None):
+    """The season's ranked learners, best first. One indexed query.
 
-    The count reads `payload` in Python rather than in SQL: the JSON accessor differs
-    between SQLite and Postgres, and this table is small enough that portability is worth
-    more than the query. Revisit if it ever stops being.
+    The three rules from the module docstring live here and nowhere else:
+
+      · opted out means ABSENT — a live join against `users`, never a copy of the flag on
+        the score row, because the opt-out has to work retroactively and a denormalised copy
+        would need every row rewritten to honour that;
+      · nothing but a first name and a score is selected, so nothing else can leak;
+      · below LEAGUE_MIN_POINTS nobody holds a rank at all. One correct answer used to
+        occupy a place, which is absurd on a board that now carries medals.
+
+    Ordered by points, then by `seed` — a per-row random number, NOT chat_id. Ties are the
+    normal case under a daily ceiling, and ordering them by Telegram id would hand every
+    medal to the oldest account and publish the population's signup order.
     """
-    rows = (await session.execute(
-        select(Event.chat_id, Event.payload, User.display_name)
-        .join(User, User.chat_id == Event.chat_id)
+    stmt = (
+        select(LeagueScore.chat_id, User.display_name, LeagueScore.points)
+        .join(User, User.chat_id == LeagueScore.chat_id)
         .where(
-            Event.type == EV_ANSWER_GIVEN,
-            Event.created_at >= since,
-            # Opted out means ABSENT, not hidden. They do not hold a place, and their
-            # absence leaves no gap for anyone to reason about.
+            LeagueScore.week == week,
+            LeagueScore.points >= LEAGUE_MIN_POINTS,
             User.leaderboard_opt_out.is_(False),
         )
-    )).all()
-
-    tally: dict[int, int] = {}
-    names: dict[int, str | None] = {}
-    for chat_id, payload, name in rows:
-        names[chat_id] = name
-        if (payload or {}).get("correct"):
-            tally[chat_id] = tally.get(chat_id, 0) + 1
-
-    # Ties broken by chat_id so the order is stable between requests. An unstable ranking
-    # makes the board look like it is flickering when nobody has answered anything.
-    return sorted(
-        ((cid, names.get(cid), score) for cid, score in tally.items() if score > 0),
-        key=lambda r: (-r[2], r[0]),
+        .order_by(LeagueScore.points.desc(), LeagueScore.seed)
     )
+    if limit is not None:
+        stmt = stmt.limit(limit)
+    return (await session.execute(stmt)).all()
+
+
+async def _ranked_count(session: AsyncSession, week: str) -> int:
+    return await session.scalar(
+        select(func.count())
+        .select_from(LeagueScore)
+        .join(User, User.chat_id == LeagueScore.chat_id)
+        .where(
+            LeagueScore.week == week,
+            LeagueScore.points >= LEAGUE_MIN_POINTS,
+            User.leaderboard_opt_out.is_(False),
+        )
+    ) or 0
+
+
+async def _medals(session: AsyncSession, previous_week: str) -> dict[int, int]:
+    """Last season's podium: chat_id -> 1, 2 or 3.
+
+    COMPUTED LIVE, NEVER STORED. A medals table would have to hold a name or a chat id, and
+    it would then survive both `/delete` and the opt-out — for exactly the three most visible
+    learners on the board. The cost of computing it is that a closed season can change: a
+    learner who opts out on Monday takes their medal with them, and if they were the tenth
+    ranked learner the season stops being awardable for everyone else.
+
+    That is the honest trade and it is the right way round. The retroactive opt-out is the
+    promise this product actually made — in the model, in the settings screen and in a test —
+    and durable medals would quietly break it.
+
+    THE IMMEDIATELY PRECEDING SEASON ONLY. A stack of six medals beside one name rebuilds the
+    all-time board, which is a screen that tells every newcomer they have already lost.
+    """
+    if await _ranked_count(session, previous_week) < LEAGUE_PRIZE_MIN_RANKED:
+        # Too quiet a week to have awarded anything. Distinct from LEADERBOARD_MIN_PLAYERS,
+        # which is only about whether the CLIENT draws it as a competition.
+        return {}
+    rows = await _ranked_rows(session, previous_week, limit=LEAGUE_MEDAL_PLACES)
+    return {chat_id: place for place, (chat_id, _name, _points) in enumerate(rows, 1)}
 
 
 async def board(
@@ -98,34 +137,69 @@ async def board(
 
     Their own row is returned even when they are outside the top — "you are 34th with 12"
     is information; a board they cannot find themselves on is just other people.
+
+    Four indexed queries, and the count is bounded: it does not grow with the population,
+    which is the entire reason the running total in `league_score` exists. The version this
+    replaced loaded every answer event of the week into Python on every view.
     """
     since = week_start(today)
-    scores = await _scores(session, since)
+    week = since.date().isoformat()
+    previous = (since.date() - timedelta(days=7)).isoformat()
 
-    me_rank: int | None = None
-    me_score = 0
-    for position, (chat_id, _name, score) in enumerate(scores, 1):
-        if chat_id == user.chat_id:
-            me_rank, me_score = position, score
-            break
+    rows = await _ranked_rows(session, week, limit=LEADERBOARD_SIZE)
+    ranked = await _ranked_count(session, week)
+    medals = await _medals(session, previous)
+
+    mine = await session.get(LeagueScore, (user.chat_id, week))
+    my_points = mine.points if mine else 0
+
+    # Rank by counting who is ahead, rather than by scanning the board — the caller is very
+    # often outside the top fifteen, and "34th" has to be right without loading 34 rows.
+    my_rank: int | None = None
+    if mine is not None and my_points >= LEAGUE_MIN_POINTS and not user.leaderboard_opt_out:
+        ahead = await session.scalar(
+            select(func.count())
+            .select_from(LeagueScore)
+            .join(User, User.chat_id == LeagueScore.chat_id)
+            .where(
+                LeagueScore.week == week,
+                LeagueScore.points >= LEAGUE_MIN_POINTS,
+                User.leaderboard_opt_out.is_(False),
+                or_(LeagueScore.points > my_points,
+                    and_(LeagueScore.points == my_points, LeagueScore.seed < mine.seed)),
+            )
+        ) or 0
+        my_rank = ahead + 1
 
     return {
         "week_start": since,
-        "ranked": len(scores),
+        "ranked": ranked,
+        # Whether a season this size would award anything. Sent so the rules screen can stop
+        # promising a prize on a board of four, and separate from the client's own "too quiet
+        # to draw" threshold, which is a different number for a different reason.
+        "prize_eligible": ranked >= LEAGUE_PRIZE_MIN_RANKED,
         "entries": [
             {
                 "rank": position,
                 "name": name,
-                "score": score,
+                "score": points,
                 "is_me": chat_id == user.chat_id,
+                # Its own field, and on the client its own element — never concatenated into
+                # the name. Telegram names are unfiltered, so someone calling themselves
+                # "\U0001f947 Aziz" would otherwise appear to be wearing a medal they never won.
+                "medal": medals.get(chat_id),
             }
-            for position, (chat_id, name, score) in enumerate(scores[:LEADERBOARD_SIZE], 1)
+            for position, (chat_id, name, points) in enumerate(rows, 1)
         ],
         "me": {
-            "rank": me_rank,
-            "score": me_score,
+            "rank": my_rank,
+            # Shown even when they are opted out or below the floor. The running total makes
+            # this free, and telling somebody who answered fifty questions that their score
+            # is zero — which is what the old board did — is simply wrong.
+            "score": my_points,
             # Someone who opted out is told so rather than shown an empty board and left to
             # wonder whether the feature is broken.
             "opted_out": user.leaderboard_opt_out,
+            "medal": medals.get(user.chat_id),
         },
     }

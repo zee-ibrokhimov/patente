@@ -25,7 +25,15 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import JSON, BigInteger, ForeignKey, Index, PrimaryKeyConstraint, Text
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    ForeignKey,
+    Index,
+    Integer,
+    PrimaryKeyConstraint,
+    Text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from api.models.base import Base, utcnow
@@ -262,6 +270,133 @@ class StreakDay(Base):
     # it exists to show what the day was earned with, and a column that must be kept current
     # on every subsequent answer is a write on the hot path for a number nobody reads.
     questions: Mapped[int] = mapped_column(default=0)
+
+
+class LeagueSlot(Base):
+    """One row per (learner, week, question): the first time they answered it this season.
+
+    THE ONE RULE THAT CLOSES EVERY FARMING ROUTE. A point is earned per QUESTION per week,
+    not per answer, and this table is what makes "per question" enforceable rather than
+    aspirational. Three routes exist and all three are ordinary product features:
+
+      · a repeat round draws from questions the learner has already got right — an unlimited
+        stream of guaranteed-correct answers;
+      · an exam re-serves questions they have seen;
+      · practice hands a missed question back after ten minutes, by design.
+
+    The slot is spent by the FIRST answer even when it is wrong. Deliberately: refunding it
+    would make guess-then-retry the optimal play, which is precisely the behaviour a product
+    built on understanding the question exists to discourage.
+
+    `first_at` and `correct` cost nothing — both are known before the write — and together
+    they make the season replayable: "why do I have 34 points" is answerable from this table
+    without a `scored` column, which would need a second UPDATE per scoring answer purely for
+    audit.
+
+    WITHOUT ROWID because the whole table is its own primary key and it is only ever touched
+    by that key. At ten thousand learners it is the largest table in the product.
+    """
+
+    __tablename__ = "league_slot"
+    __table_args__ = (
+        PrimaryKeyConstraint("chat_id", "week", "question_id"),
+        {"sqlite_with_rowid": False},
+    )
+
+    # ON DELETE CASCADE, unlike `streak_days` above, and that is not a style preference.
+    # `/delete` anonymises events rather than deleting them, so a table keyed on chat_id with
+    # no cascade SURVIVES account deletion — the learner comes back with `/start`, the same
+    # Telegram id, and a ledger saying every question is already spent.
+    chat_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.chat_id", ondelete="CASCADE")
+    )
+    # The season, as the ISO date of its Monday. NOT strftime('%Y-%W') and NOT
+    # (year, isocalendar week): the first splits Monday 2025-12-29 across two keys and the
+    # second collides with it, both verified. This is the same value `leaderboard.week_start`
+    # already returns, so the storage key and the API's `week_start` field cannot drift.
+    week: Mapped[str] = mapped_column(Text)
+    question_id: Mapped[int] = mapped_column(Integer)
+    first_at: Mapped[datetime] = mapped_column(default=utcnow)
+    correct: Mapped[bool] = mapped_column()
+
+
+class LeagueDay(Base):
+    """The two daily ceilings, in one row because they share a key and a rule.
+
+    `scored` is what turns the daily cap into a primary-key upsert instead of a COUNT:
+
+        INSERT ... VALUES (chat_id, day, 1)
+        ON CONFLICT DO UPDATE SET scored = scored + 1 WHERE scored < <cap>
+
+    which returns rowcount 1 while under the cap and 0 once at it. So the cap is enforced by
+    the database in a single statement, the statement's own return value is the "did this
+    score?" signal, and there is no read-then-write window for two concurrent answers to
+    slip through.
+
+    `exam_bonus` is the once-a-day mock-exam payment, same shape. It matters that it is
+    atomic here specifically: an exam can be graded by a GET, when a deadline is discovered
+    to have passed, so two requests really can arrive at the same grade together.
+
+    The day is UTC, not Rome. A UTC week contains eight distinct Rome dates, so a Rome day
+    would let the boundary Monday's cap straddle two seasons.
+    """
+
+    __tablename__ = "league_day"
+    __table_args__ = (
+        PrimaryKeyConstraint("chat_id", "day"),
+        {"sqlite_with_rowid": False},
+    )
+
+    chat_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.chat_id", ondelete="CASCADE")
+    )
+    day: Mapped[str] = mapped_column(Text)
+    scored: Mapped[int] = mapped_column(default=0, server_default="0")
+    exam_bonus: Mapped[int] = mapped_column(default=0, server_default="0")
+
+
+class LeagueScore(Base):
+    """The running weekly total. Load-bearing, not an optimisation.
+
+    The board it replaces loaded every answer event of the week into Python and decoded each
+    one, on every single view — so the work was weekly-answers x viewers and grew with the
+    square of the user base. Measured: about a second in raw SQLite at 2,000 active learners,
+    two to four through the app, while holding one of fifteen database connections.
+
+    Expressing the new rules as one query over the event log is worse, not better: measured
+    at 1,444 ms per view at ten thousand users, because per-question deduplication has to
+    scan that learner's whole week. So the total is kept as points are scored and the board
+    becomes an index seek.
+
+    `seed` IS THE TIEBREAK, AND IT IS NOT `chat_id`. Ordering ties by Telegram id hands every
+    tie to the oldest account — and under a 40-a-day ceiling exact ties are the normal case,
+    so the same three accounts would take the medals every week. It would also leak a total
+    ordering of the ranked population by registration date to anyone who can read a score.
+    A per-row random seed is stable within a season, so the board does not flicker, and
+    reshuffles between seasons. Not "when the score was reached", which publishes study times.
+
+    NO `leaderboard_opt_out` COPY HERE. It would make the count index-only and it would break
+    the retroactive opt-out, which is the entire mechanism that makes showing real first names
+    to strangers defensible. It stays a live join.
+    """
+
+    __tablename__ = "league_score"
+    __table_args__ = (
+        PrimaryKeyConstraint("chat_id", "week"),
+        # Not optional. The primary key leads with chat_id, so `WHERE week = ?` cannot seek
+        # and the table grows by one row per active learner per week forever. Measured at 52
+        # seasons banked: 10.7 ms per view without it, 1.5 ms with — and the multiplier is
+        # literally the number of weeks since launch, so it benchmarks perfectly in week one.
+        Index("ix_league_score_week_points", "week", "points"),
+        {"sqlite_with_rowid": False},
+    )
+
+    chat_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.chat_id", ondelete="CASCADE")
+    )
+    week: Mapped[str] = mapped_column(Text)
+    points: Mapped[int] = mapped_column(default=0, server_default="0")
+    seed: Mapped[int] = mapped_column()
 
 
 class Event(Base):

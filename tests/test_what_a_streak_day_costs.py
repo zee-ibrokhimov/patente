@@ -529,8 +529,7 @@ async def test_answering_through_the_api_moves_the_goal(client, registered):
     key added to the service payload alone reaches nobody while every service-level test
     keeps passing. That failure looks exactly like success, so it is asserted here.
     """
-    r = await client.post("/webapp/answers", headers=_headers(),
-                          json={"question_id": 1, "answer": True})
+    r = await client.post(f"/users/{CHAT}/answers", json={"question_id": 1, "answer": True})
     assert r.status_code == 200
     assert r.json()["streak_earned_today"] is False, \
         "one answer is not a day — and the field must survive the response model"
@@ -572,8 +571,7 @@ async def test_the_answer_that_earns_the_day_says_so_to_the_client(client, regis
 
     flags = []
     for qid in (1, 2, 3):
-        r = await client.post("/webapp/answers", headers=_headers(),
-                              json={"question_id": qid, "answer": True})
+        r = await client.post(f"/users/{CHAT}/answers", json={"question_id": qid, "answer": True})
         assert r.status_code == 200
         flags.append(r.json()["streak_earned_today"])
 

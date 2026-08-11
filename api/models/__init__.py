@@ -23,6 +23,9 @@ from api.models.activity import (
     QuizSession,
     QuizSessionItem,
     Report,
+    LeagueDay,
+    LeagueScore,
+    LeagueSlot,
     StreakDay,
     Suggestion,
     User,
@@ -35,4 +38,5 @@ __all__ = [
     "User", "Progress", "Purchase", "Event", "Report", "ReferralLink",
     "QuizSession", "QuizSessionItem", "WebhookDelivery",
     "VocabTerm", "VocabProgress", "Analysis", "StreakDay",
+    "LeagueSlot", "LeagueDay", "LeagueScore",
 ]

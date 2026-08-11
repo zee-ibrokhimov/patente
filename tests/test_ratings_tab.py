@@ -26,7 +26,31 @@ KEYS = (
     "ratings", "ratings_week", "ratings_you", "ratings_anon", "ratings_empty",
     "ratings_quiet", "ratings_not_ranked", "ratings_hidden", "ratings_show_me",
     "ratings_visible", "ratings_visible_sub",
+    # The rules screen. Added to KEYS or the four-language checks below are no-ops for them —
+    # a new string that only exists in English fails nothing until an Uzbek learner opens it.
+    "league_rules_title", "league_medal_hint",
+    "league_rule_season", "league_rule_season_body",
+    "league_rule_points", "league_rule_points_body",
+    "league_rule_prizes", "league_rule_prizes_body",
+    "league_rule_seen", "league_rule_seen_body",
+    "league_rule_why", "league_rule_why_body",
+    "league_point_earned",
 )
+
+
+def block_of(name: str) -> str:
+    """One function's body, stopping at the next top-level function.
+
+    Stops at `async function` too: a version that did not would run past the end of an async
+    function and let an assertion pass on a completely different one further down the file.
+    """
+    start = MAIN.index(f"function {name}(")
+    end = len(MAIN)
+    for marker in ("\nfunction ", "\nasync function "):
+        at = MAIN.find(marker, start + 10)
+        if at != -1:
+            end = min(end, at)
+    return MAIN[start:end]
 
 
 def block(lang: str) -> dict[str, str]:
@@ -141,3 +165,67 @@ def test_the_uzbek_strings_are_latin_script():
     for key in KEYS:
         assert not re.search(r"[А-Яа-яЁё]", strings[key]), \
             f"uz {key} is in Cyrillic: {strings[key]!r}"
+
+
+# --- medals ------------------------------------------------------------------
+
+def test_a_medal_is_its_own_element_and_not_part_of_the_name():
+    """THE spoofing guard.
+
+    Telegram first names are whatever the person typed, and the sanitiser deliberately keeps
+    emoji — stripping them mangles ordinary names. So someone renaming themselves
+    "\U0001f947 Aziz" costs one tap and no studying. The defence is structural: the medal is
+    its own field on the row and its own element in the DOM, so a fake one sits visibly in
+    the wrong place instead of where a real one would be.
+    """
+    body = block_of("ratingsScreen")
+    assert "medalMark(entry.medal)" in body, "the medal is not rendered as its own element"
+    # The name is rendered on its own, never concatenated with a medal.
+    assert 'entry.name || t("ratings_anon")' in body
+    for bad in ('entry.medal + entry.name', 'entry.name + entry.medal',
+                '${entry.medal}${entry.name}', '${entry.name}${entry.medal}'):
+        assert bad not in MAIN, f"a medal was concatenated into a name: {bad}"
+
+
+def test_the_medal_is_not_drawn_in_gold():
+    """tokens.css reserves gold exclusively for Premium — "the moment gold means two things
+    it stops working" — and a league placing is not a purchase."""
+    rules = re.search(r"^\.medal \{(.*?)\}", CSS, re.M | re.S)
+    assert rules, "no .medal rule"
+    assert "--gold" not in rules.group(1)
+
+
+def test_the_rules_are_reachable_from_the_board():
+    """Not buried in Settings. The people who need them are looking at the board right now,
+    asking why their points did not move."""
+    assert "openLeagueRules()" in block_of("ratingsScreen")
+
+
+def test_the_rules_explain_why_points_do_not_move():
+    """The card that decides the support load. Three separate rules can silently make a
+    correct answer worth nothing, and a learner who is not told cannot tell any of them
+    apart from a bug."""
+    body = block_of("openLeagueRules")
+    assert "league_rule_why" in body and "league_rule_why_body" in body
+
+
+def test_every_rules_string_says_the_same_numbers_the_server_uses():
+    """A rules page quoting a cap the server does not enforce is worse than no rules page."""
+    from shared.constants import LEAGUE_DAILY_ANSWER_CAP, LEAGUE_EXAM_BONUS
+
+    for lang in ("it", "ru", "en", "uz"):
+        text = block(lang)["league_rule_points_body"]
+        assert str(LEAGUE_DAILY_ANSWER_CAP) in text, f"{lang} does not state the daily cap"
+        assert str(LEAGUE_EXAM_BONUS) in text, f"{lang} does not state the exam bonus"
+
+
+def test_the_learner_is_told_when_an_answer_scores():
+    """The line that stops the support messages.
+
+    Without it, a correct answer that scored nothing — already counted this week, day capped,
+    pace not credited — is indistinguishable from a broken board. Rendered only when it
+    actually scored, so its absence is itself the signal to go and read the rules.
+    """
+    body = block_of("verdictBox")
+    assert "a.league_point" in body
+    assert "league_point_earned" in body
