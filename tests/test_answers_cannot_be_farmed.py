@@ -228,3 +228,34 @@ async def test_one_learners_pace_does_not_limit_another(client, registered, monk
     assert other.status_code == 200, (
         "one learner exhausting the cap locked out another"
     )
+
+
+def test_the_public_answer_route_is_gone():
+    """The oracle, asserted absent rather than merely unused.
+
+    It accepted any question id with no sitting and returned `correct_answer`, so roughly
+    2,000 requests bought the whole 7,106-question bank — and every threshold in the product
+    (ten questions a day for the streak, a hundred answers for the analysis, twenty points to
+    hold a rank) is a count that assumed those requests meant studying.
+
+    Asserted on the route table, not by calling it: a 404 from a live server is also what a
+    typo in a URL returns.
+    """
+    from api.routes import quiz, webapp
+
+    # Against the routers, not `app.routes`: this app includes them lazily, so the
+    # application object exposes six paths and none of the real ones. A test reading
+    # `app.routes` would find "/webapp/answers" absent from an empty set and pass while the
+    # route was fully alive.
+    public = {r.path for r in webapp.router.routes}
+    loopback = {r.path for r in quiz.router.routes}
+    assert "/webapp/answers" not in public, "the answer-key oracle is reachable again"
+    assert "/users/{chat_id}/answers" in loopback, "the loopback write path went with it"
+
+
+def test_the_client_no_longer_offers_a_method_for_it():
+    """A client method that 404s is an invitation to call it."""
+    from pathlib import Path
+
+    api_ts = (Path(__file__).resolve().parent.parent / "webapp/src/api.ts").read_text()
+    assert 'request<AnswerResult>("/answers"' not in api_ts

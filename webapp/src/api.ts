@@ -6,7 +6,6 @@ import { tg } from "./telegram";
 import type {
   Analysis,
   Coach,
-  AnswerResult,
   ExamAnswer,
   ExplanationResult,
   Me,
@@ -81,11 +80,11 @@ export const api = {
     return request<Question>(`/next-question${qs ? `?${qs}` : ""}`);
   },
 
-  answer: (questionId: number, answer: boolean) =>
-    request<AnswerResult>("/answers", {
-      method: "POST",
-      body: JSON.stringify({ question_id: questionId, answer }),
-    }),
+  // `answer` is gone with the route it called. POST /webapp/answers took any question id
+  // with no sitting and returned the correct answer, so it was an oracle for the whole
+  // bank; it is deleted server-side. Nothing here ever invoked this — the only answer path
+  // is `sessions.answer`, inside a real sitting — and leaving a method that 404s is an
+  // invitation to somebody to call it.
 
   /** Fetched after the Italian is already on screen, because it takes a few seconds
    *  on a cold cache and nobody waits that long in front of every question (§15). */
