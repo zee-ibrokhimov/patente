@@ -525,12 +525,16 @@ def test_reduced_motion_still_shows_the_hold_registered():
     nothing. `animation: none` removes the animation itself, which `!important` on the
     duration cannot override.
     """
-    at = CSS.index(".statement .word.holding")
-    block = CSS[at:]
-    guard = block.index("prefers-reduced-motion")
-    assert guard < 600, "the hold has no reduced-motion rule near it"
-    rule = block[guard:guard + 300]
-    assert ".statement .word.holding" in rule
+    # Found by CONTENT, not by proximity. The first version searched 600 characters after
+    # the `.holding` rule and broke the moment a comment was added above it — a test failing
+    # because prose grew, while the behaviour it guards was untouched.
+    # The block's OWN body, which is the text before its closing brace — not "everything
+    # after the marker", which is most of the stylesheet and contains the rule being looked
+    # for anyway, so the first version matched the global reduced-motion block instead.
+    blocks = [b[:b.index("\n}")] for b in CSS.split("@media (prefers-reduced-motion")[1:]]
+    blocks = [b for b in blocks if ".statement .word.holding" in b]
+    assert blocks, "the hold has no reduced-motion rule at all"
+    rule = blocks[0]
     assert "animation: none" in rule, "the fill is sped up rather than switched off"
     assert "background:" in rule, "nothing shows that the press registered"
 
@@ -617,3 +621,62 @@ def test_the_confirmation_does_not_cover_the_answer_buttons():
     run = CSS.split(".screen.run { --toast-bottom:")[1].split("}")[0]
     assert int(run.strip().rstrip("px;").strip()) >= 150, \
         "the run screen's offset does not clear two stacked buttons"
+
+
+# --- alternatives ---------------------------------------------------------------
+
+def test_the_model_is_asked_for_alternatives_separated_by_a_comma():
+    """NOT "или", and not "or". The glossary stores alternatives comma-separated —
+    "звуковой сигнал, клаксон" — and `vocab_grading.accepted_answers` splits on the comma,
+    so a learner typing either one is marked correct.
+
+    Store "схема или рисунок" instead and the drill accepts NEITHER, because the whole
+    phrase becomes the single expected string. Verified below rather than asserted.
+    """
+    import inspect
+
+    prompt = inspect.getsource(wordlookup.translate)
+    assert "SEPARATED BY A COMMA" in prompt
+    assert "never the word" in prompt and "или" in prompt
+
+
+def test_a_comma_separated_gloss_grades_either_answer_right():
+    """The property the comma buys, checked against the real grader rather than trusted."""
+    from api.services.vocab_grading import Verdict, grade
+
+    for typed in ("схема", "рисунок"):
+        assert grade(typed, "схема, рисунок", "ru").verdict is Verdict.CORRECT
+
+
+def test_the_word_or_between_alternatives_would_break_the_drill():
+    """The failure this convention avoids, pinned so nobody "improves" the prompt into it."""
+    from api.services.vocab_grading import Verdict, grade
+
+    for typed in ("схема", "рисунок"):
+        assert grade(typed, "схема или рисунок", "ru").verdict is not Verdict.CORRECT
+
+
+async def test_alternatives_survive_the_whole_path(client, registered, api_db, premium,
+                                                    monkeypatch):
+    """A gloss with a comma has to reach the learner's vocabulary intact — not truncated at
+    the comma on the way through, which would silently discard the second meaning."""
+    async def two_meanings(_word):
+        return {"lemma": "figura", "en": "diagram, picture",
+                "ru": "схема, рисунок", "uz": "sxema, rasm"}
+
+    await premium()
+    monkeypatch.setattr(wordlookup, "translate", two_meanings)
+    body = (await tap(client, "figura")).json()
+    assert body["gloss"] == "схема, рисунок"
+    words = await my_words(api_db)
+    assert words[0].ru == "схема, рисунок"
+    assert words[0].en == "diagram, picture"
+
+
+def test_the_hold_fill_is_green_not_a_neutral_grey():
+    """The owner read the old blue-grey fill as "the loading grey part", which is exactly
+    what it looked like. A neutral tint says "waiting"; this is not a wait, it is something
+    being earned, and green is what this app already uses for that."""
+    rule = CSS.split(".statement .word.holding {")[1].split("}")[0]
+    assert "--practice-chip" in rule
+    assert "--tint-info" not in rule

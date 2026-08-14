@@ -20,6 +20,14 @@ teaching order. Writing every tapped word into it would destroy the curation and
 ordering. The cache is its own table and the drill never reads it. What lands in the
 learner's own vocabulary is a PERSONAL row, which the drill already knows how to schedule.
 
+ALTERNATIVES ARE SEPARATED BY A COMMA, AND THAT IS NOT A STYLE CHOICE
+
+The glossary already stores them that way — "звуковой сигнал, клаксон" — and
+`vocab_grading.accepted_answers` splits on the comma so a learner typing EITHER is marked
+correct. Store "схема или рисунок" instead and the drill accepts neither: verified, both
+answers grade WRONG, because the whole phrase becomes the one expected string. So the model
+is told to use a comma and told explicitly not to write "or" or "или".
+
 KEYED ON THE DICTIONARY FORM
 
 `veicolo` and `veicoli` are two tokens and one word. Keying on what was tapped would double
@@ -148,9 +156,14 @@ async def translate(word: str) -> dict | None:
                 '"uz": "..."}. '
                 "The lemma is the form a dictionary would list: singular for nouns, "
                 "masculine singular for adjectives, infinitive for verbs. "
-                "Each gloss is one to four words, no explanation, no article, no "
-                "punctuation at the end. Where the word has a specific meaning in road "
-                "traffic, give that meaning. Uzbek uses the Latin alphabet."
+                "Give the common renderings, SEPARATED BY A COMMA, most usual first — "
+                "for example figura -> \"схема, рисунок\". One is fine when the word "
+                "really has one; never more than three. "
+                "No explanation, no article, no punctuation at the end, and never the word "
+                "\"or\" or \"или\" between them: the comma IS the separator and anything "
+                "else is read as part of the answer. "
+                "Where the word has a specific meaning in road traffic, give that meaning "
+                "first. Uzbek uses the Latin alphabet."
             )},
             {"role": "user", "content": word},
         ],

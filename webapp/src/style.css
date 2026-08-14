@@ -882,7 +882,13 @@ html, body { overflow-x: hidden; }
    same constant that arms the timer, passed in as --hold, so the bar cannot finish at a
    different moment from the save. */
 .statement .word.holding {
-  background: linear-gradient(var(--tint-info), var(--tint-info)) left / 0% 100% no-repeat;
+  /* Green, not the blue-grey it was. The owner read that fill as "the loading grey part",
+     which is exactly what it looked like — a neutral tint says "waiting", and this is not a
+     wait, it is something being earned. --practice-chip is the same green the practice mode
+     and the correct-answer chips already use, so the colour means the same thing here as it
+     does everywhere else in the app. */
+  background: linear-gradient(var(--practice-chip), var(--practice-chip))
+              left / 0% 100% no-repeat;
   animation: word-hold var(--hold, 2000ms) linear forwards;
 }
 @keyframes word-hold { to { background-size: 100% 100%; } }
@@ -890,7 +896,7 @@ html, body { overflow-x: hidden; }
 /* Somebody who has switched motion off still needs to see that the hold registered. A flat
    tint says "this is happening" without animating anything. */
 @media (prefers-reduced-motion: reduce) {
-  .statement .word.holding { animation: none; background: var(--tint-info); }
+  .statement .word.holding { animation: none; background: var(--practice-chip); }
 }
 
 .statement .word.busy { opacity: .5; }
