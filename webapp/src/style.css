@@ -908,7 +908,25 @@ html, body { overflow-x: hidden; }
   background: var(--ok); color: #fff;
   box-shadow: 0 8px 24px -8px rgba(22,163,74,.6);
 }
-.toast-action { display: flex; align-items: center; gap: var(--md); }
+
+/* A CARD, NOT A PILL, and this is what shipped wrong.
+   `.toast` is `border-radius: 999px`, which is right for one short line of error text and
+   catastrophic for two lines plus a button: the radius eats its own corners, the text wraps
+   into the curve, and a four-line blob lands on top of the answer buttons. Seen on a real
+   phone, not in the CSS.
+   Left-aligned and given a real width, because this one is read rather than glanced at. */
+.toast-action {
+  display: flex; align-items: center; gap: var(--md);
+  border-radius: var(--card-radius);
+  width: min(92vw, 420px); max-width: none;
+  padding: var(--md) var(--lg); text-align: left;
+  /* Clear of the answer buttons. The default 84px is measured against the TAB BAR, which
+     the run screen does not have — it has two full-width answer buttons in the same place,
+     and a toast over the control you are about to press is worse than no toast. */
+  bottom: calc(var(--toast-bottom, 84px) + env(safe-area-inset-bottom, 0px));
+}
+/* The run screen carries its own offset: two stacked buttons plus their gap. */
+.screen.run { --toast-bottom: 168px; }
 .toast-text { flex: 1 1 auto; min-width: 0; display: grid; gap: 1px; }
 .toast-title { font-weight: 700; }
 .toast-sub { font-size: var(--t-caption); opacity: .75; }

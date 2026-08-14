@@ -593,3 +593,27 @@ def test_a_saved_word_stays_marked():
 def test_a_second_hold_does_not_send_two_lookups():
     body = block_of("lookUpWord")
     assert 'node.classList.contains("busy")' in body
+
+
+def test_the_confirmation_is_not_a_pill():
+    """SHIPPED WRONG AND CAUGHT ON A REAL PHONE.
+
+    `.toast` is `border-radius: 999px`, which is right for one short line of error text and
+    catastrophic for two lines plus a button: the radius eats its own corners, the text wraps
+    into the curve, and the result is a four-line blob. Reading the CSS would not have shown
+    it — the rule was correct for every message that existed when it was written.
+    """
+    rule = CSS.split(".toast-action {")[1].split("}")[0]
+    assert "border-radius: var(--card-radius)" in rule, "still a pill"
+    assert "999px" not in rule
+
+
+def test_the_confirmation_does_not_cover_the_answer_buttons():
+    """The default 84px is measured against the TAB BAR, which the run screen does not have
+    — it has two full-width answer buttons in exactly that space. A toast sitting on top of
+    the control somebody is about to press is worse than no toast."""
+    rule = CSS.split(".toast-action {")[1].split("}")[0]
+    assert "--toast-bottom" in rule, "the offset is not overridable per screen"
+    run = CSS.split(".screen.run { --toast-bottom:")[1].split("}")[0]
+    assert int(run.strip().rstrip("px;").strip()) >= 150, \
+        "the run screen's offset does not clear two stacked buttons"
