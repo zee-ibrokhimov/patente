@@ -82,10 +82,15 @@ def test_no_render_site_asks_for_the_size_without_supplying_it():
     Matched to the end of the line rather than to the next ')': the argument being looked
     for is itself a call, so a non-greedy match stops inside `vocabSize(` and reports
     every correct site as broken.
+
+    `plural(` counts as a render site too. These two keys are now inflected — "1 слово",
+    "2 слова", "5 слов", because a learner has exactly one saved word the moment they hold
+    their first one — and matching only `t(` would have quietly stopped checking anything
+    the day that changed, while still passing.
     """
     for key in SIZE_KEYS:
-        sites = [m for m in re.finditer(rf't\(\s*"{key}"', MAIN)]
-        assert sites, f'nothing renders t("{key}") any more — this test is stale'
+        sites = [m for m in re.finditer(rf'(?:t|plural)\(\s*"{key}"', MAIN)]
+        assert sites, f'nothing renders "{key}" any more — this test is stale'
         for call in sites:
             line = MAIN[call.start():MAIN.find("\n", call.start())]
             assert "vocabSize()" in line, f"{key} is rendered without a count at: {line}"

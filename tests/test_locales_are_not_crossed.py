@@ -47,13 +47,53 @@ def block(lang: str) -> dict[str, str]:
 
 BLOCKS = {lang: block(lang) for lang in LANGS}
 
+# Plural forms are the one kind of key that is SUPPOSED to differ between locales. Russian
+# needs three forms of "день", Italian two of "giorno", English and Uzbek none — so
+# `plural()` reads a missing form as "this language does not inflect here" and falls back
+# to the base key. Requiring parity would mean writing a `streak_days_few` in Uzbek, which
+# is not a thing, and that placeholder would be indistinguishable from a real form.
+#
+# A key counts as a form only when its stem is itself a key in the SAME block, so an
+# ordinary key that happens to end in "_one" is still held to parity.
+FORM = re.compile(r"^(.*)_(one|few|many)$")
+
+
+def is_plural_form(lang: str, key: str) -> bool:
+    m = FORM.match(key)
+    return bool(m) and m.group(1) in BLOCKS[lang]
+
+
+def base_keys(lang: str) -> set[str]:
+    return {k for k in BLOCKS[lang] if not is_plural_form(lang, k)}
+
 
 def test_every_locale_has_the_same_keys():
     """A missing key silently falls back to English, so a locale can look complete while
     quietly serving another language."""
-    reference = set(BLOCKS["it"])
+    reference = base_keys("it")
     for lang in LANGS:
-        assert set(BLOCKS[lang]) == reference, f"{lang} has different keys"
+        assert base_keys(lang) == reference, (
+            f"{lang} has different keys: missing {sorted(reference - base_keys(lang))[:5]}, "
+            f"extra {sorted(base_keys(lang) - reference)[:5]}"
+        )
+
+
+def test_every_plural_form_has_its_base_in_every_locale():
+    """The other half of the exemption above.
+
+    A form may be missing because plural() falls back to the base — so the BASE is the
+    thing that has to exist everywhere. Without it the fallback lands in t(), which falls
+    through to ENGLISH, and a Russian card quietly renders an English noun."""
+    for lang in LANGS:
+        for key in BLOCKS[lang]:
+            if not is_plural_form(lang, key):
+                continue
+            stem = FORM.match(key).group(1)
+            for other in LANGS:
+                assert stem in BLOCKS[other], (
+                    f"{lang}.{key} is a plural form of {stem!r}, which {other} does not "
+                    f"define — {other} would fall back to English"
+                )
 
 
 @pytest.mark.parametrize("lang", ["it", "en", "uz"])
@@ -122,7 +162,10 @@ def test_no_string_is_identical_across_all_four_languages_by_accident():
     NEUTRAL = re.compile(r"^[\W\d\s]*$|Quiz Patente|Codice della Strada|@tribute")
     crossed = [
         k for k in BLOCKS["it"]
-        if len({BLOCKS[l][k] for l in LANGS}) == 1
+        # Plural forms exist per language by design, so only keys every locale defines can
+        # be compared across all four. `BLOCKS[l][k]` on the rest is a KeyError, not a pass.
+        if all(k in BLOCKS[l] for l in LANGS)
+        and len({BLOCKS[l][k] for l in LANGS}) == 1
         and len(BLOCKS["it"][k]) > 12
         and not NEUTRAL.search(BLOCKS["it"][k])
     ]

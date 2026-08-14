@@ -1,7 +1,7 @@
 import { admin, api, ApiError, categories, leaderboard, sessions, vocab } from "./api";
 import { readinessGauge } from "./gauge";
 import { icons } from "./icons";
-import { TRANSLATION_LANGUAGES, type Key, lang, setLang, t, tips } from "./i18n";
+import { TRANSLATION_LANGUAGES, type Key, lang, plural, setLang, t, tips } from "./i18n";
 import {
   applyTheme,
   ask,
@@ -1006,7 +1006,7 @@ function subjectsScreen(): HTMLElement {
         : `${Math.round(cat.error_rate * 100)}%`));
     card.append(top);
 
-    card.append(el("p", "subject-meta", t("subjects_meta", {
+    card.append(el("p", "subject-meta", plural("subjects_meta", cat.questions, {
       n: cat.questions, per: cat.per_exam.toFixed(1),
     })));
 
@@ -1067,7 +1067,7 @@ function vocabEntry(): HTMLElement {
   card.append(icons.tile(icons.vocabGlyph(), "vocab"));
   const body = el("span", "v-entry-body");
   body.append(el("span", "v-entry-title", t("v_title")),
-              el("span", "v-entry-sub", t("v_sub", { n: vocabSize() })));
+              el("span", "v-entry-sub", plural("v_sub", vocabSize(), { n: vocabSize() })));
   card.append(body);
   card.append(el("span", "v-entry-go", "\u203A"));
   card.onclick = () => void openVocab();
@@ -1126,7 +1126,7 @@ function modeCard(mode: Mode, title: string, desc: string, tag: string): HTMLEle
 function premiumFeatures(order: "sell" | "explain"): Array<{ title: string; sub: string }> {
   const ai = { title: t("f_ai"), sub: t("f_ai_s") };
   const lang = { title: t("f_lang"), sub: t("f_lang_s") };
-  const vocab = { title: t("f_vocab"), sub: t("f_vocab_s", { n: vocabSize() }) };
+  const vocab = { title: t("f_vocab"), sub: plural("f_vocab_s", vocabSize(), { n: vocabSize() }) };
   const future = { title: t("f_future"), sub: t("f_future_s") };
   const trial = { title: t("f_trial"), sub: t("f_trial_s") };
   // "explain" leads with the AI explanation because the user has just got something
@@ -2056,8 +2056,15 @@ function resultsScreen(): HTMLElement {
     esito.append(el("p", "esito-sub", t("not_counted_sub")));
   } else if (r.mode === "exam") {
     esito.append(el("p", "esito-verdict", passed ? t("passed") : t("failed")));
-    esito.append(el("p", "esito-sub",
-      `${r.wrong} ${t("errors").toLowerCase()} / ${r.max_errors} ${t("allowed").toLowerCase()}`));
+    // `max_errors` is set when the sitting is created and is only null for practice, so an
+    // exam always has one. Narrowed rather than asserted — and if it ever is null the line
+    // is dropped rather than guessed, because this sentence is a ratio and inventing half
+    // of it tells a learner they failed against an allowance nobody set. The tally below
+    // still reports the error count; only the ratio needs the allowance.
+    if (r.max_errors !== null) {
+      esito.append(el("p", "esito-sub",
+        plural("errors_of", r.wrong, { n: r.wrong, max: r.max_errors })));
+    }
   } else {
     esito.append(el("p", "esito-verdict display",
       `${r.answered - r.wrong}/${r.answered}`));
@@ -2132,10 +2139,18 @@ function streakCard(p: Profile): HTMLElement {
   const flame = el("div", met || p.streak_days > 0 ? "streak-flame on" : "streak-flame");
   flame.textContent = "🔥";
   const headText = el("div", "streak-headtext");
+  // REPORTED: learners on their first day said their streak was "already 5". The card showed
+  // a flame, "Ещё 5 до цели дня" and "5 / 10" — the 5 is today's progress, but the only line
+  // naming it never said five of WHAT, and it sat beside the flame that means streak
+  // everywhere else. So the unit is named. And the count is inflected: interpolating into a
+  // single fixed noun produced "1 дней подряд", which is "1 days" to a Russian reader.
   headText.append(el("div", "streak-count",
-    p.streak_days > 0 ? `${p.streak_days} ${t("streak_days")}` : t("streak_none")));
+    p.streak_days > 0
+      ? `${p.streak_days} ${plural("streak_days", p.streak_days)}`
+      : t("streak_none")));
   headText.append(el("div", "streak-sub",
-    met ? t("streak_done_today") : t("streak_left_today", { n: goal - done })));
+    met ? t("streak_done_today")
+        : plural("streak_left_today", goal - done, { n: goal - done })));
   head.append(flame, headText);
 
   // Freezes are shown only when held. A "❄️ 0" is a reminder of something you do not have.
@@ -2183,7 +2198,8 @@ function profileScreen(): HTMLElement {
   const whoText = el("div");
   whoText.append(el("div", "who-name", name || t("profile")));
   if (p.streak_days > 0) {
-    whoText.append(el("div", "who-streak", `🔥 ${p.streak_days} ${t("streak_days")}`));
+    whoText.append(el("div", "who-streak",
+      `🔥 ${p.streak_days} ${plural("streak_days", p.streak_days)}`));
   }
   const gear = el("button", "who-gear");
   gear.append(icons.gear(24));
@@ -2207,7 +2223,8 @@ function profileScreen(): HTMLElement {
     const value = el("div", "gauge-value");
     value.append(document.createTextNode(String(pct)), el("small", "", "%"));
     card.append(value);
-    card.append(el("div", "gauge-sub", t("based_on", { n: p.readiness_sample })));
+    card.append(el("div", "gauge-sub",
+      plural("based_on", p.readiness_sample, { n: p.readiness_sample })));
 
     const note = el("div", "gauge-note");
     note.append(icons.target(26));

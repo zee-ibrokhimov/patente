@@ -163,12 +163,22 @@ def test_the_translation_prompt_asks_for_uzbek_and_pins_the_script():
 def test_the_mini_app_carries_every_key_in_uzbek():
     """A partial locale used to be a compile error and t() returned undefined for a
     missing key; both were fixed before this shipped, but the locale should still be
-    complete rather than relying on the fallback."""
+    complete rather than relying on the fallback.
+
+    Plural forms (`<base>_one` / `_few` / `_many`) are excluded, and deliberately so:
+    Uzbek does not inflect a noun after a numeral — "1 kun" and "5 kun" — so plural() is
+    built to fall back to the base key when a language defines no form. Demanding a
+    `streak_days_few` here would mean inventing an Uzbek grammatical form that does not
+    exist. The base key is what must be present, and it still is."""
     source = (ROOT / "webapp/src/i18n.ts").read_text(encoding="utf-8")
     import re
 
-    def keys(lang: str) -> list[str]:
+    def keys(lang: str) -> set[str]:
         start = source.index(f"  {lang}: {{")
-        return re.findall(r"^\s{4}(\w+):", source[start:source.index("\n  },", start)], re.M)
+        found = set(re.findall(r"^\s{4}(\w+):",
+                               source[start:source.index("\n  },", start)], re.M))
+        return {k for k in found
+                if not (re.match(r"^(.*)_(one|few|many)$", k)
+                        and re.match(r"^(.*)_(one|few|many)$", k).group(1) in found)}
 
-    assert sorted(keys("uz")) == sorted(keys("en"))
+    assert keys("uz") == keys("en")

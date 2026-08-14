@@ -96,12 +96,16 @@ const STRINGS = {
     resume_desc: "Hai un esame in corso.",
     ready_title: "Pronto all'esame",
     based_on: "su {n} risposte recenti",
+    based_on_one: "su {n} risposta recente",
     need_more: "Rispondi ad almeno {n} domande per una stima.",
     pass_bar: "soglia {n}%",
     streak_days: "giorni di fila",
+    streak_days_one: "giorno di fila",
+    streak_days_many: "giorni di fila",
     streak_none: "Inizia la serie oggi",
     streak_done_today: "Obiettivo di oggi raggiunto",
-    streak_left_today: "Ancora {n} per l'obiettivo di oggi",
+    streak_left_today: "Ancora {n} domande oggi",
+    streak_left_today_one: "Ancora 1 domanda oggi",
     streak_goal_line: "{done} / {goal} oggi",
     streak_freeze_hint: "Un blocco copre un giorno saltato",
     streak_earned: "Obiettivo di oggi raggiunto — la serie continua",
@@ -120,6 +124,7 @@ const STRINGS = {
     subjects_title: "Argomenti",
     subjects_sub: "Ordinati per quanto ti costano all'esame.",
     subjects_meta: "{n} domande · circa {per} per esame",
+    subjects_meta_one: "{n} domanda · circa {per} per esame",
     subjects_untested: "non testato",
     subjects_start: "Allenati su questo",
     subjects_show_topics: "Capitoli del manuale",
@@ -153,6 +158,7 @@ const STRINGS = {
     not_passed: "Non hai superato l'esame",
     you_passed: "Hai superato l'esame",
     errors_of: "{n} errori su {max} consentiti",
+    errors_of_one: "{n} errore su {max} consentiti",
     over_limit: "Hai superato il limite di errori.",
     dont_give_up: "Non arrenderti — ce la farai!",
     tip_title: "Consiglio",
@@ -185,6 +191,7 @@ const STRINGS = {
     f_lang_s: "Capisci la domanda, non solo indovinala",
     f_vocab: "📚 Vocabolario della guida",
     f_vocab_s: "{n} parole",
+    f_vocab_s_one: "{n} parola",
     f_future: "🚀 Tutte le funzioni Premium future",
     f_future_s: "Incluse, senza costi aggiuntivi",
     f_trial: "🎁 7 giorni di prova gratuita",
@@ -215,6 +222,7 @@ const STRINGS = {
     dark_mode: "Tema scuro",
     dark_mode_sub: "Segue Telegram finché non scegli.",
     v_sub: "{n} parole d'esame",
+    v_sub_one: "{n} parola d'esame",
     v_credit: "Glossario a cura di",
     v_test: "Allenati",
     coach_lead: "Vuoi un consiglio su come studiare, basato sui tuoi errori?",
@@ -413,12 +421,18 @@ const STRINGS = {
     resume_desc: "У вас есть незавершённый экзамен.",
     ready_title: "Готовность к экзамену",
     based_on: "по {n} последним ответам",
+    based_on_one: "по {n} последнему ответу",
     need_more: "Ответьте минимум на {n} вопросов для оценки.",
     pass_bar: "порог {n}%",
     streak_days: "дней подряд",
+    streak_days_one: "день подряд",
+    streak_days_few: "дня подряд",
+    streak_days_many: "дней подряд",
     streak_none: "Начните серию сегодня",
     streak_done_today: "Цель на сегодня выполнена",
-    streak_left_today: "Ещё {n} до цели дня",
+    streak_left_today: "Ещё {n} вопросов сегодня",
+    streak_left_today_one: "Ещё 1 вопрос сегодня",
+    streak_left_today_few: "Ещё {n} вопроса сегодня",
     streak_goal_line: "{done} / {goal} сегодня",
     streak_freeze_hint: "Заморозка спасает один пропущенный день",
     streak_earned: "Цель дня выполнена — серия продолжается",
@@ -437,6 +451,8 @@ const STRINGS = {
     subjects_title: "Темы",
     subjects_sub: "По порядку — сколько баллов каждая тема стоит вам на экзамене.",
     subjects_meta: "{n} вопросов · около {per} на экзамене",
+    subjects_meta_one: "{n} вопрос · около {per} на экзамене",
+    subjects_meta_few: "{n} вопроса · около {per} на экзамене",
     subjects_untested: "нет данных",
     subjects_start: "Тренировать эту тему",
     subjects_show_topics: "Главы учебника",
@@ -470,6 +486,8 @@ const STRINGS = {
     not_passed: "Вы не сдали экзамен",
     you_passed: "Вы сдали экзамен",
     errors_of: "{n} ошибок из {max} допустимых",
+    errors_of_one: "{n} ошибка из {max} допустимых",
+    errors_of_few: "{n} ошибки из {max} допустимых",
     over_limit: "К сожалению, вы превысили лимит ошибок.",
     dont_give_up: "Не сдавайтесь — у вас всё получится!",
     tip_title: "Совет",
@@ -502,6 +520,8 @@ const STRINGS = {
     f_lang_s: "Понимайте вопрос, а не угадывайте",
     f_vocab: "📚 Словарь водителя",
     f_vocab_s: "{n} слов",
+    f_vocab_s_one: "{n} слово",
+    f_vocab_s_few: "{n} слова",
     f_future: "🚀 Все будущие Premium-функции",
     f_future_s: "Входят без доплаты",
     f_trial: "🎁 7 дней бесплатно",
@@ -532,6 +552,8 @@ const STRINGS = {
     dark_mode: "Тёмная тема",
     dark_mode_sub: "По умолчанию — как в Telegram.",
     v_sub: "{n} экзаменационных слов",
+    v_sub_one: "{n} экзаменационное слово",
+    v_sub_few: "{n} экзаменационных слова",
     v_credit: "Словарь составил",
     v_test: "Тренировка",
     coach_lead: "Хотите совет, как заниматься, по вашим ошибкам?",
@@ -730,12 +752,14 @@ const STRINGS = {
     resume_desc: "You have an exam in progress.",
     ready_title: "Exam readiness",
     based_on: "from {n} recent answers",
+    based_on_one: "from {n} recent answer",
     need_more: "Answer at least {n} questions for an estimate.",
     pass_bar: "pass bar {n}%",
     streak_days: "day streak",
     streak_none: "Start a streak today",
     streak_done_today: "Today's goal is done",
-    streak_left_today: "{n} more to reach today's goal",
+    streak_left_today: "{n} more questions today",
+    streak_left_today_one: "1 more question today",
     streak_goal_line: "{done} / {goal} today",
     streak_freeze_hint: "A freeze covers one missed day",
     streak_earned: "Today's goal is done — the streak continues",
@@ -754,6 +778,7 @@ const STRINGS = {
     subjects_title: "Subjects",
     subjects_sub: "Ordered by how many marks each is costing you.",
     subjects_meta: "{n} questions · about {per} per exam",
+    subjects_meta_one: "{n} question · about {per} per exam",
     subjects_untested: "not tested",
     subjects_start: "Practise this",
     subjects_show_topics: "Book chapters",
@@ -787,6 +812,7 @@ const STRINGS = {
     not_passed: "You did not pass",
     you_passed: "You passed",
     errors_of: "{n} errors of {max} allowed",
+    errors_of_one: "{n} error of {max} allowed",
     over_limit: "You went over the error limit.",
     dont_give_up: "Don't give up — you'll get there!",
     tip_title: "Tip",
@@ -819,6 +845,7 @@ const STRINGS = {
     f_lang_s: "Understand the question, don't guess it",
     f_vocab: "📚 Driving vocabulary",
     f_vocab_s: "{n} words",
+    f_vocab_s_one: "{n} word",
     f_future: "🚀 Every future Premium feature",
     f_future_s: "Included, at no extra cost",
     f_trial: "🎁 7-day free trial",
@@ -849,6 +876,7 @@ const STRINGS = {
     dark_mode: "Dark mode",
     dark_mode_sub: "Follows Telegram until you choose.",
     v_sub: "{n} exam words",
+    v_sub_one: "{n} exam word",
     v_credit: "Word list compiled by",
     v_test: "Practise",
     coach_lead: "Want advice on how to study, based on your own mistakes?",
@@ -1052,7 +1080,7 @@ const STRINGS = {
     streak_days: "kun ketma-ket",
     streak_none: "Bugun seriyani boshlang",
     streak_done_today: "Bugungi maqsad bajarildi",
-    streak_left_today: "Maqsadgacha yana {n} ta",
+    streak_left_today: "Bugun yana {n} ta savol",
     streak_goal_line: "{done} / {goal} bugun",
     streak_freeze_hint: "Muzlatish bitta o'tkazib yuborilgan kunni qoplaydi",
     streak_earned: "Bugungi maqsad bajarildi — seriya davom etadi",
@@ -1302,6 +1330,51 @@ export function t(key: Key, vars?: Record<string, string | number>): string {
 
 export function lang(): Lang {
   return current;
+}
+
+/** Pick the plural form of `base` for `n`, e.g. plural("streak_days", 1) -> "1 день подряд".
+ *
+ *  REPORTED FROM A PHONE: the streak card read "1 дней подряд" — the many-form against a
+ *  count of one, which reads the way "1 days" reads in English. Russian has three forms and
+ *  Italian two, so one string per key cannot be right for every count, and this particular
+ *  one sits at the top of the profile where it is read more than any other line.
+ *
+ *  Keys are `<base>_one` / `<base>_few` / `<base>_many`. A language needing no inflection
+ *  (English "day streak", Uzbek "kun ketma-ket") defines none and falls back to `base`, so
+ *  adding forms is opt-in per language and no translation has to change to keep working. */
+export function plural(base: Key, n: number, vars?: Record<string, string | number>): string {
+  const table = STRINGS[current] as Record<string, string>;
+  for (const suffix of pluralForms(n)) {
+    const key = `${base}_${suffix}`;
+    if (table[key] !== undefined) return t(key as Key, vars);
+  }
+  return t(base, vars);
+}
+
+/** The candidate suffix for `n` in the current language, as a list so a language can offer
+ *  more than one candidate if it ever needs to.
+ *
+ *  Returned as a list, and read as a list by plural(), because Russian's three-way split is
+ *  the shape every other Slavic language would also need; the loop costs nothing and means
+ *  adding one is a table change rather than a rewrite. */
+function pluralForms(n: number): string[] {
+  const abs = Math.abs(n);
+  const mod10 = abs % 10;
+  const mod100 = abs % 100;
+  switch (current) {
+    case "ru":
+      // The standard Russian rule. 11-14 are the exception that catches naive `% 10`
+      // implementations: 11 takes "дней", not "день", though it ends in a 1.
+      if (mod10 === 1 && mod100 !== 11) return ["one"];
+      if (mod10 >= 2 && mod10 <= 4 && !(mod100 >= 12 && mod100 <= 14)) return ["few"];
+      return ["many"];
+    default:
+      // Italian, English and Uzbek all take at most a one/many split, and a language that
+      // needs no inflection at all simply defines neither form and falls back to `base`.
+      // Italian had its own arm here saying exactly this; a mutant that collapsed it
+      // changed no output, which is the definition of a branch that was not there.
+      return abs === 1 ? ["one"] : ["many"];
+  }
 }
 
 
