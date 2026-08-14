@@ -1144,6 +1144,31 @@ async def payments(
 MAX_BATCH = 20
 
 
+@router.post("/content/rewrite-withheld")
+async def rewrite_withheld(
+    count: int = Query(default=20, ge=1, le=MAX_BATCH),
+    staff: User = Depends(staff_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Rewrite the explanations the quality gates refused to serve.
+
+    A withheld cluster is a hole exactly as wide as the number of questions in it, and the
+    learner sees "not available yet" with no button — the one state in this product that
+    looks like a fault rather than a choice.
+
+    Most of them argued against the ministry's answer. Asking again reproduces the argument;
+    handing the model the official answers changes the task to "explain why the examiner's
+    answer is what it is", which is the thing a learner needs. Every gate still runs, so a
+    rewrite that invents a speed limit is withheld exactly as before — see
+    `explanations.rewrite_withheld`, which sets out why this is not a bypass.
+
+    Synchronous, unlike the bulk generator: there are about fifteen of these, not thousands.
+    """
+    from api.services import explanations
+
+    return await explanations.rewrite_withheld(session, count)
+
+
 @router.post("/content/generate")
 async def generate_content(
     count: int = Query(default=10, ge=1, le=MAX_BATCH),

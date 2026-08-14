@@ -82,7 +82,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.models import Explanation, Question, Topic
@@ -539,7 +539,23 @@ def select_articles(
     return chosen
 
 
-def build_text_prompt(topic: str, judged: list[dict], grounded: list[dict]) -> str:
+def build_text_prompt(topic: str, judged: list[dict], grounded: list[dict],
+                      with_key: bool = False) -> str:
+    """The prompt. `with_key` hands the model the OFFICIAL ANSWERS.
+
+    Off by default, and that default is what makes the answer-key gate work at all: the
+    model judges each statement independently, and a disagreement is evidence worth acting
+    on — it is how a wrong explanation is caught before a learner reads it.
+
+    On only for a REWRITE of a cluster the gate already withheld for disagreeing. At that
+    point the independent judgement has been made and recorded; asking again without the key
+    would produce the same disagreement and the same withheld text, and the learner would go
+    on seeing nothing. The exam is graded against the ministry's answer, so an explanation
+    that teaches why the official answer is the official answer is the useful thing to write.
+
+    The disagreement stays on the row either way. This changes what the learner is shown,
+    not what the reviewer is told.
+    """
     parts = [f"ARGOMENTO MINISTERIALE: {topic}", "", "ARTICOLI DI LEGGE:"]
     for article in grounded:
         rubric = f" — {article['rubric']}" if article["rubric"] else ""
@@ -550,6 +566,21 @@ def build_text_prompt(topic: str, judged: list[dict], grounded: list[dict]) -> s
         ]
     parts += ["", "AFFERMAZIONI DA VALUTARE:"]
     parts += [f"{i}. {m['statement']}" for i, m in enumerate(judged, 1)]
+    if with_key:
+        parts += [
+            "",
+            "RISPOSTE UFFICIALI DEL MINISTERO (vincolanti):",
+        ]
+        parts += [f"{i}. {'VERO' if m['answer'] else 'FALSO'}"
+                  for i, m in enumerate(judged, 1)]
+        parts += [
+            "",
+            "Queste risposte sono quelle su cui il candidato viene esaminato. Spiega "
+            "PERCHÉ ciascuna risposta ufficiale è quella indicata, citando l'articolo. "
+            "Non contestarle. Se un'affermazione ti sembra discutibile, spiega la "
+            "distinzione che la rende vera o falsa secondo la norma. "
+            "I `verdetti` devono coincidere con le risposte ufficiali.",
+        ]
     return "\n".join(parts)
 
 
@@ -579,8 +610,11 @@ def build_messages(
     grounded: list[dict],
     image_path: str | None,
     syllabus: bool = False,
+    with_key: bool = False,
 ) -> list[dict]:
-    content: list[dict] = [{"type": "text", "text": build_text_prompt(topic, judged, grounded)}]
+    content: list[dict] = [
+        {"type": "text", "text": build_text_prompt(topic, judged, grounded, with_key)}
+    ]
     figure = figure_part(image_path)
     if figure:
         content.append(figure)
@@ -718,6 +752,40 @@ def check_gates(
     return (STATUS_FLAGGED if reasons else STATUS_DRAFT), reasons, disagreements
 
 
+# Notes about WHERE a row came from, as opposed to what is wrong with it. Appended to the
+# reasons so they land in `flags` and stay visible for ever, but deliberately AFTER the
+# status has been decided — neither of them withholds anything.
+SYLLABUS_NOTE = "explained from the exam syllabus — no article covers it"
+SUPPLIED_KEY_NOTE = ("rewritten with the official answers supplied — the verdicts are not "
+                     "independent")
+
+
+def provenance(reasons: list[str], attempt: int = 0, with_key: bool = False) -> list[str]:
+    """Reasons, plus how this row was produced.
+
+    Both notes exist because a row read six months later says nothing about the conditions
+    it was written under, and both change how it should be read:
+
+      · the syllabus note: this text cites no article BY DESIGN, because no article covers
+        the question. A reviewer comparing it against the Codice would otherwise conclude
+        the citation had gone missing.
+      · the supplied-key note: the model was handed the ministry's answers, so its verdicts
+        agreeing with them is not independent corroboration and must never be read as such.
+        The original disagreement is still on the row this replaced, which is where a
+        reviewer looks to decide whether the model or the answer key was wrong.
+
+    A separate function because the status is decided by `check_gates` BEFORE this runs, and
+    a note appended to `reasons` that accidentally flagged a row would withhold every
+    syllabus-written explanation in the bank.
+    """
+    out = list(reasons)
+    if attempt >= 2:
+        out.append(SYLLABUS_NOTE)
+    if with_key:
+        out.append(SUPPLIED_KEY_NOTE)
+    return out
+
+
 def record_flags(reasons: list[str], disagreements: list[dict]) -> str | None:
     """Why the reviewer should look, in the form they need: which statement, and what
     each side said. Recorded even when it does not withhold anything — a disagreement is
@@ -815,7 +883,8 @@ class Outcome:
 
 
 async def generate(
-    session: AsyncSession, cluster_id: int, model: str | None = None, attempt: int = 0
+    session: AsyncSession, cluster_id: int, model: str | None = None, attempt: int = 0,
+    with_key: bool = False,
 ) -> Outcome:
     """Call the model for one cluster and store every language it returns.
 
@@ -841,7 +910,8 @@ async def generate(
     client = openai_client()
     kwargs = dict(
         model=model or settings.openai_model,
-        messages=build_messages(topic, judged, grounded, image, syllabus=attempt >= 2),
+        messages=build_messages(topic, judged, grounded, image,
+                                syllabus=attempt >= 2, with_key=with_key),
         response_format={"type": "json_object"},
     )
     try:
@@ -904,11 +974,7 @@ async def generate(
     # print, and there is nothing here to check it against.
     status, reasons, disagreements = check_gates(
         parsed, judged, [] if attempt >= 2 else grounded)
-    if attempt >= 2:
-        # Recorded on the row so it is visible for ever after, not just in a log line: this
-        # text was written from the exam syllabus and cites no article by design. A reviewer
-        # comparing it against the Codice would otherwise conclude the citation went missing.
-        reasons = reasons + ["explained from the exam syllabus — no article covers it"]
+    reasons = provenance(reasons, attempt=attempt, with_key=with_key)
     flags = record_flags(reasons, disagreements)
     disputed = disputed_ids(disagreements)
     stored: dict[str, Explanation] = {}
@@ -1004,6 +1070,64 @@ async def ensure(
         log.warning("cluster %s produced no %s explanation — not retrying for an hour",
                     cluster_id, lang)
     return row
+
+
+async def withheld_clusters(session: AsyncSession, limit: int = 50) -> list[int]:
+    """Clusters whose only explanation is one the gates refused to serve.
+
+    Biggest first, because a withheld cluster is a hole exactly as wide as the number of
+    questions in it — the same reason `content/generate` writes the big ones first.
+    """
+    servable_ids = select(Explanation.cluster_id).where(
+        Explanation.status.in_(SERVABLE_STATUSES))
+    flagged_ids = select(Explanation.cluster_id).where(
+        Explanation.status == STATUS_FLAGGED)
+    rows = await session.execute(
+        select(Question.cluster_id, func.count(Question.id).label("n"))
+        .where(Question.cluster_id.in_(flagged_ids),
+               Question.cluster_id.not_in(servable_ids))
+        .group_by(Question.cluster_id)
+        .order_by(func.count(Question.id).desc())
+        .limit(limit)
+    )
+    return [cid for cid, _n in rows]
+
+
+async def rewrite_withheld(session: AsyncSession, limit: int = 50) -> dict:
+    """Write a fresh explanation for every cluster the gates withheld, with the key supplied.
+
+    WHY THIS IS NOT SIMPLY "TRY AGAIN". A cluster is withheld for one of four measured
+    reasons, and only one of them is fixed by asking again:
+
+      · it argued against the ministry's answer — asking again reproduces the argument,
+        because the model has not changed its mind. Handing it the official answers turns
+        the task from "judge this" into "explain why the examiner's answer is what it is",
+        which is the thing a learner actually needs;
+      · it cited a number the article does not contain — a REAL defect, and the worst thing
+        this product can say. Regenerating may or may not fix it and the gate will catch it
+        again either way. Nothing here bypasses that check;
+      · low confidence, or no article covers it — the second attempt falls back to the exam
+        syllabus, which is the existing `attempt >= 2` path.
+
+    So this is not a bypass. It changes the QUESTION the model is asked; every gate still
+    runs on the answer, and a rewrite that invents a number is withheld exactly as before.
+    """
+    targets = await withheld_clusters(session, limit)
+    done = {"clusters": len(targets), "served": 0, "still_withheld": 0, "failed": 0}
+    for cluster_id in targets:
+        outcome = await generate(session, cluster_id, with_key=True)
+        if outcome.outcome != "stored":
+            done["failed"] += 1
+            log.info("rewrite of cluster %s did not store: %s", cluster_id, outcome.outcome)
+            continue
+        row = await existing(session, cluster_id, LANG_IT)
+        if servable(row):
+            done["served"] += 1
+        else:
+            done["still_withheld"] += 1
+    await session.commit()
+    log.info("rewrote %s withheld clusters: %s", len(targets), done)
+    return done
 
 
 async def warm(cluster_id: int | None, lang: str) -> None:
