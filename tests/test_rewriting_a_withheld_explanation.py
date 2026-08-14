@@ -298,3 +298,75 @@ async def test_the_endpoint_is_staff_only(client, registered):
 
     r = await client.post("/webapp/admin/content/rewrite-withheld", headers=headers)
     assert r.status_code == 404, "a learner could rewrite the content bank"
+
+
+async def test_each_cluster_is_committed_as_it_is_written(api_db, monkeypatch):
+    """FOUND BY RUNNING IT AGAINST PRODUCTION, not by a test.
+
+    The first version committed once at the end, so a single transaction stayed open across
+    sixteen model calls — half a minute of network with the session dirty. Every SELECT in
+    the loop then had to upgrade that transaction to a write, which SQLite refuses outright
+    while anything else holds the lock, and the run died with "database is locked" after 36
+    seconds having written nothing.
+
+    Asserted by counting COMMITS against clusters. Watching from a second session cannot
+    tell flush from commit here — the test harness shares one connection — and a test that
+    cannot tell them apart is exactly the one that let this ship.
+    """
+    await _cluster(api_db, 511, STATUS_FLAGGED, questions=2)
+    await _cluster(api_db, 512, STATUS_FLAGGED, questions=1)
+
+    order: list[str] = []
+
+    async def rewrite_one(session, cluster_id, model=None, attempt=0, with_key=False):
+        order.append(f"generate:{cluster_id}")
+        row = await explanations.existing(session, cluster_id, LANG_IT)
+        row.text, row.status, row.flags = "ok", STATUS_DRAFT, explanations.SUPPLIED_KEY_NOTE
+        await session.flush()
+        return explanations.Outcome("stored")
+
+    monkeypatch.setattr(explanations, "generate", rewrite_one)
+    async with api_db() as s:
+        real_commit = s.commit
+
+        async def watched():
+            order.append("commit")
+            await real_commit()
+
+        s.commit = watched
+        await explanations.rewrite_withheld(s, limit=10)
+
+    assert order == ["generate:511", "commit", "generate:512", "commit"], (
+        f"work was not committed as it went: {order} — one transaction held across every "
+        "model call is what caused the production failure"
+    )
+
+
+async def test_a_failed_cluster_does_not_poison_the_rest(api_db, monkeypatch):
+    """A generation that raised left the session dirty, so the NEXT cluster's commit carried
+    a half-written row with it. Rolling back keeps each cluster independent."""
+    from api.models import Explanation
+
+    await _cluster(api_db, 513, STATUS_FLAGGED, questions=5)
+    await _cluster(api_db, 514, STATUS_FLAGGED, questions=1)
+
+    async def first_fails(session, cluster_id, model=None, attempt=0, with_key=False):
+        if cluster_id == 513:
+            row = await explanations.existing(session, cluster_id, LANG_IT)
+            row.text = "half written"
+            await session.flush()
+            return explanations.Outcome("error", detail="boom")
+        row = await explanations.existing(session, cluster_id, LANG_IT)
+        row.text, row.status = "ok", STATUS_DRAFT
+        await session.flush()
+        return explanations.Outcome("stored")
+
+    monkeypatch.setattr(explanations, "generate", first_fails)
+    async with api_db() as s:
+        result = await explanations.rewrite_withheld(s, limit=10)
+
+    assert result["failed"] == 1 and result["served"] == 1
+    async with api_db() as s:
+        failed_row = await explanations.existing(s, 513, LANG_IT)
+    assert failed_row.text != "half written", \
+        "a failed cluster's partial write was committed by the next cluster"

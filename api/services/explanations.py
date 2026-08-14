@@ -1119,13 +1119,24 @@ async def rewrite_withheld(session: AsyncSession, limit: int = 50) -> dict:
         if outcome.outcome != "stored":
             done["failed"] += 1
             log.info("rewrite of cluster %s did not store: %s", cluster_id, outcome.outcome)
+            await session.rollback()
             continue
         row = await existing(session, cluster_id, LANG_IT)
         if servable(row):
             done["served"] += 1
         else:
             done["still_withheld"] += 1
-    await session.commit()
+        # COMMITTED PER CLUSTER, and this is not tidiness.
+        #
+        # The first version committed once at the end, so one transaction stayed open across
+        # sixteen model calls — half a minute of network with the session dirty. Every SELECT
+        # in the loop then had to upgrade that transaction to a write, which SQLite refuses
+        # outright when anything else holds the lock, and the whole run died with "database
+        # is locked" after 36 seconds. Found by running it against production, not by a test.
+        #
+        # Per-cluster commits also make the work durable: a failure on cluster nine keeps
+        # the eight already rewritten, instead of throwing the money away.
+        await session.commit()
     log.info("rewrote %s withheld clusters: %s", len(targets), done)
     return done
 
