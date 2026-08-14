@@ -48,7 +48,7 @@ import type {
 import "./style.css";
 
 type Screen = "home" | "run" | "results" | "profile" | "stats" | "settings" | "vocab"
-  | "ratings" | "admin" | "analysis" | "subjects";
+  | "ratings" | "admin" | "analysis" | "subjects" | "practice";
 
 /** The author of the vocabulary list, and the condition on which it may be used.
  *
@@ -704,8 +704,6 @@ function homeScreen(): HTMLElement {
   );
   wrap.append(modes);
 
-  wrap.append(repeatRow());
-  wrap.append(subjectRow());
   wrap.append(vocabEntry());
 
   // If a sitting was left without finishing, offer it back BEFORE the promotion. Losing
@@ -745,19 +743,53 @@ function homeScreen(): HTMLElement {
  *  history worth repeating, so they are quiet until wanted — and the server answers 409
  *  when there is nothing to repeat, which is what the toast reports.
  */
-/** The way into practising one subject.
+/** Everything practice can be, one level under the card that offers it.
  *
- *  A row rather than a third mode card: exam and practice are what the app is for, and a
- *  third card of equal size would claim they are three equal things. It sits under the
- *  repeat chips because both are the same kind of choice — narrowing what practice draws
- *  from, without changing what practice IS. */
-function subjectRow(): HTMLElement {
-  const row = el("button", "subject-row");
-  row.type = "button";
-  row.append(el("span", "subject-row-text", t("subjects_entry")));
-  row.append(el("span", "subject-row-go", "›"));
-  row.onclick = () => { state.screen = "subjects"; state.openFamily = null; render(); void loadSubjects(); };
-  return row;
+ *  These four used to sit on the HOME screen: two repeat chips and a subject row beneath
+ *  the mode cards. That made five entry points for two activities, and it pushed the thing
+ *  the screen exists for — pick exam or practice — down the page.
+ *
+ *  The default is first and is the only primary button. It costs one extra tap compared
+ *  with the card starting immediately, and that is the trade: the tap is obvious and lands
+ *  on the biggest control on the screen, while the home screen goes back to three choices.
+ */
+function practiceScreen(): HTMLElement {
+  const wrap = el("section", "screen");
+  wrap.append(el("h1", "h1", t("practice")));
+  wrap.append(el("p", "sub", t("practice_desc")));
+
+  // The default, and deliberately not called "random": it serves what the learner is about
+  // to forget, oldest due first. Calling it random would describe the thing it was
+  // explicitly fixed for not being.
+  const main = el("button", "btn primary practice-main");
+  main.type = "button";
+  main.append(el("span", "practice-main-title", t("practice_start")));
+  main.append(el("span", "practice-main-sub", t("practice_start_sub")));
+  main.onclick = () => void startRun("practice");
+  wrap.append(main);
+
+  const options: Array<[string, string, () => void]> = [
+    [t("repeat_wrong"), t("repeat_wrong_sub"), () => void startRun("practice", "wrong")],
+    [t("repeat_correct"), t("repeat_correct_sub"), () => void startRun("practice", "correct")],
+    [t("subjects_entry"), t("subjects_entry_sub"),
+     () => { state.screen = "subjects"; state.openFamily = null; render(); void loadSubjects(); }],
+  ];
+  for (const [title, sub, go] of options) {
+    const row = el("button", "practice-option");
+    row.type = "button";
+    const body = el("span", "practice-option-body");
+    body.append(el("span", "practice-option-title", title));
+    body.append(el("span", "practice-option-sub", sub));
+    row.append(body, el("span", "practice-option-go", "\u203a"));
+    row.onclick = go;
+    wrap.append(row);
+  }
+
+  const home = el("button", "btn secondary", t("back_home"));
+  home.type = "button";
+  home.onclick = () => { state.screen = "home"; render(); };
+  wrap.append(home);
+  return wrap;
 }
 
 async function loadSubjects(): Promise<void> {
@@ -854,20 +886,6 @@ function subjectsScreen(): HTMLElement {
   return wrap;
 }
 
-function repeatRow(): HTMLElement {
-  const row = el("div", "repeat-row");
-  for (const [source, label] of [
-    ["wrong", t("repeat_wrong")],
-    ["correct", t("repeat_correct")],
-  ] as const) {
-    const chip = el("button", `repeat-chip ${source}`, label);
-    chip.type = "button";
-    chip.onclick = () => void startRun("practice", source);
-    row.append(chip);
-  }
-  return row;
-}
-
 /** How many terms the glossary holds, straight from the server.
  *
  *  Every surface that names a size calls this. The alternative — writing the number into
@@ -928,7 +946,12 @@ function modeCard(mode: Mode, title: string, desc: string, tag: string): HTMLEle
   go.append(icons.chevron(22));
   card.append(go);
 
-  card.onclick = () => void startRun(mode);
+  // The exam has one way to sit it, so its card starts it. Practice has four, and they
+  // used to be scattered across the home screen as two chips and a row beneath the cards —
+  // five competing entry points for two activities. They live behind this card now.
+  card.onclick = mode === "exam"
+    ? () => void startRun("exam")
+    : () => { state.screen = "practice"; render(); };
   return card;
 }
 
@@ -4580,7 +4603,9 @@ function backTarget(): (() => void) | null {
   // Reached by tapping the error-rate tile, so Back belongs on the screen that tile is on
   // — not home, which would make the number harder to get back to than it was to leave.
   if (state.screen === "analysis") return () => { state.screen = "stats"; render(); };
-  if (state.screen === "subjects") return () => { state.screen = "home"; render(); };
+  // Subjects sits UNDER practice now, so back goes there rather than skipping a level.
+  if (state.screen === "subjects") return () => { state.screen = "practice"; render(); };
+  if (state.screen === "practice") return () => { state.screen = "home"; render(); };
   if (state.screen === "admin") {
     // People is a page inside the panel, so Back must land on the panel rather than
     // leaving it — otherwise the only way back to the overview is to reopen Admin.
@@ -4732,6 +4757,7 @@ function render(): void {
     case "profile": screen = profileScreen(); break;
     case "stats": screen = statsScreen(); break;
     case "analysis": screen = analysisScreen(); break;
+    case "practice": screen = practiceScreen(); break;
     case "subjects": screen = subjectsScreen(); break;
     case "settings": screen = settingsScreen(); break;
     case "vocab": screen = vocabScreen(); break;

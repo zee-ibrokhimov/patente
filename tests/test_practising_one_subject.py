@@ -347,7 +347,7 @@ def test_the_screen_asks_the_server_for_the_list():
     """A screen that renders a hardcoded list of seven families would look identical and
     would never show the learner their own numbers."""
     assert "categories.list()" in block_of("loadSubjects")
-    assert "loadSubjects()" in block_of("subjectRow")
+    assert "loadSubjects()" in block_of("practiceScreen")
 
 
 def test_starting_from_a_family_passes_that_family_as_the_scope():
@@ -398,3 +398,74 @@ def test_every_new_string_exists_in_all_four_languages():
         for key in keys:
             assert key in block, f"{lang} is missing {key}"
             assert block[key].strip(), f"{lang}.{key} is empty"
+
+
+# --- where the four choices live --------------------------------------------
+#
+# They were on the HOME screen: two repeat chips and a subject row under the mode cards,
+# which made five entry points for two activities and pushed the choice the screen exists
+# for down the page. All four sit behind the practice card now.
+
+def test_the_home_screen_offers_two_activities_not_five():
+    body = block_of("homeScreen")
+    for gone in ("repeatRow()", "subjectRow()"):
+        assert gone not in body, f"{gone} is still on the home screen"
+    assert "modeCard(\"exam\"" in body and "modeCard(\"practice\"" in body
+    assert "vocabEntry()" in body
+
+
+def test_the_practice_card_opens_the_choices_and_the_exam_card_does_not():
+    """The exam has one way to sit it, so its card still starts it. Giving the exam a menu
+    too would put a screen in front of the one action that should never be negotiable."""
+    body = block_of("modeCard")
+    assert 'startRun("exam")' in body
+    assert 'state.screen = "practice"' in body
+
+
+def test_all_four_practice_variants_are_on_one_screen():
+    body = block_of("practiceScreen")
+    assert 'startRun("practice")' in body, "the default is missing"
+    assert 'startRun("practice", "wrong")' in body
+    assert 'startRun("practice", "correct")' in body
+    assert 'state.screen = "subjects"' in body
+
+
+def test_the_default_is_the_only_primary_control():
+    """It costs one extra tap compared with the card starting immediately. That is only an
+    acceptable trade while the tap is obvious and lands on the biggest thing on screen."""
+    body = block_of("practiceScreen")
+    assert body.count("btn primary") == 1
+    # ...and it comes before the three alternatives.
+    assert body.index("practice-main") < body.index("practice-option")
+
+
+def test_the_default_is_not_described_as_random():
+    """It serves what the learner is about to forget, oldest due first. "Random" describes
+    the exact thing practice was fixed for not being — it used to draw uniformly and never
+    read back the Leitner schedule it was writing."""
+    import re
+
+    for lang in ("it", "ru", "en", "uz"):
+        m = re.search(rf'^  {lang}: \{{(.*?)^  \}},', I18N, re.M | re.S)
+        block = dict(re.findall(r'^\s+(\w+): "((?:[^"\\]|\\.)*)"', m.group(1), re.M))
+        for key in ("practice_start", "practice_start_sub"):
+            assert key in block, f"{lang} is missing {key}"
+        low = f"{block['practice_start']} {block['practice_start_sub']}".lower()
+        for word in ("random", "случайн", "casual", "tasodif"):
+            assert word not in low, f"{lang} calls the default draw {word!r}"
+
+
+def test_going_back_from_subjects_lands_on_practice_not_home():
+    """Subjects is nested under practice now. Skipping a level on the way back is how a
+    learner loses the screen they were choosing from."""
+    body = block_of("backTarget")
+    at = body.index('state.screen === "subjects"')
+    assert 'state.screen = "practice"' in body[at:at + 200]
+
+
+def test_no_dead_styles_were_left_behind():
+    """The chips and the row are gone from the markup. CSS for elements nothing renders is
+    the kind of thing that survives three redesigns and confuses the fourth."""
+    css = (Path(__file__).resolve().parent.parent / "webapp/src/style.css").read_text()
+    for gone in (".repeat-chip", ".repeat-row", ".subject-row"):
+        assert gone not in css, f"{gone} is styled but never rendered"
