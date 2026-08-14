@@ -524,6 +524,19 @@ class QuizSession(Base):
     question_count: Mapped[int] = mapped_column(default=0)
     max_errors: Mapped[int | None] = mapped_column(default=None)
 
+    # Which subject this sitting was drawn from, or NULL for the whole bank — which is what
+    # every sitting created before the feature existed has, and what a learner who taps
+    # Start without choosing still gets.
+    #
+    # A family key from TOPIC_FAMILIES, or "topic:<id>" for one ministerial topic. Parsed in
+    # exactly one place, api/services/categories.py, so a scope that reaches the question
+    # draw is one that was already known to exist.
+    #
+    # EXAMS ARE ALWAYS NULL. A simulator weighted toward chosen topics reports a score that
+    # means nothing; the rule lives in `create`, and this comment is here because a nullable
+    # column on a shared table is exactly where somebody would later set it.
+    scope: Mapped[str | None] = mapped_column(Text, default=None)
+
     # Denormalised at finish so history and stats never re-walk the items.
     answered: Mapped[int] = mapped_column(default=0)
     wrong: Mapped[int] = mapped_column(default=0)

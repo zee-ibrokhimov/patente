@@ -262,7 +262,7 @@ def test_the_loading_screen_makes_one_request_for_the_whole_window():
     import pathlib
     main = (pathlib.Path(__file__).resolve().parent.parent / "webapp" / "src"
             / "main.ts").read_text(encoding="utf-8")
-    start = main.index("const session = await sessions.start(mode, source)")
+    start = main.index("const session = await sessions.start(mode, source")
     end = main.index("enterRun(session)", start)
     block = main[start:end]
 

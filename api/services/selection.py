@@ -121,6 +121,7 @@ async def practice_paper(
     count: int,
     exclude: set[int] | None = None,
     now: datetime | None = None,
+    topic_ids: set[int] | None = None,
 ) -> list[Question]:
     """A practice batch that serves what this learner is about to forget.
 
@@ -146,6 +147,13 @@ async def practice_paper(
     picked: list[Question] = []
     seen_ids = set(exclude)
 
+    # Narrowing the draw to one subject, when the learner asked for one. Applied to ALL
+    # THREE tiers rather than only to the first: a filter on the due tier alone would serve
+    # their overdue signs questions and then quietly pad the sitting out with rules, which
+    # is the feature appearing to work and not working.
+    def in_scope(stmt):
+        return stmt.where(Question.topic_id.in_(topic_ids)) if topic_ids else stmt
+
     def take(rows):
         for q in rows:
             if q.id in seen_ids or len(picked) >= count:
@@ -155,10 +163,12 @@ async def practice_paper(
 
     if entitlement.can_use_spaced_repetition:
         due = await session.scalars(
-            select(Question)
-            .join(Progress, Progress.question_id == Question.id)
-            .where(Progress.chat_id == user.chat_id, Progress.due_at <= now,
-                   Question.id.not_in(exclude) if exclude else sa_true())
+            in_scope(
+                select(Question)
+                .join(Progress, Progress.question_id == Question.id)
+                .where(Progress.chat_id == user.chat_id, Progress.due_at <= now,
+                       Question.id.not_in(exclude) if exclude else sa_true())
+            )
             .order_by(Progress.due_at)
             .limit(count)
         )
@@ -167,9 +177,11 @@ async def practice_paper(
     if len(picked) < count:
         already = select(Progress.question_id).where(Progress.chat_id == user.chat_id)
         fresh = await session.scalars(
-            select(Question)
-            .where(Question.id.not_in(already))
-            .where(Question.id.not_in(seen_ids) if seen_ids else sa_true())
+            in_scope(
+                select(Question)
+                .where(Question.id.not_in(already))
+                .where(Question.id.not_in(seen_ids) if seen_ids else sa_true())
+            )
             .order_by(func.random())
             .limit(count - len(picked))
         )
@@ -178,10 +190,12 @@ async def practice_paper(
     if len(picked) < count:
         # Everything seen and nothing due yet. Revising early beats stopping.
         soon = await session.scalars(
-            select(Question)
-            .join(Progress, Progress.question_id == Question.id)
-            .where(Progress.chat_id == user.chat_id)
-            .where(Question.id.not_in(seen_ids) if seen_ids else sa_true())
+            in_scope(
+                select(Question)
+                .join(Progress, Progress.question_id == Question.id)
+                .where(Progress.chat_id == user.chat_id)
+                .where(Question.id.not_in(seen_ids) if seen_ids else sa_true())
+            )
             .order_by(Progress.due_at)
             .limit(count - len(picked))
         )

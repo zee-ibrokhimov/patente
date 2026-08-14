@@ -39,6 +39,7 @@ from api.models import User
 from api.routes import quiz as quiz_route
 from api.routes import users as users_route
 from api.schemas import (
+    CategoryOut,
     CoachOut,
     OwnTermIn,
     OwnTermPatch,
@@ -68,6 +69,7 @@ from api.schemas import (
     VocabStatsOut,
 )
 from api.services import (
+    categories,
     coaching,
     display_name,
     suggestions,
@@ -550,11 +552,18 @@ async def start_session(
         raise HTTPException(422, f"mode must be one of {QUIZ_MODES}")
     if body.source not in REPEAT_SOURCES:
         raise HTTPException(422, f"source must be one of {REPEAT_SOURCES}")
+    # Refused, not ignored. A scope the server does not recognise would otherwise widen the
+    # sitting silently back to the whole bank, which looks to the learner like the subject
+    # they picked being wrong rather than like an error.
+    if body.scope is not None and not categories.is_valid(body.scope):
+        raise HTTPException(422, "unknown scope")
+    if body.mode == MODE_EXAM and body.scope:
+        raise HTTPException(422, "an exam is always drawn from the whole bank")
 
     now = datetime.now(timezone.utc)
     try:
         row, paper = await quiz_sessions.create(
-            session, user, body.mode, now, source=body.source)
+            session, user, body.mode, now, source=body.source, scope=body.scope)
     except quiz_sessions.SessionError as exc:
         raise HTTPException(exc.status, str(exc)) from exc
 
@@ -1019,6 +1028,21 @@ async def vocab_stats(
 
 
 # --- starting over ----------------------------------------------------------
+
+
+@router.get("/categories", response_model=list[CategoryOut])
+async def categories_list(
+    user: User = Depends(webapp_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """The seven subjects a learner can practise, worst first.
+
+    Ranked by the marks each is costing THEM, not by size, and computed by
+    `analysis.families` — the same call the error-analysis screen uses. Two screens quoting
+    the same quantity from two different calculations is two screens that eventually
+    disagree, and the learner cannot tell which to believe.
+    """
+    return await categories.catalogue(session, user.chat_id)
 
 
 @router.get("/leaderboard", response_model=LeaderboardOut)

@@ -1,4 +1,4 @@
-import { admin, api, ApiError, leaderboard, sessions, vocab } from "./api";
+import { admin, api, ApiError, categories, leaderboard, sessions, vocab } from "./api";
 import { readinessGauge } from "./gauge";
 import { icons } from "./icons";
 import { TRANSLATION_LANGUAGES, type Key, lang, setLang, t, tips } from "./i18n";
@@ -37,6 +37,7 @@ import type {
   AdminPerson,
   AdminReport,
   AdminSuggestion,
+  Category,
   AdminUser,
   Leaderboard,
   RepeatSource,
@@ -47,7 +48,7 @@ import type {
 import "./style.css";
 
 type Screen = "home" | "run" | "results" | "profile" | "stats" | "settings" | "vocab"
-  | "ratings" | "admin" | "analysis";
+  | "ratings" | "admin" | "analysis" | "subjects";
 
 /** The author of the vocabulary list, and the condition on which it may be used.
  *
@@ -155,6 +156,12 @@ const state: {
   /** This week's league, fetched on entering the tab. Null means "not loaded yet", which
    *  is a different screen from an empty board. */
   ratings: Leaderboard | null;
+  /** The seven subjects, ranked by the marks each is costing THIS learner. Loaded on
+   *  entry, because the ranking is personal and a cached one goes stale as they study. */
+  subjects: Category[] | null;
+  /** Which family's ministerial topics are expanded. One at a time: seven families with
+   *  every topic open is thirty-two rows and no shape. */
+  openFamily: string | null;
   /** The owner's console. Loaded on entry and never at boot — it is one person's screen
    *  and everybody else would be paying for a request that 404s. */
   adminData: { overview: AdminOverview | null; users: AdminUser[]; links: AdminLink[];
@@ -179,6 +186,7 @@ const state: {
   coachBusy: boolean;
 } = { me: null, screen: "home", run: null, results: null, stats: null, profile: null,
       resumable: null, reviewWrongOnly: true, ratings: null, adminData: null,
+      subjects: null, openFamily: null,
       preparing: null, analysis: null, coach: null, coachBusy: false,
       vocab: { view: "test", round: null, index: 0, current: null, right: 0, typed: "",
                cards: null, cardIndex: 0, flipped: false, knew: 0,
@@ -281,7 +289,8 @@ function tick(): void {
 // running a sitting
 // ---------------------------------------------------------------------------
 
-async function startRun(mode: Mode, source: RepeatSource = "smart"): Promise<void> {
+async function startRun(mode: Mode, source: RepeatSource = "smart",
+                        scope?: string): Promise<void> {
   // A loading screen, and it is not decoration.
   //
   // The first question of a cold paper needs a translation the learner cannot read without,
@@ -291,7 +300,7 @@ async function startRun(mode: Mode, source: RepeatSource = "smart"): Promise<voi
   state.preparing = { mode, source };
   render();
   try {
-    const session = await sessions.start(mode, source);
+    const session = await sessions.start(mode, source, scope);
     // Prepare the opening five and WAIT for them, in ONE request.
     //
     // It used to race the request against a 2500ms timer, which could never have worked:
@@ -696,6 +705,7 @@ function homeScreen(): HTMLElement {
   wrap.append(modes);
 
   wrap.append(repeatRow());
+  wrap.append(subjectRow());
   wrap.append(vocabEntry());
 
   // If a sitting was left without finishing, offer it back BEFORE the promotion. Losing
@@ -735,6 +745,115 @@ function homeScreen(): HTMLElement {
  *  history worth repeating, so they are quiet until wanted — and the server answers 409
  *  when there is nothing to repeat, which is what the toast reports.
  */
+/** The way into practising one subject.
+ *
+ *  A row rather than a third mode card: exam and practice are what the app is for, and a
+ *  third card of equal size would claim they are three equal things. It sits under the
+ *  repeat chips because both are the same kind of choice — narrowing what practice draws
+ *  from, without changing what practice IS. */
+function subjectRow(): HTMLElement {
+  const row = el("button", "subject-row");
+  row.type = "button";
+  row.append(el("span", "subject-row-text", t("subjects_entry")));
+  row.append(el("span", "subject-row-go", "›"));
+  row.onclick = () => { state.screen = "subjects"; state.openFamily = null; render(); void loadSubjects(); };
+  return row;
+}
+
+async function loadSubjects(): Promise<void> {
+  try {
+    state.subjects = await categories.list();
+    render();
+  } catch (err) {
+    reportError(err);
+  }
+}
+
+/** Choose a subject to practise.
+ *
+ *  Ranked worst-first by the marks each subject is costing THIS learner — the same order,
+ *  from the same server call, as the error-analysis screen. A list ordered by size instead
+ *  would put road signs at the top for everybody forever, which is a table of contents
+ *  rather than advice.
+ *
+ *  Two levels. The seven families are the top, in plain language, because that is what fits
+ *  on a phone and what the analysis screen already speaks. The ministerial topics sit one
+ *  tap underneath, under their official untranslated names, because every Italian study
+ *  book is organised by exactly those chapters and somebody working through one is looking
+ *  for "Segnali di pericolo", not "road signs".
+ */
+function subjectsScreen(): HTMLElement {
+  const wrap = el("section", "screen");
+  wrap.append(el("h1", "h1", t("subjects_title")));
+  wrap.append(el("p", "sub", t("subjects_sub")));
+
+  const list = state.subjects;
+  if (!list) {
+    wrap.append(el("div", "spinner"));
+    return wrap;
+  }
+
+  for (const cat of list) {
+    const card = el("div", "card subject");
+
+    const top = el("div", "subject-top");
+    top.append(el("div", "subject-name", t(`fam_${cat.family}` as Key)));
+    // The learner's own error rate, or an honest refusal. Never a zero standing in for
+    // "not measured yet" — on day one every one of these is untested, and a row of 0%
+    // would read as mastery of a bank they have never opened.
+    //
+    // The refusal is styled DOWN, not in the error colour. "Not tested" is an absence of
+    // data, and rendering it in the same red as a 40% error rate tells a beginner that
+    // every subject in the product is already going badly for them.
+    top.append(el("div", `subject-rate${cat.error_rate === null ? " untested" : ""}`,
+      cat.error_rate === null
+        ? t("subjects_untested")
+        : `${Math.round(cat.error_rate * 100)}%`));
+    card.append(top);
+
+    card.append(el("p", "subject-meta", t("subjects_meta", {
+      n: cat.questions, per: cat.per_exam.toFixed(1),
+    })));
+
+    const go = el("button", "btn primary subject-go", t("subjects_start"));
+    go.type = "button";
+    go.onclick = () => void startRun("practice", "smart", cat.scope);
+    card.append(go);
+
+    // The book chapters, one tap down. Collapsed by default: seven families with every
+    // topic open is thirty-two rows and no shape at all.
+    const toggle = el("button", "subject-more");
+    toggle.type = "button";
+    const open = state.openFamily === cat.family;
+    toggle.textContent = open ? t("subjects_hide_topics") : t("subjects_show_topics");
+    toggle.onclick = () => {
+      state.openFamily = open ? null : cat.family;
+      render();
+    };
+    card.append(toggle);
+
+    if (open) {
+      const topics = el("div", "subject-topics");
+      for (const topic of cat.topics) {
+        const chip = el("button", "subject-topic");
+        chip.type = "button";
+        chip.append(el("span", "subject-topic-name", topic.name));
+        chip.append(el("span", "subject-topic-n", String(topic.questions)));
+        chip.onclick = () => void startRun("practice", "smart", topic.scope);
+        topics.append(chip);
+      }
+      card.append(topics);
+    }
+    wrap.append(card);
+  }
+
+  const home = el("button", "btn secondary", t("back_home"));
+  home.type = "button";
+  home.onclick = () => { state.screen = "home"; render(); };
+  wrap.append(home);
+  return wrap;
+}
+
 function repeatRow(): HTMLElement {
   const row = el("div", "repeat-row");
   for (const [source, label] of [
@@ -2095,6 +2214,18 @@ function analysisScreen(): HTMLElement {
       seen: f.answered, total: f.questions_in_bank,
       pct: Math.round(f.coverage * 100),
     })));
+
+    // THE POINT OF THE WHOLE SCREEN, and it was missing.
+    //
+    // This screen ranks seven subjects by how many marks each is costing the learner, and
+    // then offered nothing to do about any of them. A diagnosis with no treatment is a
+    // screen people read once. One tap now starts practice on exactly the row they are
+    // looking at.
+    const drill = el("button", "an-drill");
+    drill.type = "button";
+    drill.textContent = t("an_practise");
+    drill.onclick = () => void startRun("practice", "smart", f.family);
+    row.append(drill);
 
     list.append(row);
   }
@@ -4449,6 +4580,7 @@ function backTarget(): (() => void) | null {
   // Reached by tapping the error-rate tile, so Back belongs on the screen that tile is on
   // — not home, which would make the number harder to get back to than it was to leave.
   if (state.screen === "analysis") return () => { state.screen = "stats"; render(); };
+  if (state.screen === "subjects") return () => { state.screen = "home"; render(); };
   if (state.screen === "admin") {
     // People is a page inside the panel, so Back must land on the panel rather than
     // leaving it — otherwise the only way back to the overview is to reopen Admin.
@@ -4600,6 +4732,7 @@ function render(): void {
     case "profile": screen = profileScreen(); break;
     case "stats": screen = statsScreen(); break;
     case "analysis": screen = analysisScreen(); break;
+    case "subjects": screen = subjectsScreen(); break;
     case "settings": screen = settingsScreen(); break;
     case "vocab": screen = vocabScreen(); break;
     case "ratings": screen = ratingsScreen(); break;

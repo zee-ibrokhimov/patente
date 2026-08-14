@@ -405,10 +405,53 @@ class StartSessionIn(BaseModel):
     # nothing. Defaults to the spaced-repetition order, so existing clients are unaffected.
     source: str = Field(default=REPEAT_SMART, description=f"one of {REPEAT_SOURCES}")
 
+    # Which subject to practise. None is the whole bank — the existing behaviour, and what
+    # every client that has not been updated sends. A family key or "topic:<id>"; see
+    # api/services/categories.py, which is the one place it is parsed.
+    #
+    # IGNORED FOR AN EXAM, and refused rather than silently dropped, because an exam quietly
+    # narrowed to chosen topics reports a score that means nothing.
+    scope: str | None = Field(default=None, max_length=64)
+
 
 class SessionAnswerIn(BaseModel):
     ordinal: int = Field(ge=1)
     answer: bool = Field(description="true = VERO, false = FALSO")
+
+
+# --- practising one subject --------------------------------------------------
+
+class TopicOption(BaseModel):
+    """One ministerial topic, under its official name.
+
+    Untranslated on purpose: it is the string printed in every Italian study book and on the
+    exam paper, and a helpful translation would break the one job this list has, which is
+    matching what the learner is holding.
+    """
+
+    scope: str
+    topic_id: int
+    name: str
+    questions: int
+
+
+class CategoryOut(BaseModel):
+    """One of the seven families, with the learner's own record on it.
+
+    The numbers are the SAME ones the error-analysis screen shows, from the same call. This
+    screen is the other half of that one: analysis says where the marks are going, this says
+    what to do about it.
+    """
+
+    scope: str
+    family: str
+    questions: int
+    per_exam: float
+    # Null below the sample threshold rather than zero. The client must render the refusal.
+    error_rate: float | None = None
+    coverage: float = 0.0
+    predicted_mistakes: float | None = None
+    topics: list[TopicOption] = []
 
 
 # --- leaderboard ------------------------------------------------------------

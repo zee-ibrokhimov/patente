@@ -107,5 +107,13 @@ def test_the_rotation_is_wired_to_the_list():
     assert "startTips(" in main and "stopTips()" in main
     assert "TIP_EVERY" in main
     # render() must stop the rotator when the preparing screen goes away.
-    block = main[main.index("function render()"):][:1200]
-    assert "stopTips()" in block
+    #
+    # Sliced to the END OF THE FUNCTION, not to a fixed 1200 characters. The character
+    # count was a guess about how long `render` happens to be, and adding one `case` line
+    # to its switch pushed the teardown outside the window — a test failing because a
+    # function grew, while the behaviour it guards was untouched.
+    start = main.index("function render()")
+    end = min((at for at in (main.find("\nfunction ", start + 10),
+                             main.find("\nasync function ", start + 10)) if at != -1),
+              default=len(main))
+    assert "stopTips()" in main[start:end]

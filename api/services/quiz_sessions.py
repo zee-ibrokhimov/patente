@@ -25,7 +25,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.models import Question, QuizSession, QuizSessionItem, Translation
-from api.services import events, league, selection
+from api.services import categories, events, league, selection
 from api.services.entitlement import evaluate
 from shared.constants import (
     EV_EXAM_FINISHED,
@@ -90,6 +90,7 @@ async def create(
     mode: str,
     now: datetime | None = None,
     source: str = REPEAT_SMART,
+    scope: str | None = None,
 ) -> tuple[QuizSession, list]:
     """Start a sitting and return it with its whole paper.
 
@@ -121,7 +122,8 @@ async def create(
     if is_exam:
         paper = await selection.exam_paper(session, count)
     elif source == REPEAT_SMART:
-        paper = await selection.practice_paper(session, user, evaluate(user), count)
+        paper = await selection.practice_paper(session, user, evaluate(user), count,
+                                               topic_ids=categories.topic_ids(scope))
     else:
         paper = await selection.repeat_paper(session, user, source, count)
 
@@ -140,6 +142,11 @@ async def create(
         started_at=now,
         expires_at=now + timedelta(minutes=EXAM_MINUTES) if is_exam else None,
         question_count=len(paper),
+        # What they chose to practise, or NULL for the whole bank — which is what every
+        # sitting before this feature has. Stored rather than derived from the questions
+        # drawn: a paper of thirty signs questions could be a chosen subject or a
+        # coincidence, and the results screen has to be able to tell the learner which.
+        scope=scope,
         # Copied onto the row, not read from constants at grading time: plan §11 leaves
         # the format open, and changing it later must not re-grade a past sitting.
         max_errors=EXAM_MAX_ERRORS if is_exam else None,

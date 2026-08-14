@@ -862,6 +862,63 @@ html, body { overflow-x: hidden; }
   font-size: var(--t-caption); font-weight: 700; color: var(--accent);
 }
 .league-rule { margin-bottom: var(--sm); }
+
+/* --- practising one subject ---------------------------------------------- */
+
+/* A row, not a third mode card: exam and practice are what the app is for, and a third
+   card of equal weight would claim the three are equally important. */
+.subject-row {
+  display: flex; align-items: center; gap: var(--sm); width: 100%;
+  margin: var(--sm) 0 0; padding: var(--md);
+  background: var(--card); border: 1px solid var(--edge);
+  border-radius: var(--card-radius); box-shadow: var(--card-shadow);
+  font: 700 var(--t-body)/1.2 var(--font); color: var(--text); cursor: pointer;
+  text-align: left;
+}
+.subject-row-text { flex: 1 1 auto; min-width: 0; }
+.subject-row-go { flex: none; color: var(--text-3); font-size: 20px; line-height: 1; }
+
+.subject { margin-bottom: var(--sm); }
+.subject-top { display: flex; align-items: baseline; gap: var(--sm); }
+.subject-name { flex: 1 1 auto; min-width: 0; font-weight: 800; }
+/* nowrap: the percentage is the point of the row, and a wrapped "12%" under a long
+   subject name reads as two separate things. The name wraps instead. */
+.subject-rate {
+  flex: none; font-weight: 800; font-variant-numeric: tabular-nums;
+  color: var(--exam-deep); white-space: nowrap;
+}
+.subject-rate.untested {
+  color: var(--text-3); font-weight: 600; font-size: var(--t-caption);
+}
+.subject-meta { margin: var(--xs) 0 var(--sm); font-size: var(--t-caption); color: var(--text-2); }
+.subject-go { width: 100%; }
+.subject-more {
+  width: 100%; margin: var(--xs) 0 0; padding: var(--sm);
+  background: none; border: 0; cursor: pointer;
+  font: 600 var(--t-caption)/1.2 var(--font); color: var(--accent);
+}
+.subject-topics { display: grid; gap: var(--xs); margin-top: var(--xs); }
+/* The official ministerial names run to sixty characters, so the row has to be able to
+   wrap without pushing its count off the edge. */
+.subject-topic {
+  display: flex; align-items: baseline; gap: var(--sm); width: 100%;
+  padding: var(--sm) var(--md); text-align: left; cursor: pointer;
+  background: var(--surface); border: 1px solid var(--edge);
+  border-radius: var(--card-radius); font: 500 var(--t-caption)/1.35 var(--font);
+  color: var(--text);
+}
+.subject-topic-name { flex: 1 1 auto; min-width: 0; }
+.subject-topic-n {
+  flex: none; color: var(--text-3); font-variant-numeric: tabular-nums; font-weight: 700;
+}
+
+/* On the analysis screen: the treatment beside the diagnosis. */
+.an-drill {
+  width: 100%; margin: var(--sm) 0 0; padding: var(--sm);
+  background: var(--tint-info); border: 1px solid var(--tint-info-edge);
+  border-radius: var(--card-radius); cursor: pointer;
+  font: 700 var(--t-caption)/1.2 var(--font); color: var(--accent);
+}
 .league-rule .caption { margin: var(--xs) 0 0; }
 
 /* The readiness gauge. A semicircle so the 90% pass threshold can sit ON the same scale

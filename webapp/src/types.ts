@@ -290,6 +290,32 @@ export interface Profile {
  *  No chat id and no username: this is the only payload in the product carrying one
  *  learner's data to another, and a first name plus a score cannot be used to FIND
  *  somebody. See api/services/leaderboard.py. */
+/** One ministerial topic, under its official name — the string printed in every Italian
+ *  study book. Deliberately untranslated: matching what the learner is holding IS the job. */
+export interface TopicOption {
+  scope: string;
+  topic_id: number;
+  name: string;
+  questions: number;
+}
+
+/** One of the seven subjects, with the learner's own record on it.
+ *
+ *  The numbers are the same ones the error-analysis screen shows, from the same server
+ *  call. That screen says where the marks are going; this one is what to do about it. */
+export interface Category {
+  scope: string;
+  family: string;
+  questions: number;
+  per_exam: number;
+  /** Null below the sample threshold. Not a placeholder for zero — the server refusing to
+   *  put a percentage in front of somebody, and the client must render the refusal. */
+  error_rate: number | null;
+  coverage: number;
+  predicted_mistakes: number | null;
+  topics: TopicOption[];
+}
+
 export interface LeaderboardEntry {
   rank: number | null;
   name: string | null;

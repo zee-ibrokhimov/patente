@@ -20,6 +20,7 @@ import type {
   AdminPerson,
   AdminReport,
   AdminSuggestion,
+  Category,
   AdminSpend,
   AdminUser,
   BroadcastSent,
@@ -195,6 +196,10 @@ export const vocab = {
 
 /** The owner's console. Every call 404s for anyone who is not staff — the server decides,
  *  and this client never gates anything itself. */
+export const categories = {
+  list: () => request<Category[]>("/categories"),
+};
+
 export const admin = {
   overview: () => request<AdminOverview>("/admin/overview"),
   /** `segment` reuses the same four the group grant targets, so the list and the grant can
@@ -315,10 +320,13 @@ export const leaderboard = {
 export const sessions = {
   /** Returns the sitting AND its whole paper. The paper is frozen server-side, so there
    *  is nothing to fetch per question and no round trip on a running clock. */
-  start: (mode: Mode, source: RepeatSource = "smart") =>
+  /** `scope` narrows a PRACTICE sitting to one subject. Omitted means the whole bank,
+   *  which is what every sitting before this feature was drawn from. An exam refuses it
+   *  outright: a simulator narrowed to chosen topics reports a score that means nothing. */
+  start: (mode: Mode, source: RepeatSource = "smart", scope?: string) =>
     request<Session>("/sessions", {
       method: "POST",
-      body: JSON.stringify({ mode, source }),
+      body: JSON.stringify({ mode, source, scope: scope ?? null }),
     }),
 
   /** Prepare a slice of the paper: translations, and explanations for their clusters.
