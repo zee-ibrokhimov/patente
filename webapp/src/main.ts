@@ -2226,28 +2226,37 @@ function profileScreen(): HTMLElement {
   // --- readiness ---
   const card = el("div", "card gauge-wrap");
   card.append(el("div", "label gauge-label", t("ready_title")));
-  card.append(readinessGauge({ value: p.readiness, threshold: p.pass_accuracy }));
+
+  // The number goes INSIDE the arc, not under it. A semicircle is half empty by
+  // construction, and this card was 445px of a 1263px screen with a hole in the middle of
+  // it. Measured after: 229px, and nothing a learner reads got smaller.
+  const stack = el("div", "gauge-stack");
+  stack.append(readinessGauge({ value: p.readiness, threshold: p.pass_accuracy }));
 
   if (p.readiness === null) {
     // The server refuses to estimate below a minimum sample. Rendering that refusal
     // matters: a 0% bar would read as "you know nothing" rather than "not enough data".
-    card.append(el("div", "gauge-value", "—"));
+    stack.append(el("div", "gauge-value", "—"));
+    card.append(stack);
     card.append(el("div", "gauge-empty", t("need_more", { n: p.readiness_min_sample })));
   } else {
     const pct = Math.round(p.readiness * 100);
     const value = el("div", "gauge-value");
     value.append(document.createTextNode(String(pct)), el("small", "", "%"));
-    card.append(value);
-    card.append(el("div", "gauge-sub",
-      plural("based_on", p.readiness_sample, { n: p.readiness_sample })));
+    stack.append(value);
+    card.append(stack);
 
-    const note = el("div", "gauge-note");
-    note.append(icons.target(26));
-    const noteText = el("div");
-    noteText.append(el("b", "", t("pass_bar", { n: Math.round(p.pass_accuracy * 100) })));
-    noteText.append(el("span", "", p.readiness >= p.pass_accuracy ? t("ready_yes") : t("ready_keep")));
-    note.append(noteText);
-    card.append(note);
+    // The sample and the threshold on one caption line. The threshold used to be a bold
+    // heading inside a tinted box, restating a number the arc already draws as a labelled
+    // tick — twice on the same card, once in a box that cost 90px.
+    card.append(el("div", "gauge-sub",
+      `${plural("based_on", p.readiness_sample, { n: p.readiness_sample })} · `
+      + t("pass_bar", { n: Math.round(p.pass_accuracy * 100) })));
+
+    // The verdict survives the box. It is the literal answer to "am I ready", which is the
+    // question this whole card exists for; the box around it was the decoration.
+    card.append(el("div", "gauge-verdict",
+      p.readiness >= p.pass_accuracy ? t("ready_yes") : t("ready_keep")));
   }
   wrap.append(card);
 

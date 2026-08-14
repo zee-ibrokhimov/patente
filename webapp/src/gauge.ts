@@ -66,11 +66,9 @@ export function readinessGauge({ value, threshold }: GaugeOptions): SVGSVGElemen
     <path d="M${tick.x.toFixed(2)} ${tick.y.toFixed(2)} L${tickOut.x.toFixed(2)} ${tickOut.y.toFixed(2)}"
           stroke="var(--text)" stroke-width="2.5" stroke-linecap="round"/>
 
-    <text x="10"  y="126" font-size="11" fill="#98a2b3" font-weight="600">0%</text>
-    <text x="190" y="126" font-size="11" fill="#98a2b3" font-weight="600" text-anchor="end">100%</text>
-    <text x="100" y="12"  font-size="11" fill="#98a2b3" font-weight="600" text-anchor="middle">50%</text>
-    <text x="${(tickOut.x + 8).toFixed(1)}" y="${(tickOut.y - 2).toFixed(1)}"
-          font-size="11" fill="#16a34a" font-weight="700">${Math.round(threshold * 100)}%</text>
+    <text x="10"  y="126" font-size="11" fill="var(--text-2)" font-weight="600">0%</text>
+    <text x="190" y="126" font-size="11" fill="var(--text-2)" font-weight="600" text-anchor="end">100%</text>
+    <text x="100" y="12"  font-size="11" fill="var(--text-2)" font-weight="600" text-anchor="middle">50%</text>
   `;
   return node;
 }

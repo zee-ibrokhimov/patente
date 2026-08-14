@@ -79,7 +79,12 @@ body {
   color: var(--text-2);
 }
 
-h2 { font-size: 17px; font-weight: 700; margin: 26px 0 10px; letter-spacing: -.01em; }
+h2 {
+  font-size: 17px; font-weight: 700; line-height: var(--lh-tight);
+  /* Was `26px 0 10px`. Both h2 that open a card are first children, and a margin does
+     not collapse through the card's padding — so the card paid for both. */
+  margin: 0 0 var(--sm); letter-spacing: -.01em;
+}
 
 /* .screen, @keyframes rise and the reduced-motion block are declared once, below, in the
    token-spec section. They used to appear here too with hardcoded pixel padding, and the
@@ -102,7 +107,21 @@ html, body { overflow-x: hidden; }
 
 .h1 { font-size: var(--t-title); line-height: var(--lh-title); font-weight: var(--w-title); letter-spacing: -.03em; margin: 0; }
 .sub { color: var(--text-2); font-size: var(--t-body); margin: var(--xs) 0 var(--lg); }
-.caption { font-size: var(--t-caption); line-height: var(--lh-caption); color: var(--text-2); }
+/* One- and two-line objects: headings, control labels and numerals. NOT .statement,
+   .translation, .explain or any caption — those are prose, and prose wants --lh-body. */
+h3, .mode-title, .who-name, .row-title, .stat-n, .tile-n, .box-c, .lang-code, .lang-name,
+.premium-strip-title, .v-entry-title, .topic-name, .streak-count, .practice-main-title,
+.practice-option-title, .verdict-title, .an-name, .subject-name {
+  line-height: var(--lh-tight);
+}
+
+.caption {
+  font-size: var(--t-caption); line-height: var(--lh-caption); color: var(--text-2);
+  /* The UA gives <p> 1em top and bottom and there is no reset in this project. Inside a
+     card the padding stops it collapsing, so it was ~28px of height per caption that
+     nobody chose. */
+  margin: 0 0 var(--sm);
+}
 
 .card {
   background: var(--card);
@@ -735,7 +754,7 @@ html, body { overflow-x: hidden; }
 }
 .tab {
   flex: 1; appearance: none; border: 0; background: none; cursor: pointer;
-  color: var(--text-2); padding: 10px 4px 8px;
+  color: var(--text-2); padding: 6px 4px 4px;
   font-family: inherit; font-size: 12px; font-weight: 500;
   display: flex; flex-direction: column; align-items: center; gap: 4px;
   position: relative;
@@ -786,7 +805,14 @@ html, body { overflow-x: hidden; }
 .avatar img { width: 100%; height: 100%; object-fit: cover; }
 .who-name { font-size: clamp(22px, 6.7vw, 26px); font-weight: 800; letter-spacing: -.02em; }
 .who-streak { font-size: var(--t-caption); font-weight: 700; color: var(--bad); margin-top: 2px; }
-.who-gear { margin-left: auto; color: var(--text-2); background: none; border: 0; cursor: pointer; padding: 6px; }
+/* Was `padding: 6px` around a 24px icon — 36x36, under the floor. Free to fix: .who is
+   align-items:center and the avatar beside it is clamp(48px, 14vw, 58px), so the avatar
+   sets the row height at every width and this grows into space that already exists. */
+.who-gear {
+  margin-left: auto; color: var(--text-2); background: none; border: 0; cursor: pointer;
+  padding: 6px; min-width: 44px; min-height: 44px;
+  display: inline-flex; align-items: center; justify-content: center;
+}
 
 /* The daily goal, above the readiness gauge on purpose. Readiness answers "am I ready for
    the exam", which is a number nobody can move today; the goal answers "what do I do now",
@@ -995,7 +1021,8 @@ html, body { overflow-x: hidden; }
 }
 .subject-meta { margin: 0; font-size: var(--t-caption); color: var(--text-2); }
 .subject-more {
-  width: 100%; margin: var(--xs) 0 0; padding: var(--sm);
+  /* Free: the button sits inside a card that already has the room. */
+  width: 100%; min-height: 44px; margin: var(--xs) 0 0; padding: var(--sm);
   background: none; border: 0; cursor: pointer;
   font: 600 var(--t-caption)/1.2 var(--font); color: var(--accent);
 }
@@ -1005,6 +1032,10 @@ html, body { overflow-x: hidden; }
 .subject-topic {
   display: flex; align-items: baseline; gap: var(--sm); width: 100%;
   padding: var(--sm) var(--md); text-align: left; cursor: pointer;
+  /* A tappable row of 14px/1.35 text at 8px padding is ~37px. Costs 7px on the short rows
+     and nothing on the ones that wrap, which is most of them: the ministerial topic names
+     run to sixty characters. */
+  min-height: 44px;
   background: var(--surface); border: 1px solid var(--edge);
   border-radius: var(--card-radius); font: 500 var(--t-caption)/1.35 var(--font);
   color: var(--text);
@@ -1027,23 +1058,29 @@ html, body { overflow-x: hidden; }
    as the score — a bare percentage floats, a percentage against a marked bar does not. */
 .gauge-wrap { text-align: center; }
 .gauge-label { margin-bottom: var(--sm); }
-.gauge-svg { width: 100%; max-width: 320px; display: block; margin: 0 auto; }
+/* 320px -> 240px. The arc is a semicircle, so the number used to sit UNDER a box that is
+   half empty by construction: 445px of a 1263px screen went to one card, and most of the
+   middle of it was nothing. The number moves into the bowl the arc draws around it. */
+.gauge-svg { width: 100%; max-width: 240px; display: block; margin: 0 auto; }
+.gauge-stack { position: relative; }
+.gauge-stack .gauge-value {
+  /* Absolute rather than a negative margin: a negative margin-top resolves against WIDTH,
+     so it would drift as the card narrows. Anchored to the bottom of the arc's own box,
+     it stays in the bowl at every width. */
+  position: absolute; left: 0; right: 0; bottom: 2%;
+}
 .gauge-value {
   font-size: var(--t-display); line-height: 1; font-weight: var(--w-display);
   letter-spacing: -.03em;
 }
 .gauge-value small { font-size: .5em; font-weight: 700; }
 .gauge-sub { color: var(--text-2); font-size: var(--t-caption); }
-.gauge-empty { color: var(--text-2); font-size: var(--t-caption); padding: var(--lg) 0; }
-
-.gauge-note {
-  display: flex; gap: var(--md); align-items: center;
-  background: var(--practice-tint); border-radius: var(--r); padding: var(--md) var(--lg);
-  margin-top: var(--lg); text-align: left;
-}
-.gauge-note svg { flex: none; color: var(--ok); }
-.gauge-note b { display: block; font-size: 16px; }
-.gauge-note span { color: var(--text-2); font-size: var(--t-caption); }
+/* The verdict: the literal answer to "am I ready". The tinted box, the 26px target icon
+   and the bold "pass bar 90%" line are gone — the arc already draws the threshold as a
+   labelled tick, and the box restated it — but this sentence is not framing around the
+   number, it IS the number's interpretation, so it stays as a plain line. */
+.gauge-verdict { margin-top: var(--sm); font-weight: 600; }
+.gauge-empty { color: var(--text-2); font-size: var(--t-caption); padding: var(--md) 0 0; }
 
 .stat-row { display: grid; grid-template-columns: repeat(3, 1fr); }
 .stat-row > div { text-align: center; padding: 0 var(--sm); }
@@ -1165,6 +1202,15 @@ html, body { overflow-x: hidden; }
   appearance: none; cursor: pointer; flex: none; border: 0;
   width: 52px; height: 31px; border-radius: 999px; background: var(--edge);
   position: relative; transition: background .18s var(--ease);
+}
+/* 52x31 is 13px under the 44px touch floor in the short axis, and has been since this was
+   drawn. The hit area grows, the control does not: a transparent pseudo-element takes the
+   taps and retargets them to the button, so it still reads as the 52x31 iOS switch people
+   expect while being 60x47 to a thumb. `inset: -8px` is load-bearing, not decorative —
+   47px leaves 3px of slack. Placed BEFORE ::after in tree order so the white knob still
+   paints on top of it. .switch sets no `overflow: hidden`, so it is not clipped. */
+.switch::before {
+  content: ''; position: absolute; inset: -8px -4px;
 }
 .switch.on { background: var(--accent); }
 .switch::after {

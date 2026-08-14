@@ -130,6 +130,11 @@
      Line heights are RATIOS, so they track the font size instead of being pinned to a
      pixel value chosen for one width. */
   --t-title: clamp(22px, 7.18vw, 28px);       --lh-title: 1.15;   --w-title: 800;
+  /* Headings, control labels and numerals are one- and two-line objects, and every one of
+     them was inheriting --lh-body — paragraph leading — because none of them declares a
+     line-height of its own. 1.45 is what you want under a wrapped Russian paragraph and
+     0.25em of dead space under a numeral. */
+  --lh-tight: 1.2;
   --t-question: clamp(18px, 6.15vw, 24px);    --lh-question: 1.42; --w-question: 700;
   --t-body: clamp(15px, 4.10vw, 16px);        --lh-body: 1.45;    --w-body: 400;
   --t-caption: clamp(13px, 3.59vw, 14px);     --lh-caption: 1.40;  --w-caption: 400;
