@@ -625,30 +625,33 @@ def test_the_confirmation_does_not_cover_the_answer_buttons():
 
 # --- alternatives ---------------------------------------------------------------
 
-def test_the_model_is_asked_for_alternatives_separated_by_a_comma():
-    """NOT "или", and not "or". The glossary stores alternatives comma-separated —
-    "звуковой сигнал, клаксон" — and `vocab_grading.accepted_answers` splits on the comma,
-    so a learner typing either one is marked correct.
+@pytest.mark.parametrize("raw,expected", [
+    (["схема", "рисунок"], "схема, рисунок"),      # what the schema asks for
+    ("схема или рисунок", "схема, рисунок"),        # a model that answered in prose anyway
+    (["diagram or picture"], "diagram, picture"),   # ...in English
+    (["sxema yoki rasm"], "sxema, rasm"),           # ...in Uzbek
+    (["Схема", "схема"], "Схема"),                  # the same answer written twice
+    (["обгон"], "обгон"),                           # a word that honestly has one meaning
+    (["a, b"], "a, b"),                             # already comma-separated
+    ([], ""),
+    (None, ""),
+])
+def test_alternatives_always_come_out_comma_separated(raw, expected):
+    """THE guarantee, and it is structural now rather than a request.
 
-    Store "схема или рисунок" instead and the drill accepts NEITHER, because the whole
-    phrase becomes the single expected string. Verified below rather than asserted.
+    The glossary stores alternatives comma-separated — "звуковой сигнал, клаксон" — and
+    `vocab_grading.accepted_answers` splits on the comma, so a learner typing either is
+    marked correct. Store "схема или рисунок" and the drill accepts NEITHER, because the
+    whole phrase becomes one expected string.
+
+    An earlier version asked the model for a comma-separated string and this test grepped
+    the prompt for the instruction. That checked that we had ASKED, not that we had got —
+    and the model, whose temperature cannot be pinned on this account, complied only
+    sometimes. The model now returns a list and the join happens here, so the separator
+    stops being something it can get wrong, and anything that still arrives as prose is
+    split on the way past.
     """
-    import inspect
-
-    prompt = inspect.getsource(wordlookup.translate)
-    # Case-insensitive and on the SUBSTANCE, not on one phrasing. The first version pinned
-    # the exact capitalisation and failed the moment the sentence was reworded — a test
-    # objecting to prose while the rule it guards was untouched.
-    lowered = prompt.lower()
-    assert "separated by a comma" in lowered
-    assert "the comma is the separator" in lowered
-    # The trap named explicitly, in both languages the model might reach for. Backslashes
-    # are stripped first: the quotes around the forbidden words are escaped inside the
-    # prompt's own Python source, so probing for a bare '"or"' looks for something that is
-    # not literally there.
-    plain = lowered.replace(chr(92), "")
-    assert '"or"' in plain and '"или"' in plain, \
-        "the prompt does not forbid the separator that would break the drill"
+    assert wordlookup._join(raw) == expected
 
 
 def test_a_comma_separated_gloss_grades_either_answer_right():
@@ -672,6 +675,8 @@ async def test_alternatives_survive_the_whole_path(client, registered, api_db, p
     """A gloss with a comma has to reach the learner's vocabulary intact — not truncated at
     the comma on the way through, which would silently discard the second meaning."""
     async def two_meanings(_word):
+        # `translate` returns the JOINED string, which is what `look_up` stores — the list
+        # shape lives inside `translate` and is covered by its own tests above.
         return {"lemma": "figura", "en": "diagram, picture",
                 "ru": "схема, рисунок", "uz": "sxema, rasm"}
 
@@ -691,3 +696,31 @@ def test_the_hold_fill_is_green_not_a_neutral_grey():
     rule = CSS.split(".statement .word.holding {")[1].split("}")[0]
     assert "--practice-chip" in rule
     assert "--tint-info" not in rule
+
+
+async def test_a_list_from_the_model_reaches_the_learner_as_a_comma_string(monkeypatch,
+                                                                           openai_key):
+    """End to end through `translate`: lists in, one storable gloss out.
+
+    This is the shape the schema actually asks for, so it is the shape most calls take —
+    and nothing else in this file exercises it, because the tests above stub `translate`
+    itself.
+    """
+    import openai
+
+    monkeypatch.setattr(openai, "AsyncOpenAI", _client_returning(
+        '{"lemma": "figura", "en": ["diagram", "picture"], '
+        '"ru": ["схема", "рисунок"], "uz": ["sxema", "rasm"]}'))
+    assert await wordlookup.translate("figure") == {
+        "lemma": "figura", "en": "diagram, picture",
+        "ru": "схема, рисунок", "uz": "sxema, rasm"}
+
+
+async def test_an_empty_list_is_an_incomplete_answer(monkeypatch, openai_key):
+    """A language the model declined to fill must not be cached as blank — the cache is
+    permanent, so a blank gloss is a blank gloss served to every Uzbek learner for ever."""
+    import openai
+
+    monkeypatch.setattr(openai, "AsyncOpenAI", _client_returning(
+        '{"lemma": "figura", "en": ["diagram"], "ru": ["схема"], "uz": []}'))
+    assert await wordlookup.translate("figura") is None

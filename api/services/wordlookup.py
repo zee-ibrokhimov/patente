@@ -131,6 +131,33 @@ async def cached(session: AsyncSession, form: str) -> WordGloss | None:
     return await session.get(WordGloss, form)
 
 
+# Conjunctions that mean "or" in the languages served. An entry containing one is two
+# meanings the model packed into a single string, and left alone it becomes one expected
+# answer that the drill accepts NEITHER half of.
+_JOINERS = re.compile(r"\s+(?:or|или|yoki|oppure|o)\s+", re.IGNORECASE)
+
+
+def _join(value) -> str:
+    """Model output -> the stored gloss: alternatives, comma-separated, in order.
+
+    Accepts a list — which is what is asked for — or a plain string, because a model that
+    ignores the schema must not take the word down with it. Splits anything that still
+    contains a conjunction, so the comma convention holds even when the instruction did not:
+    `vocab_grading.accepted_answers` splits on the comma and accepts any part, and a stored
+    "схема или рисунок" is one expected answer that neither "схема" nor "рисунок" matches.
+    """
+    items = value if isinstance(value, list) else [value]
+    out: list[str] = []
+    for item in items:
+        for part in _JOINERS.split(str(item or "")):
+            for piece in part.split(","):
+                text = piece.strip(" .;:")
+                # Case-insensitive dedupe: "Schema, schema" is one answer written twice.
+                if text and text.lower() not in {o.lower() for o in out}:
+                    out.append(text)
+    return ", ".join(out)[:120].rstrip(", ")
+
+
 async def translate(word: str) -> dict | None:
     """Ask the model for the dictionary form and the three glosses. None if it cannot.
 
@@ -152,35 +179,43 @@ async def translate(word: str) -> dict | None:
             {"role": "system", "content": (
                 "You are a dictionary for Italian driving-theory vocabulary. "
                 "Given one Italian word as it appeared in a sentence, reply with JSON: "
-                '{"lemma": "<dictionary form, lowercase>", "en": "...", "ru": "...", '
-                '"uz": "..."}. '
+                '{"lemma": "<dictionary form, lowercase>", '
+                '"en": ["...", "..."], "ru": ["...", "..."], "uz": ["...", "..."]}. '
                 "The lemma is the form a dictionary would list: singular for nouns, "
                 "masculine singular for adjectives, infinitive for verbs. "
-                # Directive rather than permissive, and measured. The permissive
-                # wording — "one is fine when the word really has one" — produced a single
-                # gloss for `figura` and for `sorpasso` on the live model, which are exactly
-                # the words a learner taps to find the second meaning. Asking for two
-                # unless a second would be unnatural gave alternatives on 7 of 7 test words
-                # against 6 of 7, and matters more than the ratio suggests because THE
-                # OUTPUT IS NOT DETERMINISTIC: this model rejects temperature=0, so the
-                # retry ladder falls through to the default temperature and the same word
-                # can come back with one gloss on one call and two on the next.
-                "Give TWO renderings separated by a comma whenever a second natural one "
-                "exists — for example figura -> \"схема, рисунок\". Give a single "
-                "rendering ONLY when no second one would sound natural to a native "
-                "speaker. Never more than three. "
-                "No explanation, no article, no punctuation at the end, and never the word "
-                "\"or\" or \"или\" between them: the comma IS the separator and anything "
-                "else is read as part of the answer. "
-                "Where the word has a specific meaning in road traffic, give that meaning "
-                "first. Uzbek uses the Latin alphabet."
+                # LISTS, NOT A COMMA-SEPARATED STRING, and that is the whole point of this
+                # shape. Asked for a string, the model wrote one gloss for `figura` and for
+                # `sorpasso` on the live product — the exact words somebody taps to find the
+                # second meaning — and it did so INTERMITTENTLY, because this model rejects
+                # temperature=0 so the same prompt returns different answers on different
+                # calls. The cache is permanent, so whichever answer the first learner's tap
+                # happened to produce is what every learner gets for ever.
+                #
+                # A list is a shape the model either fills or does not, and the separator
+                # stops being something it can get wrong: the server joins with a comma, so
+                # "или" between alternatives becomes structurally impossible rather than
+                # merely forbidden.
+                "Each of en, ru and uz is a LIST of renderings, most usual first. Give TWO "
+                "whenever a second natural one exists; give one only when no second would "
+                "sound natural to a native speaker. Never more than three. "
+                "Each entry is one to three words: no explanation, no article, no "
+                "punctuation, and never a conjunction like \"or\" or \"или\" inside an "
+                "entry — separate meanings belong in separate entries. "
+                "Where the word has a specific meaning in road traffic, give that first. "
+                "Uzbek uses the Latin alphabet."
             )},
             {"role": "user", "content": word},
         ],
     )
-    # The same ladder translations.py uses, and for the same reason recorded there: a single
+    # The same ladder translations.py uses, and for the reason recorded there: a single
     # fallback to no parameters is how `reasoning_effort` was silently dropped on every call,
     # at five to ten times the cost, with the constant set and the tests passing.
+    #
+    # Worth knowing: the FIRST rung fails on every call to the current model, which rejects
+    # `temperature` with a 400. The ladder handles that correctly and it costs one wasted
+    # round trip — but it also means the temperature is whatever the model defaults to, so
+    # the same word can come back differently on different calls. That is why the glosses
+    # are asked for as LISTS and joined here, rather than trusted to arrive as prose.
     attempts = (
         dict(temperature=0, reasoning_effort=REASONING_EFFORT),
         dict(reasoning_effort=REASONING_EFFORT),
@@ -207,7 +242,7 @@ async def translate(word: str) -> dict | None:
         return None
 
     lemma = normalise(str(parsed.get("lemma") or "")) or word
-    glosses = {lang: str(parsed.get(lang) or "").strip()[:120] for lang in ("en", "ru", "uz")}
+    glosses = {lang: _join(parsed.get(lang)) for lang in ("en", "ru", "uz")}
     if not all(glosses.values()):
         log.warning("word lookup for %r came back incomplete: %s", word, glosses)
         return None
