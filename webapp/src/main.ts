@@ -724,8 +724,8 @@ function homeScreen(): HTMLElement {
 
   const modes = el("div", "modes");
   modes.append(
-    modeCard("exam", t("exam"), t("exam_desc"), t("exam_badge")),
-    modeCard("practice", t("practice"), t("practice_desc"), t("practice_badge")),
+    modeCard("exam", t("exam"), t("exam_desc")),
+    modeCard("practice", t("practice"), t("practice_desc")),
   );
   wrap.append(modes);
 
@@ -1089,7 +1089,7 @@ function vocabEntry(): HTMLElement {
   return card;
 }
 
-function modeCard(mode: Mode, title: string, desc: string, tag: string): HTMLElement {
+function modeCard(mode: Mode, title: string, desc: string): HTMLElement {
   const card = el("button", `mode ${mode}`);
   card.type = "button";
 
@@ -1107,9 +1107,11 @@ function modeCard(mode: Mode, title: string, desc: string, tag: string): HTMLEle
     mode === "exam" ? icons.examGlyph() : icons.practiceGlyph(), mode));
 
   const body = el("div", "mode-body");
-  const pill = el("div", "mode-tag");
-  pill.append(mode === "exam" ? icons.alert(15) : icons.check(15), document.createTextNode(tag));
-  body.append(pill, el("div", "mode-title", title));
+  // The pill above each mode title is gone, at the owner's call. It carried
+  // "МОЖНО НЕ СДАТЬ" / "УЧИТЕСЬ БЕЗ СТРЕССА" — real editorial voice, but the card already
+  // has a red-or-green tile, a coloured title and two lines saying the same thing, and the
+  // pill cost a full row on the screen a learner opens first. ~40px on home.
+  body.append(el("div", "mode-title", title));
 
   const description = el("div", "mode-desc");
   for (const part of desc.split(". ")) {
@@ -1232,13 +1234,19 @@ function trialDaysLeft(): number | null {
 }
 
 function trialBanner(days: number): HTMLElement {
-  const card = el("div", "premium-strip");
-  card.style.marginTop = "var(--lg)";
-  card.append(icons.crown(24));
-  const body = el("div");
-  body.append(el("div", "premium-strip-title", t("trial_active")),
-              el("div", "premium-strip-text", t("trial_days_left", { n: days })));
-  card.append(body);
+  // ONE line, not two, and NOT hidden.
+  //
+  // The proposal on the table was to gate this to the last fortnight, which would have
+  // bought home its fit on a 375px phone. It is declined: this strip has no click handler
+  // and no call to action, so it is not a funnel — it is the only persistent statement
+  // anywhere in the app that access is time-limited, and hiding that for 62 days is a
+  // disclosure decision dressed up as a layout one. Compressed instead: the title and the
+  // countdown were two stacked lines saying one thing, and they read as one.
+  const card = el("div", "premium-strip trial");
+  card.style.marginTop = "var(--md)";
+  card.append(icons.crown(20));
+  card.append(el("div", "premium-strip-title",
+                 `${t("trial_active")} · ${t("trial_days_left", { n: days })}`));
   return card;
 }
 
@@ -2890,9 +2898,14 @@ function settingsScreen(): HTMLElement {
   langCard.append(grid);
   wrap.append(langCard);
 
-  // --- translations ---
-  const trCard = el("div", "card");
-  trCard.style.marginTop = "var(--md)";
+  // --- preferences, as ONE card ---
+  //
+  // Was three cards, one per toggle, each with its own padding, its own shadow and its own
+  // 12px gap to the next: 427px between them on a 730px phone, for three switches. A
+  // grouped list is what both iOS and Android do with exactly this, and for exactly this
+  // reason — the rows are separated by a rule instead of by a gap the width of a thumb.
+  const prefs = el("div", "card");
+  prefs.style.marginTop = "var(--md)";
   const trRow = el("div", "row");
   const trText = el("div", "row-main");
   trText.append(el("div", "row-title", t("translations")), el("div", "row-sub", t("tr_sub")));
@@ -2909,21 +2922,17 @@ function settingsScreen(): HTMLElement {
     } catch (err) { reportError(err); }
   };
   trRow.append(toggle);
-  trCard.append(trRow);
-
-  const note = el("div", "note");
-  note.append(icons.info(20));
-  note.append(el("span", "", t("tr_note")));
-  trCard.append(note);
-  wrap.append(trCard);
+  prefs.append(trRow);
+  // The tinted `.note` box is gone. It held two sentences: one restating what the toggle
+  // above it does, and one — "the exam is sat in Italian" — that appears nowhere else in
+  // the app. The second moved into `tr_sub`, the row's own subtitle, so the only statement
+  // of the exam's language survives without a 90px box and a 20px icon around it.
 
   // --- the weekly league ---
   //
   // The switch that makes showing real first names to other learners defensible at all. It
   // has to be findable, and it has to work retroactively — which it does, because the
   // ranking query filters on the column every time it runs rather than at the week's end.
-  const lbCard = el("div", "card");
-  lbCard.style.marginTop = "var(--md)";
   const lbRow = el("div", "row");
   const lbText = el("div", "row-main");
   lbText.append(el("div", "row-title", t("ratings_visible")),
@@ -2939,16 +2948,13 @@ function settingsScreen(): HTMLElement {
   lbToggle.setAttribute("aria-checked", String(visible));
   lbToggle.onclick = () => void setLeaderboardOptOut(visible);
   lbRow.append(lbToggle);
-  lbCard.append(lbRow);
-  wrap.append(lbCard);
+  prefs.append(lbRow);
 
   // --- day or night ---
   //
   // Follows Telegram by default and remembers an override on this device. Placed here
   // rather than hidden behind a menu because it is the setting people go looking for, and
   // stored locally rather than on the account: it describes this screen, not this person.
-  const themeCard = el("div", "card");
-  themeCard.style.marginTop = "var(--md)";
   const themeRow = el("div", "row");
   const themeText = el("div", "row-main");
   themeText.append(el("div", "row-title", t("dark_mode")),
@@ -2964,8 +2970,8 @@ function settingsScreen(): HTMLElement {
     render();
   };
   themeRow.append(themeToggle);
-  themeCard.append(themeRow);
-  wrap.append(themeCard);
+  prefs.append(themeRow);
+  wrap.append(prefs);
 
   // --- the owner's console ---
   //

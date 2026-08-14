@@ -221,13 +221,6 @@ h3, .mode-title, .who-name, .row-title, .stat-n, .tile-n, .box-c, .lang-code, .l
    column at its intrinsic width and the card overflows the screen. */
 .mode-body { min-width: 0; }
 
-.mode-tag {
-  display: inline-flex; align-items: center; gap: 5px;
-  padding: 4px 10px; border-radius: 999px;
-  font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
-}
-.mode.exam .mode-tag { background: var(--exam-chip); color: var(--exam); }
-.mode.practice .mode-tag { background: var(--practice-chip); color: var(--practice); }
 
 .mode-title { font-size: clamp(21px, 6.9vw, 27px); font-weight: 800; letter-spacing: -.02em; margin: var(--sm) 0 4px; display: flex; align-items: center; gap: var(--sm); }
 .mode.exam .mode-title { color: var(--exam-deep); }
@@ -280,6 +273,10 @@ h3, .mode-title, .who-name, .row-title, .stat-n, .tile-n, .box-c, .lang-code, .l
   width: 100%; text-align: left; appearance: none; cursor: pointer; color: inherit;
 }
 .premium-strip svg:first-child { flex: none; color: var(--gold); }
+/* The trial strip is one line, so it does not need the block padding the two-line strips
+   want. Its own rule rather than a change to .premium-strip: the resume card beside it is
+   still a title over a sentence and still wants the room. */
+.premium-strip.trial { padding: var(--md) var(--lg); }
 
 /* The suggestion box, at the top of Settings. A card that is a button: same surface as the
    settings below it so it reads as part of the screen, with the affordance of the rows
@@ -1177,6 +1174,13 @@ h3, .mode-title, .who-name, .row-title, .stat-n, .tile-n, .box-c, .lang-code, .l
 }
 
 .row { display: flex; align-items: center; gap: var(--md); }
+/* Rows stacked inside ONE card are separated by a rule, not by a gap. Three toggles used
+   to be three cards — three paddings, three shadows and two 12px gaps — which is 427px of
+   a 730px phone to show three switches. This is the grouped list both iOS and Android use
+   for the same job. `> .row` so it cannot reach rows nested deeper in a card. */
+.card > .row + .row {
+  margin-top: var(--md); padding-top: var(--md); border-top: 1px solid var(--edge);
+}
 .row-main { min-width: 0; flex: 1; }
 
 /* A .btn dropped into a .row must stop being a full-width block.

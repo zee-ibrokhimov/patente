@@ -120,9 +120,14 @@ def test_settings_carries_the_opt_out():
 
 def test_the_switch_reads_as_show_me_not_hide_me():
     """A switch that is ON when the thing is OFF is how people end up with their privacy
-    setting backwards."""
-    body = MAIN[MAIN.index("const lbCard"):]
-    body = body[:body.index("wrap.append(lbCard);")]
+    setting backwards.
+
+    Re-anchored: this toggle used to be its own card, and the three one-toggle cards in
+    settings are now one grouped list — three cards, three paddings and two 12px gaps came
+    to 427px of a 730px phone for three switches. The property is unchanged and so is the
+    slice; only the markers moved."""
+    body = MAIN[MAIN.index("const lbRow = el(\"div\", \"row\");"):]
+    body = body[:body.index("prefs.append(lbRow);")]
     assert "const visible = !me.leaderboard_opt_out;" in body
     assert 'aria-checked", String(visible)' in body
 
