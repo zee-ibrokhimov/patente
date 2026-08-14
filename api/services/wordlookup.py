@@ -156,9 +156,19 @@ async def translate(word: str) -> dict | None:
                 '"uz": "..."}. '
                 "The lemma is the form a dictionary would list: singular for nouns, "
                 "masculine singular for adjectives, infinitive for verbs. "
-                "Give the common renderings, SEPARATED BY A COMMA, most usual first — "
-                "for example figura -> \"схема, рисунок\". One is fine when the word "
-                "really has one; never more than three. "
+                # Directive rather than permissive, and measured. The permissive
+                # wording — "one is fine when the word really has one" — produced a single
+                # gloss for `figura` and for `sorpasso` on the live model, which are exactly
+                # the words a learner taps to find the second meaning. Asking for two
+                # unless a second would be unnatural gave alternatives on 7 of 7 test words
+                # against 6 of 7, and matters more than the ratio suggests because THE
+                # OUTPUT IS NOT DETERMINISTIC: this model rejects temperature=0, so the
+                # retry ladder falls through to the default temperature and the same word
+                # can come back with one gloss on one call and two on the next.
+                "Give TWO renderings separated by a comma whenever a second natural one "
+                "exists — for example figura -> \"схема, рисунок\". Give a single "
+                "rendering ONLY when no second one would sound natural to a native "
+                "speaker. Never more than three. "
                 "No explanation, no article, no punctuation at the end, and never the word "
                 "\"or\" or \"или\" between them: the comma IS the separator and anything "
                 "else is read as part of the answer. "
