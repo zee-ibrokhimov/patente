@@ -131,9 +131,15 @@ TOPIC_WINDOW_DAYS = 90
 # --- Purchase tiers ---------------------------------------------------------
 # Three lengths. Plan §4.2's advice still holds — the middle option should carry the
 # per-month framing and be the default, because the spread is visible but not obvious:
-#   1 month   EUR 2.99   = 2.99/mo
-#   3 months  EUR 7.99   = 2.66/mo
-#   6 months  EUR 10.99  = 1.83/mo   <- best value, and the one to highlight
+#   1 month   EUR 3.99   = 3.99/mo
+#   3 months  EUR 9.99   = 3.33/mo
+#   6 months  EUR 16.99  = 2.83/mo   <- best value, and the one to highlight
+#
+# Raised on 2026-08-14 from 2.99 / 7.99 / 10.99. The spread narrowed: six months used to be
+# 39% of the monthly rate and is now 71% of it, so the discount for committing is a good
+# deal smaller than it was. TIER_FEATURED still points at the six-month plan and it is still
+# the cheapest per month — but if the mix shifts toward one-month passes, that narrowing is
+# the reason, not the copy.
 #
 # ⚠️  ONE-TIME, NOT AUTO-RENEWING — for now. Plan §4.2 is explicit: "Both tiers must be
 # one-time purchases, not auto-renewing. Keeping it one-time preserves the main advantage
@@ -149,7 +155,7 @@ TIER_1M = "pass_1m"
 TIER_3M = "pass_3m"
 TIER_6M = "pass_6m"
 TIER_DAYS = {TIER_1M: 30, TIER_3M: 90, TIER_6M: 180}
-TIER_PRICE_CENTS = {TIER_1M: 299, TIER_3M: 799, TIER_6M: 1099}
+TIER_PRICE_CENTS = {TIER_1M: 399, TIER_3M: 999, TIER_6M: 1699}
 TIERS = tuple(TIER_DAYS)
 
 # Tribute's `period` enum -> our tier. A subscription payload has no product id: the plan

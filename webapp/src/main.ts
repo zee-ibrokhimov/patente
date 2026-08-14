@@ -4262,11 +4262,14 @@ function adminUsers(users: AdminUser[]): HTMLElement {
  *  chosen, then a reason. On a phone that is three modal dialogs, cancelling the middle one
  *  aborted the sale with no trace, and the default price was wrong two times in three.
  *
- *  Prices mirror TIER_PRICE_CENTS in shared/constants.py. */
+ *  Prices mirror TIER_PRICE_CENTS in shared/constants.py — a hand copy, because this is the
+ *  owner's console and it must work without a round trip. A test compares the two, since a
+ *  copy that drifts records the wrong revenue against a real sale and nothing would notice
+ *  until somebody added up the year. */
 const GRANT_PRESETS = [
-  { label: "1 month · €2.99", days: 30, cents: 299 },
-  { label: "3 months · €7.99", days: 90, cents: 799 },
-  { label: "6 months · €10.99", days: 180, cents: 1099 },
+  { label: "1 month · €3.99", days: 30, cents: 399 },
+  { label: "3 months · €9.99", days: 90, cents: 999 },
+  { label: "6 months · €16.99", days: 180, cents: 1699 },
   { label: "Gift · no payment", days: 30, cents: 0 },
 ] as const;
 

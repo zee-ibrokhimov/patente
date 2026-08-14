@@ -95,21 +95,34 @@ PAID = {"has_pass": True, "purchased": True,
 FREE = {"has_pass": False, "purchased": False, "pass_expires_at": None}
 
 
+def _prices() -> list[str]:
+    """The published prices, from the constant rather than from memory.
+
+    These used to be literals here, and a price rise meant editing four test files —
+    each of which then asserted the new number against itself and proved nothing. Derived,
+    they assert that what is RENDERED matches what is CONFIGURED, which is the only thing
+    worth checking on this path.
+    """
+    from shared.constants import TIER_PRICE_CENTS
+
+    return [f"{cents // 100}.{cents % 100:02d}" for cents in TIER_PRICE_CENTS.values()]
+
+
 def test_plan_does_not_sell_to_someone_on_the_trial():
     """They already have everything. Pitching costs goodwill and buys nothing."""
     body = render.plan(TRIAL, "en", can_subscribe=True)
-    assert "2.99" not in body and "10.99" not in body
+    assert not any(p in body for p in _prices())
 
 
 def test_plan_does_not_sell_to_a_paying_subscriber():
     body = render.plan(PAID, "en", can_subscribe=True)
-    assert "2.99" not in body and "10.99" not in body
+    assert not any(p in body for p in _prices())
     assert "2026-08-29" in body
 
 
 def test_plan_shows_all_three_prices_to_a_free_user():
     body = render.plan(FREE, "en", can_subscribe=True)
-    for price in ("2.99", "7.99", "10.99"):
+    for price in _prices():
         assert f"€{price}" in body, f"missing {price}"
 
 
@@ -124,9 +137,17 @@ def test_plan_marks_the_featured_tier_and_orders_by_length():
 
 
 def test_plan_per_month_figures_are_right():
+    """Computed from the price and the length, not typed. A stale per-month figure beside a
+    fresh price is the most expensive kind of wrong number: it is the one people compare
+    plans on, and it survives a price change silently."""
+    from shared.constants import TIER_DAYS, TIER_PRICE_CENTS
+
     body = render.plan(FREE, "en", can_subscribe=True)
-    assert "€2.66" in body   # 799 / 3
-    assert "€1.83" in body   # 1099 / 6
+    for tier, cents in TIER_PRICE_CENTS.items():
+        months = round(TIER_DAYS[tier] / 30)
+        per = round(cents / months)
+        assert f"€{per // 100}.{per % 100:02d}" in body, \
+            f"{tier}: {cents} over {months} months is not shown per month"
 
 
 def test_plan_says_payments_are_not_live_when_tribute_is_unconfigured():

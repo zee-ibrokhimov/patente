@@ -158,7 +158,15 @@ def test_premium_without_a_pass_row_is_not_shown_the_price_list(user, label, lan
     free-tier pitch — the surface that owns payment telling a subscriber they have not
     paid."""
     text = render.plan(user, lang, can_subscribe=True)
-    prices = ("2,99", "2.99", "7,99", "7.99", "10,99", "10.99")
+    from shared.constants import TIER_PRICE_CENTS
+
+    # Both separators: the Italian and Russian locales write 3,99 where English writes 3.99,
+    # and a guard that only knew one of them would pass while showing the price list to a
+    # paying subscriber in two of four languages.
+    prices = tuple(
+        f"{cents // 100}{sep}{cents % 100:02d}"
+        for cents in TIER_PRICE_CENTS.values() for sep in (".", ",")
+    )
     assert not any(p in text for p in prices), \
         f"{label}/{lang} was shown the price list: {text[:200]}"
 
@@ -171,8 +179,12 @@ def test_premium_without_a_pass_row_is_told_premium_is_active(user, label):
 
 def test_the_free_pitch_still_reaches_a_free_user():
     """The guard must not switch off the thing /plan is for."""
+    from shared.constants import TIER_1M, TIER_PRICE_CENTS
+
+    cents = TIER_PRICE_CENTS[TIER_1M]
     text = render.plan(FREE, "en", can_subscribe=True)
-    assert any(p in text for p in ("2.99", "2,99")), "a free user was not shown the prices"
+    assert f"{cents // 100}.{cents % 100:02d}" in text, \
+        "a free user was not shown the prices"
 
 
 # --- 3. the button and the message must agree -------------------------------

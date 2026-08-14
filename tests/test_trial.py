@@ -106,9 +106,19 @@ async def test_an_expired_trial_locks_the_paid_features(client, api_db):
 # --- pricing ----------------------------------------------------------------
 
 def test_the_three_tiers_match_the_published_prices():
-    assert TIER_PRICE_CENTS["pass_1m"] == 299
-    assert TIER_PRICE_CENTS["pass_3m"] == 799
-    assert TIER_PRICE_CENTS["pass_6m"] == 1099
+    """The one place the prices are written down TWICE, on purpose.
+
+    Everything else derives from TIER_PRICE_CENTS, so an accidental edit there would
+    propagate silently and correctly to every screen — the bot's plan message, the per-month
+    figures, the admin console's grant amounts — and the first sign of it would be a charge
+    that did not match what was advertised. This is the second entry: if these numbers and
+    the constant disagree, one of them was changed by mistake.
+
+    Raised 2026-08-14 from 299 / 799 / 1099.
+    """
+    assert TIER_PRICE_CENTS["pass_1m"] == 399
+    assert TIER_PRICE_CENTS["pass_3m"] == 999
+    assert TIER_PRICE_CENTS["pass_6m"] == 1699
     assert TIER_DAYS == {"pass_1m": 30, "pass_3m": 90, "pass_6m": 180}
 
 
@@ -160,3 +170,38 @@ def test_an_unknown_product_grants_the_genuinely_shortest_tier():
 
     assert TIER_DAYS[SHORTEST_TIER] == min(TIER_DAYS.values())
     assert tier_for("something-nobody-configured") == SHORTEST_TIER
+
+
+def test_the_admin_console_quotes_the_same_prices():
+    """The owner's grant sheet hardcodes the prices, because it must work without a round
+    trip to the server. A hand copy that drifts records the WRONG AMOUNT against a real
+    sale — the revenue reports would be quietly wrong and nothing would notice until
+    somebody added up the year.
+
+    Matched on the cents, which is what is actually stored on the purchase row; the label
+    is checked too, because a preset whose text and amount disagree is worse than either
+    being wrong on its own.
+    """
+    import re
+    from pathlib import Path
+
+    main = (Path(__file__).resolve().parent.parent / "webapp/src/main.ts").read_text()
+    block = main[main.index("const GRANT_PRESETS"):]
+    block = block[:block.index("] as const;")]
+
+    # Paid presets only. There is also a "Gift · no payment" preset at 30 days and zero,
+    # which is a real thing the owner does — keying on days alone let it overwrite the
+    # one-month plan and the test then claimed the console charged nothing for it.
+    presets = dict(
+        (int(days), (label, int(cents)))
+        for label, days, cents in re.findall(
+            r'label: "([^"]+)", days: (\d+), cents: (\d+)', block)
+        if int(cents) > 0
+    )
+    for tier, days in TIER_DAYS.items():
+        assert days in presets, f"the console has no preset for {tier}"
+        label, cents = presets[days]
+        assert cents == TIER_PRICE_CENTS[tier], \
+            f"{tier}: console charges {cents}, the product costs {TIER_PRICE_CENTS[tier]}"
+        shown = f"{cents // 100}.{cents % 100:02d}"
+        assert shown in label, f"the {tier} preset is labelled {label!r} but charges {shown}"
