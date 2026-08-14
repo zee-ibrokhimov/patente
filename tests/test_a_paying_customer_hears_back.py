@@ -152,3 +152,31 @@ def test_a_deployment_with_no_contact_still_produces_a_sentence(monkeypatch):
     monkeypatch.setattr(settings, "support_contact", "")
     text = notify.compose("paid", "en", WHEN, "")
     assert not text.rstrip().endswith(":"), f"dangling label with no handle: {text!r}"
+
+
+# --- the trial the app advertises is the trial it can actually give ---------------
+
+@pytest.mark.parametrize("lang", LANGS)
+def test_the_paywall_does_not_name_a_number_of_trial_days(lang):
+    """It said "7-day free trial" in all four languages while `TRIAL_DAYS = 0`.
+
+    The owner's answer is that trials come from referral links, which is true and is the
+    design — but each link carries its OWN `trial_days`, and the two on this deployment are
+    14 and 6. A figure baked into four translations is right only for whichever campaign
+    happens to match it, and the live one gave six days under a promise of seven.
+
+    So the copy names no number. The number lives on the link, which is the only place that
+    knows it.
+    """
+    import re as _re
+    src = (ROOT / "webapp/src/i18n.ts").read_text(encoding="utf-8")
+    order = ["it", "ru", "en", "uz"]
+    start = src.index(f"\n  {lang}: {{")
+    nxt = order.index(lang) + 1
+    end = src.index(f"\n  {order[nxt]}: {{") if nxt < len(order) else src.index("\n} as const")
+    block = src[start:end]
+    for key in ("f_trial", "f_trial_s"):
+        m = _re.search(rf'^\s*{key}: "([^"]*)"', block, _re.M)
+        assert m, f"{lang}.{key} is missing"
+        assert not _re.search(r"\d", m.group(1)), \
+            f"{lang}.{key} promises a specific number of days: {m.group(1)!r}"
