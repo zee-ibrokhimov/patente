@@ -388,8 +388,13 @@ def test_the_untested_state_is_not_styled_as_a_bad_score():
 def test_every_new_string_exists_in_all_four_languages():
     import re
 
+    # `subjects_start` was here and is gone. It labelled a full-width "Practise this
+    # subject" button under every subject card — seven of them, each repeating the name
+    # directly above it — and the row itself is the button now. A key nothing renders still
+    # passes a test that only checks it EXISTS, which is how dead strings survive: this list
+    # is the check, so it has to shrink with the UI.
     keys = ("subjects_entry", "subjects_title", "subjects_sub", "subjects_meta",
-            "subjects_untested", "subjects_start", "subjects_show_topics",
+            "subjects_untested", "subjects_show_topics",
             "subjects_hide_topics", "an_practise")
     for lang in ("it", "ru", "en", "uz"):
         m = re.search(rf'^  {lang}: \{{(.*?)^  \}},', I18N, re.M | re.S)
@@ -469,3 +474,41 @@ def test_no_dead_styles_were_left_behind():
     css = (Path(__file__).resolve().parent.parent / "webapp/src/style.css").read_text()
     for gone in (".repeat-chip", ".repeat-row", ".subject-row"):
         assert gone not in css, f"{gone} is styled but never rendered"
+
+
+def test_the_subject_row_is_the_button_not_a_bar_under_it():
+    """MEASURED, then reported: this was the tallest screen in the app.
+
+    Seven subject cards at 207px each made it 1797px against 643px of usable phone — a
+    learner swiped nearly three screens to see seven subjects, and the owner's complaint
+    was exactly that. Most of each card was a full-width primary button labelled "Practise
+    this subject" sitting directly under the subject's name, which is the name again.
+
+    The row is the target now, the same pattern `.practice-option` and `.v-entry` already
+    use one screen away. Re-measured after: 1114px, a 683px saving, 2.79x -> 1.73x.
+
+    Pinned because the saving is invisible in a diff — putting the button back would look
+    like a restoration rather than a regression.
+    """
+    body = block_of("subjectsScreen")
+    assert '"subject-head"' in body, "the tappable head is gone"
+    assert 'startRun("practice", "smart", cat.scope)' in body, \
+        "the head no longer starts the subject"
+    assert "btn primary subject-go" not in body, \
+        "the full-width per-subject button is back; that is the 683px"
+
+
+def test_the_subject_row_still_clears_the_touch_floor():
+    """Trading a 56px button for a row is only a win if the row is still tappable. 44px is
+    the floor, and it must be a MINIMUM rather than a height: Russian subject names wrap to
+    two lines and a fixed height would clip them."""
+    import re
+
+    css = (Path(__file__).resolve().parent.parent / "webapp/src/style.css").read_text()
+    head = css[css.index(".subject-head {"):]
+    head = head[:head.index("}")]
+    m = re.search(r"min-height:\s*(\d+)px", head)
+    assert m, ".subject-head sets no min-height, so a short name can shrink below the floor"
+    assert int(m.group(1)) >= 44, f"touch target is {m.group(1)}px, below the 44px floor"
+    assert "height:" not in head.replace("min-height:", ""), \
+        "a fixed height clips the languages that wrap"

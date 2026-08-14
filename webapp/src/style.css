@@ -95,13 +95,13 @@ body { font-family: var(--font); font-size: var(--t-body); line-height: var(--lh
 /* Never let a long Italian legal phrase or a Cyrillic run push the page sideways. */
 html, body { overflow-x: hidden; }
 
-.screen { padding: var(--lg) var(--gutter) var(--xl); flex: 1; animation: rise .3s var(--ease) both; }
+.screen { padding: var(--md) var(--gutter) var(--lg); flex: 1; animation: rise .3s var(--ease) both; }
 
 @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { *,*::before,*::after { animation-duration:.01ms !important; transition-duration:.01ms !important; } }
 
 .h1 { font-size: var(--t-title); line-height: var(--lh-title); font-weight: var(--w-title); letter-spacing: -.03em; margin: 0; }
-.sub { color: var(--text-2); font-size: var(--t-body); margin: var(--sm) 0 var(--xl); }
+.sub { color: var(--text-2); font-size: var(--t-body); margin: var(--xs) 0 var(--lg); }
 .caption { font-size: var(--t-caption); line-height: var(--lh-caption); color: var(--text-2); }
 
 .card {
@@ -968,7 +968,20 @@ html, body { overflow-x: hidden; }
 
 /* --- practising one subject ---------------------------------------------- */
 
-.subject { margin-bottom: var(--sm); }
+.subject { margin-bottom: var(--sm); padding: var(--sm) var(--md); }
+/* The head IS the button. Reset the UA's button styling rather than wrapping the row in
+   one: a button inside a card that also contains the chapters toggle cannot be nested, and
+   making the CARD the button is invalid markup for the same reason. */
+.subject-head {
+  display: flex; align-items: center; gap: var(--sm); width: 100%;
+  padding: var(--sm) 0; text-align: left; cursor: pointer;
+  background: none; border: 0; font: inherit; color: inherit;
+  /* 44px is the floor for a touch target. The row is taller than this in every language,
+     but Uzbek's shorter subject names could otherwise shrink it below the floor. */
+  min-height: 44px;
+}
+.subject-head-body { flex: 1 1 auto; min-width: 0; display: grid; gap: 2px; }
+.subject-go { flex: none; color: var(--text-3); font-size: 20px; line-height: 1; }
 .subject-top { display: flex; align-items: baseline; gap: var(--sm); }
 .subject-name { flex: 1 1 auto; min-width: 0; font-weight: 800; }
 /* nowrap: the percentage is the point of the row, and a wrapped "12%" under a long
@@ -980,8 +993,7 @@ html, body { overflow-x: hidden; }
 .subject-rate.untested {
   color: var(--text-3); font-weight: 600; font-size: var(--t-caption);
 }
-.subject-meta { margin: var(--xs) 0 var(--sm); font-size: var(--t-caption); color: var(--text-2); }
-.subject-go { width: 100%; }
+.subject-meta { margin: 0; font-size: var(--t-caption); color: var(--text-2); }
 .subject-more {
   width: 100%; margin: var(--xs) 0 0; padding: var(--sm);
   background: none; border: 0; cursor: pointer;

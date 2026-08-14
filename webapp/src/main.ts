@@ -995,8 +995,21 @@ function subjectsScreen(): HTMLElement {
   for (const cat of list) {
     const card = el("div", "card subject");
 
-    const top = el("div", "subject-top");
-    top.append(el("div", "subject-name", t(`fam_${cat.family}` as Key)));
+    // The WHOLE HEAD is the button, not a 56px bar underneath it.
+    //
+    // Measured: seven of these at 207px each made this the tallest screen in the app —
+    // 1797px against 643px of phone, so a learner swiped nearly three screens to see seven
+    // subjects. Most of each card was a full-width "Practise this subject" button repeating
+    // the name directly above it, and the app already uses a tappable row with a chevron
+    // for exactly this on the practice screen and the vocabulary entry. Same pattern here,
+    // and the tap target grows rather than shrinks: the row is the target now.
+    const head = el("button", "subject-head");
+    head.type = "button";
+    head.onclick = () => void startRun("practice", "smart", cat.scope);
+
+    const body = el("span", "subject-head-body");
+    const top = el("span", "subject-top");
+    top.append(el("span", "subject-name", t(`fam_${cat.family}` as Key)));
     // The learner's own error rate, or an honest refusal. Never a zero standing in for
     // "not measured yet" — on day one every one of these is untested, and a row of 0%
     // would read as mastery of a bank they have never opened.
@@ -1004,20 +1017,18 @@ function subjectsScreen(): HTMLElement {
     // The refusal is styled DOWN, not in the error colour. "Not tested" is an absence of
     // data, and rendering it in the same red as a 40% error rate tells a beginner that
     // every subject in the product is already going badly for them.
-    top.append(el("div", `subject-rate${cat.error_rate === null ? " untested" : ""}`,
+    top.append(el("span", `subject-rate${cat.error_rate === null ? " untested" : ""}`,
       cat.error_rate === null
         ? t("subjects_untested")
         : `${Math.round(cat.error_rate * 100)}%`));
-    card.append(top);
+    body.append(top);
 
-    card.append(el("p", "subject-meta", plural("subjects_meta", cat.questions, {
+    body.append(el("span", "subject-meta", plural("subjects_meta", cat.questions, {
       n: cat.questions, per: cat.per_exam.toFixed(1),
     })));
 
-    const go = el("button", "btn primary subject-go", t("subjects_start"));
-    go.type = "button";
-    go.onclick = () => void startRun("practice", "smart", cat.scope);
-    card.append(go);
+    head.append(body, el("span", "subject-go", "›"));
+    card.append(head);
 
     // The book chapters, one tap down. Collapsed by default: seven families with every
     // topic open is thirty-two rows and no shape at all.

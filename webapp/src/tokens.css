@@ -83,7 +83,7 @@
   --track: #e9edf2;
 
   /* --- cards --------------------------------------------------------- */
-  --card-radius: 24px;
+  --card-radius: 18px;
   --card-pad: 24px;
   --card-shadow: 0 6px 20px rgba(15, 23, 42, .06);
   /* Behind a ministerial figure. The 409 sign JPEGs have WHITE backgrounds and are official
@@ -129,15 +129,15 @@
      the reference device; everything else stops breaking.
      Line heights are RATIOS, so they track the font size instead of being pinned to a
      pixel value chosen for one width. */
-  --t-title: clamp(27px, 10.26vw, 40px);      --lh-title: 1.1;    --w-title: 800;
+  --t-title: clamp(22px, 7.18vw, 28px);       --lh-title: 1.15;   --w-title: 800;
   --t-question: clamp(18px, 6.15vw, 24px);    --lh-question: 1.42; --w-question: 700;
-  --t-body: clamp(15px, 4.62vw, 18px);        --lh-body: 1.56;    --w-body: 400;
-  --t-caption: clamp(13px, 3.85vw, 15px);     --lh-caption: 1.47;  --w-caption: 400;
+  --t-body: clamp(15px, 4.10vw, 16px);        --lh-body: 1.45;    --w-body: 400;
+  --t-caption: clamp(13px, 3.59vw, 14px);     --lh-caption: 1.40;  --w-caption: 400;
 
   /* Display: the timer, the readiness percentage, the verdict. Deliberately enormous —
      these are the three numbers the whole product exists to deliver, and the three most
      likely to overflow a narrow phone. */
-  --t-display: clamp(42px, 18.46vw, 72px);    --lh-display: 1;    --w-display: 800;
+  --t-display: clamp(34px, 11.79vw, 46px);    --lh-display: 1;    --w-display: 800;
   /* The verdict is the one display value that is a WORD, not a number, and words do not
      wrap when they are a single token. At 16.41vw the Italian "BOCCIATO" — eight caps at
      weight 800 — needed roughly 293px inside a 286px card on a 360px phone, so the app's
@@ -148,8 +148,8 @@
 
   /* Card padding and the screen gutter tighten on a small phone: 24px each side of a
      320px screen spends 15% of the width on nothing. */
-  --card-pad-fluid: clamp(16px, 6.15vw, 24px);
-  --gutter: clamp(12px, 4.1vw, 16px);
+  --card-pad-fluid: clamp(12px, 4.10vw, 16px);
+  --gutter: clamp(11px, 3.33vw, 13px);
 
   /* --- buttons -------------------------------------------------------- */
   --btn-h: 56px;
