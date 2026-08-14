@@ -877,10 +877,12 @@ html, body { overflow-x: hidden; }
   user-select: none;
 }
 
-/* The fill IS the timer. Two seconds of nothing happening is indistinguishable from a dead
-   control, so the word fills left to right as it is held — and the duration comes from the
-   same constant that arms the timer, passed in as --hold, so the bar cannot finish at a
-   different moment from the save. */
+/* The fill IS the timer. A second and a half of nothing happening is indistinguishable
+   from a dead control, so the word fills left to right as it is held — and the duration
+   comes from the same constant that arms the timer, passed in as --hold, so the bar cannot
+   finish at a different moment from the save. The fallback below tracks HOLD_MS and is
+   only reached if the property never lands on the element; one that disagreed would draw
+   a bar finishing at a different moment from the save, which is the whole point of it. */
 .statement .word.holding {
   /* Green, not the blue-grey it was. The owner read that fill as "the loading grey part",
      which is exactly what it looked like — a neutral tint says "waiting", and this is not a
@@ -889,7 +891,7 @@ html, body { overflow-x: hidden; }
      does everywhere else in the app. */
   background: linear-gradient(var(--practice-chip), var(--practice-chip))
               left / 0% 100% no-repeat;
-  animation: word-hold var(--hold, 2000ms) linear forwards;
+  animation: word-hold var(--hold, 1500ms) linear forwards;
 }
 @keyframes word-hold { to { background-size: 100% 100%; } }
 

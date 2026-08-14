@@ -770,11 +770,15 @@ function homeScreen(): HTMLElement {
  */
 /** How long a word must be held before it is saved.
  *
- *  The owner asked for two to three seconds, twice, after I argued for a tap. It is one
- *  constant and it drives BOTH the timer and the fill animation — the CSS reads it through
- *  a custom property, so the bar cannot finish at a different moment from the save.
+ *  Was 2000ms. The owner asked for two to three seconds when this was built, then used it
+ *  mid-quiz and asked for 1.5s — a hold that reads as deliberate while you are choosing a
+ *  word reads as a stall when you are answering questions and want to get on. Measured
+ *  from the phone, which beats the argument I made for a plain tap.
+ *
+ *  Still one constant driving BOTH the timer and the fill animation — the CSS reads it
+ *  through a custom property, so the bar cannot finish at a different moment from the save.
  */
-const HOLD_MS = 2000;
+const HOLD_MS = 1500;
 
 /** How far a finger may drift and still count as a hold rather than a scroll. */
 const HOLD_SLOP = 10;

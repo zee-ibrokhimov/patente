@@ -468,14 +468,23 @@ def test_it_is_a_hold_and_not_a_tap():
     assert "onclick" not in body, "a tap still saves the word"
 
 
-def test_the_hold_is_between_two_and_three_seconds():
-    """The number the owner asked for. Pinned so a later "just make it snappier" is a
-    decision somebody takes on purpose rather than a drift."""
+def test_the_hold_is_about_a_second_and_a_half():
+    """The number the owner asked for, revised.
+
+    It was 2000-3000ms, asked for twice while this was being designed. Then they used it
+    during a quiz and asked for 1500: a hold that reads as deliberate while you are picking
+    a word out of a sentence reads as a stall when you are mid-question and want to move
+    on. Measured from a phone, so it beats both the original number and the plain tap I
+    argued for at the time.
+
+    Still pinned, and still a range, so a later "just make it snappier" stays a decision
+    somebody takes on purpose rather than a drift back toward an accidental tap.
+    """
     import re
 
     m = re.search(r"const HOLD_MS = (\d+);", MAIN)
     assert m, "the hold duration is not a named constant"
-    assert 2000 <= int(m.group(1)) <= 3000, f"HOLD_MS is {m.group(1)}"
+    assert 1200 <= int(m.group(1)) <= 1800, f"HOLD_MS is {m.group(1)}"
 
 
 def test_the_native_selection_callout_is_suppressed():
