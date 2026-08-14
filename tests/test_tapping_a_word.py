@@ -636,8 +636,19 @@ def test_the_model_is_asked_for_alternatives_separated_by_a_comma():
     import inspect
 
     prompt = inspect.getsource(wordlookup.translate)
-    assert "SEPARATED BY A COMMA" in prompt
-    assert "never the word" in prompt and "или" in prompt
+    # Case-insensitive and on the SUBSTANCE, not on one phrasing. The first version pinned
+    # the exact capitalisation and failed the moment the sentence was reworded — a test
+    # objecting to prose while the rule it guards was untouched.
+    lowered = prompt.lower()
+    assert "separated by a comma" in lowered
+    assert "the comma is the separator" in lowered
+    # The trap named explicitly, in both languages the model might reach for. Backslashes
+    # are stripped first: the quotes around the forbidden words are escaped inside the
+    # prompt's own Python source, so probing for a bare '"or"' looks for something that is
+    # not literally there.
+    plain = lowered.replace(chr(92), "")
+    assert '"or"' in plain and '"или"' in plain, \
+        "the prompt does not forbid the separator that would break the drill"
 
 
 def test_a_comma_separated_gloss_grades_either_answer_right():
