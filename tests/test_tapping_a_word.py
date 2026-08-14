@@ -443,35 +443,128 @@ def block_of(name: str) -> str:
 
 
 def test_the_statement_is_rendered_word_by_word():
-    """A plain <p> has nothing to attach a tap to."""
+    """A plain <p> has nothing to attach a press to."""
     assert "tappableStatement(question.statement_it)" in MAIN
     assert 'el("p", "statement", question.statement_it)' not in MAIN
 
 
-def test_punctuation_stays_outside_the_tap_target():
+def test_punctuation_stays_outside_the_press_target():
     """Otherwise the target for the last word of a sentence includes the full stop, and a
-    learner aiming at the word hits the gap after it."""
+    learner aiming at the word holds the gap after it."""
     body = block_of("tappableStatement")
     assert "lead" in body and "tail" in body
-    assert 'el("span", "word", core)' in body
+    assert "holdableWord(core)" in body
 
 
-def test_it_is_a_tap_and_not_a_long_press():
-    """In a Telegram WebView a long press raises native selection and the copy callout;
-    suppressing that needs `user-select: none`, which then stops a learner selecting the
-    Italian at all — something people genuinely do."""
-    body = block_of("tappableStatement")
-    assert "onclick" in body
-    for gone in ("touchstart", "setTimeout", "longpress", "contextmenu"):
-        assert gone not in body, f"a long-press mechanism crept in: {gone}"
-    assert "user-select: none" not in CSS.split(".statement .word")[-1][:400]
+def test_it_is_a_hold_and_not_a_tap():
+    """The owner asked for a two-to-three-second hold, twice, after I argued for a tap.
+
+    A stray tap must do nothing at all — that is the whole reason a hold was wanted, and a
+    click handler left behind beside the timer would silently restore the behaviour it
+    replaced.
+    """
+    body = block_of("holdableWord")
+    assert "onpointerdown" in body and "setTimeout" in body
+    assert "onclick" not in body, "a tap still saves the word"
 
 
-def test_the_toast_carries_the_meaning_not_just_a_confirmation():
-    """At the moment somebody is stuck on a word, what they want is what it means. A toast
-    that only confirms a filing action gives them nothing until they open another screen."""
+def test_the_hold_is_between_two_and_three_seconds():
+    """The number the owner asked for. Pinned so a later "just make it snappier" is a
+    decision somebody takes on purpose rather than a drift."""
+    import re
+
+    m = re.search(r"const HOLD_MS = (\d+);", MAIN)
+    assert m, "the hold duration is not a named constant"
+    assert 2000 <= int(m.group(1)) <= 3000, f"HOLD_MS is {m.group(1)}"
+
+
+def test_the_native_selection_callout_is_suppressed():
+    """A long press in a WebView raises the text-selection callout, which covers the very
+    word being held. This is the cost of the gesture and it has to be paid explicitly."""
+    rule = CSS.split(".statement .word {")[1].split("}")[0]
+    assert "-webkit-touch-callout: none" in rule
+    assert "user-select: none" in rule
+    assert "oncontextmenu" in block_of("holdableWord"), \
+        "some WebViews raise the callout regardless of the CSS"
+
+
+def test_a_drag_cancels_the_hold():
+    """A press that becomes a drag is somebody scrolling the question, not choosing a word.
+    Without this, scrolling adds whatever word the finger started on."""
+    body = block_of("holdableWord")
+    assert "onpointermove" in body and "HOLD_SLOP" in body
+    assert "endHold()" in body
+
+
+def test_letting_go_early_cancels_it():
+    body = block_of("holdableWord")
+    for event in ("onpointerup", "onpointercancel", "onpointerleave"):
+        assert event in body, f"{event} does not cancel the hold"
+
+
+def test_the_hold_shows_its_own_progress():
+    """Two seconds of nothing happening is indistinguishable from a dead control."""
+    assert ".statement .word.holding" in CSS
+    assert "word-hold" in CSS, "there is no fill animation"
+
+
+def test_the_fill_and_the_timer_share_one_number():
+    """Two numbers drift, and a bar that fills before the save lands is a control lying
+    about what it has done."""
+    assert 'word.style.setProperty("--hold", `${HOLD_MS}ms`)' in block_of("holdableWord")
+    assert "animation: word-hold var(--hold" in CSS
+
+
+def test_reduced_motion_still_shows_the_hold_registered():
+    """Somebody who has switched animation off still needs to see that their press landed.
+
+    And the fill must be switched OFF rather than sped up. There is a global reduced-motion
+    rule in this stylesheet that forces `animation-duration: .01ms !important` on everything
+    — under it the bar would snap to full instantly while the timer still ran for two
+    seconds, so the control would show "done" a moment after the press began and then do
+    nothing. `animation: none` removes the animation itself, which `!important` on the
+    duration cannot override.
+    """
+    at = CSS.index(".statement .word.holding")
+    block = CSS[at:]
+    guard = block.index("prefers-reduced-motion")
+    assert guard < 600, "the hold has no reduced-motion rule near it"
+    rule = block[guard:guard + 300]
+    assert ".statement .word.holding" in rule
+    assert "animation: none" in rule, "the fill is sped up rather than switched off"
+    assert "background:" in rule, "nothing shows that the press registered"
+
+
+def test_the_learner_feels_it_land_and_feels_it_fail():
+    """A gesture with no physical confirmation leaves somebody holding a word and wondering
+    whether two seconds was enough.
+
+    The FAILURE buzz matters as much: holding for two seconds and getting a toast that says
+    "that is enough new words for today" is much easier to read if the phone has already
+    told you it did not work.
+    """
+    body = block_of("lookUpWord")
+    assert 'haptic("success")' in body
+    assert 'haptic("error")' in body
+
+
+def test_the_confirmation_is_not_styled_as_an_error():
+    """`.toast` is the error toast — var(--bad) with a red shadow, because until this
+    feature every message it carried was a failure. "Added to your vocabulary" in that red
+    reads as something having gone wrong, which is the opposite of what just happened."""
+    assert '"toast toast-action ok"' in block_of("actionToast")
+    assert ".toast.ok" in CSS
+    rule = CSS.split(".toast.ok {")[1].split("}")[0]
+    assert "var(--bad)" not in rule
+
+
+def test_the_toast_says_it_was_added_and_what_it_means():
+    """The owner asked for the confirmation. The meaning is there too because somebody who
+    has just held a word for two seconds is asking what it is, and sending them to another
+    screen to find out wastes the moment they were curious."""
     body = block_of("lookUpWord")
     assert "${found.it} — ${found.gloss}" in body
+    assert 't("word_added")' in body
 
 
 def test_undo_uses_the_existing_delete():
@@ -497,6 +590,6 @@ def test_a_saved_word_stays_marked():
     assert ".statement .word.saved" in CSS
 
 
-def test_a_double_tap_does_not_send_two_lookups():
+def test_a_second_hold_does_not_send_two_lookups():
     body = block_of("lookUpWord")
     assert 'node.classList.contains("busy")' in body

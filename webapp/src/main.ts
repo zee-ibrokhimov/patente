@@ -233,10 +233,17 @@ function toast(message: string): void {
  *  Held longer than a plain one — a message you are expected to act on has to outlast the
  *  time it takes to read it — and dismissed by the action, so tapping Undo does not leave
  *  the strip sitting there claiming the word is still saved. */
-function actionToast(message: string, label: string, act: () => void): void {
+function actionToast(message: string, sub: string, label: string,
+                     act: () => void): void {
   document.querySelector(".toast")?.remove();
-  const node = el("div", "toast toast-action");
-  node.append(el("span", "toast-text", message));
+  // `ok`, because `.toast` is the ERROR toast — red, with a red shadow, since every
+  // message it has ever carried was a failure. A confirmation in that colour reads as
+  // something having gone wrong.
+  const node = el("div", "toast toast-action ok");
+  const text = el("span", "toast-text");
+  text.append(el("span", "toast-title", message));
+  if (sub) text.append(el("span", "toast-sub", sub));
+  node.append(text);
   const button = el("button", "toast-btn", label);
   button.type = "button";
   button.onclick = () => { node.remove(); act(); };
@@ -761,20 +768,46 @@ function homeScreen(): HTMLElement {
  *  history worth repeating, so they are quiet until wanted — and the server answers 409
  *  when there is nothing to repeat, which is what the toast reports.
  */
-/** The Italian statement, with every word tappable.
+/** How long a word must be held before it is saved.
  *
- *  Split on whitespace and rendered as spans, so a tap can be attributed to one token
- *  without the client trying to guess where a word ends — the SERVER normalises, because
+ *  The owner asked for two to three seconds, twice, after I argued for a tap. It is one
+ *  constant and it drives BOTH the timer and the fill animation — the CSS reads it through
+ *  a custom property, so the bar cannot finish at a different moment from the save.
+ */
+const HOLD_MS = 2000;
+
+/** How far a finger may drift and still count as a hold rather than a scroll. */
+const HOLD_SLOP = 10;
+
+let holding: { timer: number; node: HTMLElement; x: number; y: number } | null = null;
+
+function endHold(): void {
+  if (!holding) return;
+  window.clearTimeout(holding.timer);
+  holding.node.classList.remove("holding");
+  holding = null;
+}
+
+/** The Italian statement, with every word holdable.
+ *
+ *  Split on whitespace and rendered as spans, so a press can be attributed to one token
+ *  without the client guessing where a word ends — the SERVER normalises, because
  *  normalising in two places is normalising in two ways, and it is the server that keys a
  *  shared cache on the result.
  *
- *  A plain tap, not a long press. In a Telegram WebView a long press raises native text
- *  selection and the copy callout; suppressing that needs `user-select: none`, which then
- *  stops a learner selecting the Italian at all — something people genuinely do. A tap has
- *  no such conflict, needs no timer, and teaches itself the first time.
+ *  A HOLD, NOT A TAP, and three things have to be handled or it does not work on a phone:
  *
- *  Punctuation stays OUTSIDE the tappable span. Otherwise the tap target for the last word
- *  of a sentence includes the full stop, and a learner aiming at the word hits the gap.
+ *    · native selection. A long press in a WebView raises the text-selection callout, which
+ *      would cover the word being held. Suppressed on the words only — see the CSS — which
+ *      costs the ability to select the Italian text, and is the price of this gesture.
+ *    · scrolling. A press that turns into a drag is somebody reading, not choosing, so any
+ *      movement past a few pixels cancels it. Without this, scrolling the question adds
+ *      whatever word the finger started on.
+ *    · feedback. Two seconds of nothing happening is indistinguishable from a dead control,
+ *      so the word fills as it is held and the fill IS the timer.
+ *
+ *  Punctuation stays outside the target: otherwise the last word of a sentence includes its
+ *  full stop, and a learner aiming at the word holds the gap.
  */
 function tappableStatement(text: string): HTMLElement {
   const p = el("p", "statement");
@@ -785,36 +818,71 @@ function tappableStatement(text: string): HTMLElement {
     const tail = chunk.match(/[^\p{L}]*$/u)?.[0] ?? "";
     const core = chunk.slice(lead.length, chunk.length - tail.length);
     if (lead) p.append(document.createTextNode(lead));
-    if (core) {
-      const word = el("span", "word", core);
-      word.onclick = () => void lookUpWord(core, word);
-      p.append(word);
-    }
+    if (core) p.append(holdableWord(core));
     if (tail) p.append(document.createTextNode(tail));
   }
   return p;
 }
 
-/** Tap a word: save it, then say what it means.
+function holdableWord(core: string): HTMLElement {
+  const word = el("span", "word", core);
+  // The fill animation is driven by the same constant as the timer, through a custom
+  // property. Two numbers would drift, and a bar that fills before the save lands is a
+  // control that lies about what it has done.
+  word.style.setProperty("--hold", `${HOLD_MS}ms`);
+
+  // Pointer events rather than touch: Telegram Desktop exists, and a mouse press is the
+  // same gesture there.
+  word.onpointerdown = (ev) => {
+    endHold();
+    word.classList.add("holding");
+    holding = {
+      node: word,
+      x: ev.clientX,
+      y: ev.clientY,
+      timer: window.setTimeout(() => {
+        endHold();
+        void lookUpWord(core, word);
+      }, HOLD_MS),
+    };
+  };
+  word.onpointerup = endHold;
+  word.onpointercancel = endHold;
+  word.onpointerleave = endHold;
+  word.onpointermove = (ev) => {
+    if (!holding) return;
+    if (Math.abs(ev.clientX - holding.x) > HOLD_SLOP
+        || Math.abs(ev.clientY - holding.y) > HOLD_SLOP) endHold();
+  };
+  // Belt and braces with the CSS: some WebViews raise the callout regardless of
+  // -webkit-touch-callout, and a menu over the word being held is the gesture failing.
+  word.oncontextmenu = (ev) => { ev.preventDefault(); return false; };
+  return word;
+}
+
+/** A held word: save it, say so, and offer to undo.
  *
- *  The toast carries the TRANSLATION, not just "added". At the moment somebody is stuck on
- *  a word mid-question, what they want is what it means — a toast that only confirms a
- *  filing action gives them nothing until they open the Vocabulary screen later.
+ *  Haptic feedback the moment it lands, because a gesture with no physical confirmation
+ *  leaves the learner holding a word and wondering whether two seconds was enough.
  *
- *  Undo is the existing DELETE for a learner's own words, so a mis-tap costs one tap to
- *  reverse and there is only ever one way to remove one of these rows.
+ *  The toast says it was added AND what the word means. The owner asked for the
+ *  confirmation; the meaning is there because somebody who has just held a word for two
+ *  seconds is asking what it is, and making them open another screen to find out wastes the
+ *  moment they were curious.
  */
 async function lookUpWord(word: string, node: HTMLElement): Promise<void> {
   if (node.classList.contains("busy")) return;
   node.classList.add("busy");
   try {
     const found = await vocab.lookUp(word);
+    haptic("success");
     node.classList.add("saved");
-    actionToast(`${found.it} — ${found.gloss}`, t("undo"), () => {
+    actionToast(`${found.it} — ${found.gloss}`, t("word_added"), t("undo"), () => {
       node.classList.remove("saved");
       void vocab.removeTerm(found.id).catch(reportError);
     });
   } catch (err) {
+    haptic("error");
     if (err instanceof ApiError && err.status === 429) {
       toast(t("lookup_enough_today"));
     } else if (err instanceof ApiError && err.status === 402) {

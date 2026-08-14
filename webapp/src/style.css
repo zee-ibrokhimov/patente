@@ -865,11 +865,34 @@ html, body { overflow-x: hidden; }
 
 /* --- tapping a word inside a question ------------------------------------- */
 
-/* Every word in the statement is a tap target. Deliberately almost invisible: a sentence
-   with twelve underlined words is a sentence nobody can read, and reading it is the point.
-   The affordance is the dotted underline, which appears only under the finger. */
-.statement .word { cursor: pointer; border-radius: 3px; }
-.statement .word:active { background: var(--tint-info); }
+/* Every word in the statement can be held. Almost invisible at rest: a sentence with
+   twelve underlined words is a sentence nobody can read, and reading it is the point. */
+.statement .word {
+  cursor: pointer; border-radius: 3px;
+  /* THE PRICE OF A LONG PRESS. Without these a hold raises the native selection callout,
+     which covers the very word being held. It costs the ability to select the Italian to
+     copy it — the trade the gesture requires, taken deliberately. */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* The fill IS the timer. Two seconds of nothing happening is indistinguishable from a dead
+   control, so the word fills left to right as it is held — and the duration comes from the
+   same constant that arms the timer, passed in as --hold, so the bar cannot finish at a
+   different moment from the save. */
+.statement .word.holding {
+  background: linear-gradient(var(--tint-info), var(--tint-info)) left / 0% 100% no-repeat;
+  animation: word-hold var(--hold, 2000ms) linear forwards;
+}
+@keyframes word-hold { to { background-size: 100% 100%; } }
+
+/* Somebody who has switched motion off still needs to see that the hold registered. A flat
+   tint says "this is happening" without animating anything. */
+@media (prefers-reduced-motion: reduce) {
+  .statement .word.holding { animation: none; background: var(--tint-info); }
+}
+
 .statement .word.busy { opacity: .5; }
 /* Stays marked after saving, so a learner can see which words they have already collected
    without opening another screen. */
@@ -878,8 +901,17 @@ html, body { overflow-x: hidden; }
   text-underline-offset: 3px;
 }
 
+/* THE TOAST IS AN ERROR TOAST. `.toast` is var(--bad) with a red shadow, because until now
+   every message it carried was a failure — and "Added to your vocabulary" in that red reads
+   as something having gone wrong. Caught by rendering it, not by reading the CSS. */
+.toast.ok {
+  background: var(--ok); color: #fff;
+  box-shadow: 0 8px 24px -8px rgba(22,163,74,.6);
+}
 .toast-action { display: flex; align-items: center; gap: var(--md); }
-.toast-text { flex: 1 1 auto; min-width: 0; }
+.toast-text { flex: 1 1 auto; min-width: 0; display: grid; gap: 1px; }
+.toast-title { font-weight: 700; }
+.toast-sub { font-size: var(--t-caption); opacity: .75; }
 .toast-btn {
   flex: none; background: none; border: 0; cursor: pointer; padding: 0;
   font: 700 var(--t-caption)/1 var(--font); color: var(--gold, #fbbf24);
