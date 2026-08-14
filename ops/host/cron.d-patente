@@ -29,6 +29,24 @@ MAILTO=root
 0  * * * * root /usr/local/sbin/patente-backup >> /var/log/patente-backup.log 2>&1
 40 * * * * root /usr/local/sbin/patente-backup-watchdog >> /var/log/patente-backup.log 2>&1
 
+# Prune the images Coolify leaves behind, restart the tunnel connector if it died, and
+# probe the public hostname. THE SAME BUG AS THE LAPSE JOB BELOW, and it had already
+# fired: this line lived only on the host, so the reinstall in 97020cf dropped it and
+# nothing has run the janitor since 2026-08-09 22:40.
+#
+# What that cost: Coolify writes a full image per deploy and never removes one. Four days
+# later the disk was at 66% with 39 orphaned images — about 20 GB of this project's own
+# redeploys — climbing ~1.5 GB/day toward a 30 GB filesystem shared with every other
+# project on this box. The last time that filesystem filled, on 2026-07-31, the containers
+# died, the Cloudflare connector went with them and four hostnames were dark until the
+# owner fetched a token only they can reach. The janitor exists BECAUSE of that day.
+#
+# Every ten minutes, not hourly: the job is a no-op below 60% (ops/janitor.py:should_act)
+# and the expensive case is a burst of deploys, which is exactly when an hour is too long.
+# It is also the only thing probing that the site answers at all, so its cadence is the
+# detection window for the whole box.
+*/10 * * * * root /usr/local/sbin/patente-janitor >> /var/log/patente-janitor.log 2>&1
+
 # "Your Premium ends in 3 days" / "has ended". Was installed on the host and MISSING
 # from this file, so a reinstall from the repo would have silently dropped it — the
 # renewal warning is the one message this business runs on.
