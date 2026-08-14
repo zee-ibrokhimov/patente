@@ -80,19 +80,48 @@ MESSAGES: dict[str, dict[str, str]] = {
                "{date} gacha istalgan vaqtda bekor qilsangiz, hech narsa yechilmaydi.\n\n"
                "Obunani boshqarish: @tribute"),
     },
+    # THE ONLY MESSAGE A PAYING CUSTOMER EVER RECEIVES.
+    #
+    # It used to end "Manage your subscription: @tribute". Payment moved off Tribute on
+    # 2026-08-09 — no hosted page, no card, no webhook — so that handle led a customer who
+    # had just paid to a service with no record of them. It names the person they actually
+    # bought from instead, which is also who they must message to renew: there is nothing
+    # to "manage" when there is no subscription object, only a date and a human.
     "paid": {
         "ru": ("✅ <b>Оплата получена</b>\n\n"
                "Premium активен до <b>{date}</b>.\n\n"
-               "Спасибо! Управлять подпиской: @tribute"),
+               "Спасибо! Продлить или задать вопрос: {handle}"),
         "en": ("✅ <b>Payment received</b>\n\n"
                "Premium is active until <b>{date}</b>.\n\n"
-               "Thank you. Manage your subscription: @tribute"),
+               "Thank you. To renew or ask anything: {handle}"),
         "it": ("✅ <b>Pagamento ricevuto</b>\n\n"
                "Premium è attivo fino al <b>{date}</b>.\n\n"
-               "Grazie. Gestisci l'abbonamento: @tribute"),
+               "Grazie. Per rinnovare o chiedere: {handle}"),
         "uz": ("✅ <b>To'lov qabul qilindi</b>\n\n"
                "Premium <b>{date}</b> gacha faol.\n\n"
-               "Rahmat! Obunani boshqarish: @tribute"),
+               "Rahmat! Uzaytirish yoki savol uchun: {handle}"),
+    },
+    # A GIFT IS NOT A PAYMENT, and the difference is not cosmetic.
+    #
+    # Both the single grant and the group grant sent "paid" — so gifting a week to a
+    # segment would have told every recipient "✅ Payment received. Thank you." People who
+    # were charged nothing would read that they had been charged, and the first support
+    # message would be someone asking what came off their card. The server picks between
+    # the two from `amount_cents`, which is the fact, rather than from anything the client
+    # sends.
+    "gift": {
+        "ru": ("🎁 <b>Premium открыт для вас</b>\n\n"
+               "Доступ активен до <b>{date}</b>. Платить ничего не нужно.\n\n"
+               "Вопросы: {handle}"),
+        "en": ("🎁 <b>Premium is open for you</b>\n\n"
+               "Access is active until <b>{date}</b>. Nothing to pay.\n\n"
+               "Questions: {handle}"),
+        "it": ("🎁 <b>Premium è attivo per te</b>\n\n"
+               "Hai accesso fino al <b>{date}</b>. Non c'è nulla da pagare.\n\n"
+               "Domande: {handle}"),
+        "uz": ("🎁 <b>Premium siz uchun ochildi</b>\n\n"
+               "<b>{date}</b> gacha kirish faol. Hech narsa to'lash shart emas.\n\n"
+               "Savollar: {handle}"),
     },
     # Sent when the subscription actually terminates rather than when the user asks —
     # observed with Tribute, which registers "cancels on 07.08" immediately and only
@@ -215,7 +244,19 @@ def compose(kind: str, lang: str, expires_at: datetime | None, tier: str,
     # and is trustworthy.
     price = PRICE_UNKNOWN.get(lang, PRICE_UNKNOWN["en"]) if kind == "trial" \
         else _price_words(tier, lang)
-    return template.format(date=_date(expires_at), price=price, days=days)
+    # Read at send time, not baked into the string: the handle is deployment config, and a
+    # message that hard-codes it goes stale the day the owner changes it — which is exactly
+    # how "@tribute" survived four months past the day Tribute stopped taking money.
+    handle = f"@{settings.sales_handle}" if settings.sales_handle else ""
+    text = template.format(date=_date(expires_at), price=price, days=days, handle=handle)
+    if not handle:
+        # No contact configured anywhere — sales_handle already falls back to support, so
+        # this is a deployment with neither. Drop the paragraph that was going to carry it
+        # rather than send "To renew or ask anything:" with nothing after the colon. The
+        # contact line is the only paragraph in any of these that ends in a colon.
+        text = "\n\n".join(part for part in text.split("\n\n")
+                            if not part.rstrip().endswith(":"))
+    return text.strip()
 
 
 async def send(chat_id: int, text: str) -> bool:

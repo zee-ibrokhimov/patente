@@ -55,7 +55,7 @@
   "plan_3m": "3 mesi",
   "plan_6m": "6 mesi",
   "plan_granted_note": "Accesso completo fino a questa data. Nessun addebito.",
-  "delete_paid_warning": "⚠️ Hai un abbonamento attivo. Cancellando i dati perdi anche l'abbonamento, e non è recuperabile — il rimborso va chiesto a @tribute.\n\nSe volevi solo azzerare i progressi, usa <b>Ricomincia da capo</b> nelle impostazioni dell'app.",
+  "delete_paid_warning": "⚠️ Hai un abbonamento attivo. Cancellando i dati perdi anche l'abbonamento, e non è recuperabile — per un rimborso scrivi a {handle}.\n\nSe volevi solo azzerare i progressi, usa <b>Ricomincia da capo</b> nelle impostazioni dell'app.",
   "plan_active_channel": "🔓 <b>Premium attivo</b> — tramite l'abbonamento al canale",
   "plan_active_staff": "🔓 <b>Premium attivo</b> — accesso amministratore",
   "plan_how_to_pay": "Pagamento diretto: scrivi a {handle} e l'accesso ti verrà attivato.",

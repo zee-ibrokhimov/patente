@@ -15,6 +15,18 @@ from bot.api_client import ApiClient, ApiError
 from bot.i18n import t
 from shared.config import settings as config
 
+
+def _sales_handle() -> str:
+    """The handle to message about money, with its @, or a neutral phrase if none is set.
+
+    `settings.sales_handle` already resolves sales -> support -> empty; this only adds the
+    "@" and the empty case, so a deployment with no contact configured produces a sentence
+    rather than a dangling "message ."
+    """
+    handle = config.sales_handle
+    return f"@{handle}" if handle else "support"
+
+
 log = logging.getLogger(__name__)
 
 router = Router(name="misc")
@@ -105,7 +117,10 @@ async def delete_prompt(message: Message, user: dict, lang: str):
     """
     text = t(lang, "delete_confirm")
     if user.get("has_pass"):
-        text = f"{text}\n\n{t(lang, 'delete_paid_warning')}"
+        # The handle comes from config, not from the string. This sentence told
+        # pass-holders to arrange refunds through @tribute — a service that stopped taking
+        # this product's money on 2026-08-09 and has no record of anyone who paid since.
+        text = f"{text}\n\n{t(lang, 'delete_paid_warning', handle=_sales_handle())}"
     await message.answer(text, reply_markup=keyboards.confirm_delete(lang))
 
 

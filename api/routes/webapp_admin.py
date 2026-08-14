@@ -343,7 +343,14 @@ async def grant(
     await session.commit()
 
     if body.notify:
-        await notify.payment(chat_id, user.lang, "paid", user.pass_expires_at, "")
+        # The MONEY decides which message, not the caller. `amount_cents` is already the
+        # thing that separates a sale from a gift everywhere else in this file — it is what
+        # writes the Purchase row and what `plan()` reads to tell a buyer from a trialist —
+        # so letting the client pass a kind would create a second, disagreeing source of
+        # truth for the same question.
+        await notify.payment(chat_id, user.lang,
+                             "paid" if body.amount_cents else "gift",
+                             user.pass_expires_at, "")
 
     return {"chat_id": chat_id, "pass_expires_at": user.pass_expires_at}
 
@@ -922,10 +929,16 @@ async def grant_many(
 
 
 async def _tell_them(granted: list[tuple[int, str, datetime]]) -> None:
-    """Tell each recipient, slowly enough not to be rate-limited. Never raises."""
+    """Tell each recipient, slowly enough not to be rate-limited. Never raises.
+
+    "gift", not "paid". A group grant takes no money from anybody — there is no
+    `amount_cents` on GrantManyIn at all — so every recipient of a gifted week used to be
+    told "✅ Payment received. Thank you." The first campaign that gave away access would
+    have told a segment of learners they had been charged for it.
+    """
     for chat_id, lang, expires_at in granted:
         try:
-            await notify.payment(chat_id, lang, "paid", expires_at, "")
+            await notify.payment(chat_id, lang, "gift", expires_at, "")
         except Exception:                                             # noqa: BLE001
             log.warning("could not tell %s about their grant", chat_id, exc_info=True)
         await asyncio.sleep(broadcast.PAUSE)

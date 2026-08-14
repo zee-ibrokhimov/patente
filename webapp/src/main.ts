@@ -4357,7 +4357,12 @@ async function grantTo(u: AdminUser): Promise<void> {
           // The reason is what makes the event log readable a month later, and it is
           // derivable — nobody should be asked to type it on a phone mid-sale.
           preset.cents ? `sold ${preset.label}` : "gift",
-          false, preset.cents);
+          // TRUE. This was hard-coded false, and it is the only sale mechanism the
+          // product has — so every customer who paid received nothing at all, and the
+          // event log shows the owner hand-typing "30days Granted!" as a broadcast
+          // seconds after each grant to make up for it. The server picks the wording
+          // from the amount: a sale is thanked, a gift is not billed.
+          true, preset.cents);
         toast(`Granted. Now until ${new Date(out.pass_expires_at).toLocaleDateString()}.`);
         await refreshAdmin();
       } catch (err) { reportError(err); }
