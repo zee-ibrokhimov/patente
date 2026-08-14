@@ -421,6 +421,16 @@ EV_STREAK_MILESTONE = "streak_milestone"
 # "Your streak is at risk" went out, and for which Rome DAY. Keyed on the day because the
 # job runs hourly: without it, an evening window three hours wide sends three messages.
 EV_STREAK_NUDGE = "streak_nudge"
+# A word was tapped inside a question and reached the model — a cache MISS, not every tap.
+#
+# Two jobs. It is the rolling-day counter that bounds what one account can spend on a cold
+# cache, counted from the log for the reason pacing.py gives: a window over an append-only
+# table needs no column to reset and cannot drift.
+#
+# And it is content feedback nobody else provides. A word tapped by many learners is a word
+# missing from the curated glossary — `raffigurato` occurs 2,796 times in the bank and is not
+# in it — so this log says which words to add next, from evidence rather than from taste.
+EV_WORD_LOOKED_UP = "word_looked_up"
 # A newsletter or a personal message went out from the admin panel. In the event log rather
 # than a table of its own: it is append-only, already backed up, and "did I already send
 # this" is exactly the question somebody needs answered before sending again. It is also the
@@ -485,6 +495,7 @@ EVENT_TYPES = (
     EV_STREAK_FROZEN,
     EV_STREAK_MILESTONE,
     EV_STREAK_NUDGE,
+    EV_WORD_LOOKED_UP,
     EV_BROADCAST_SENT,
     EV_LINK_CHANGED,
     EV_VOCAB_ADDED,

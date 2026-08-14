@@ -172,6 +172,15 @@ export const vocab = {
       method: "PATCH", body: JSON.stringify(body),
     }),
 
+  /** A word tapped inside a question. The server normalises it, translates it once for
+   *  everybody, and puts the DICTIONARY form in this learner's list — so tapping `veicoli`
+   *  saves `veicolo`. Undo is `removeTerm` below; there is only one way to delete one. */
+  lookUp: (word: string) =>
+    request<{ id: number; it: string; gloss: string }>("/vocab/lookup", {
+      method: "POST",
+      body: JSON.stringify({ word }),
+    }),
+
   removeTerm: (id: number) =>
     request<void>(`/vocab/terms/${id}`, { method: "DELETE" }),
 

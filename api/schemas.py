@@ -419,6 +419,33 @@ class SessionAnswerIn(BaseModel):
     answer: bool = Field(description="true = VERO, false = FALSO")
 
 
+# --- tapping a word inside a question ----------------------------------------
+
+class WordLookupIn(BaseModel):
+    """One tapped token, as it appeared on screen.
+
+    Sent raw rather than cleaned by the client. Normalising in two places is normalising in
+    two ways, and the server is the one that has to key a shared cache on the result.
+    """
+
+    word: str = Field(max_length=64)
+
+
+class WordLookupOut(BaseModel):
+    """The saved word and what it means, in the learner's own language.
+
+    `it` is the DICTIONARY form, which may not be what was tapped: somebody who taps
+    `veicoli` gets `veicolo`, because that is the word and the plural is a form of it.
+
+    `id` is here so the client can undo through DELETE /vocab/terms/{id} — the same path a
+    learner's own words already use, rather than inventing a second way to delete one row.
+    """
+
+    id: int
+    it: str
+    gloss: str
+
+
 # --- practising one subject --------------------------------------------------
 
 class TopicOption(BaseModel):

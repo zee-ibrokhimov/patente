@@ -863,6 +863,29 @@ html, body { overflow-x: hidden; }
 }
 .league-rule { margin-bottom: var(--sm); }
 
+/* --- tapping a word inside a question ------------------------------------- */
+
+/* Every word in the statement is a tap target. Deliberately almost invisible: a sentence
+   with twelve underlined words is a sentence nobody can read, and reading it is the point.
+   The affordance is the dotted underline, which appears only under the finger. */
+.statement .word { cursor: pointer; border-radius: 3px; }
+.statement .word:active { background: var(--tint-info); }
+.statement .word.busy { opacity: .5; }
+/* Stays marked after saving, so a learner can see which words they have already collected
+   without opening another screen. */
+.statement .word.saved {
+  text-decoration: underline dotted var(--accent);
+  text-underline-offset: 3px;
+}
+
+.toast-action { display: flex; align-items: center; gap: var(--md); }
+.toast-text { flex: 1 1 auto; min-width: 0; }
+.toast-btn {
+  flex: none; background: none; border: 0; cursor: pointer; padding: 0;
+  font: 700 var(--t-caption)/1 var(--font); color: var(--gold, #fbbf24);
+  text-transform: uppercase; letter-spacing: .04em;
+}
+
 /* --- what practice can be ------------------------------------------------ */
 
 /* The default, and the only primary control on the screen. Two lines, because the second

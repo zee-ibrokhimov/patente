@@ -228,6 +228,24 @@ function toast(message: string): void {
   toastTimer = window.setTimeout(() => node.remove(), 3200);
 }
 
+/** A toast with something to do in it.
+ *
+ *  Held longer than a plain one — a message you are expected to act on has to outlast the
+ *  time it takes to read it — and dismissed by the action, so tapping Undo does not leave
+ *  the strip sitting there claiming the word is still saved. */
+function actionToast(message: string, label: string, act: () => void): void {
+  document.querySelector(".toast")?.remove();
+  const node = el("div", "toast toast-action");
+  node.append(el("span", "toast-text", message));
+  const button = el("button", "toast-btn", label);
+  button.type = "button";
+  button.onclick = () => { node.remove(); act(); };
+  node.append(button);
+  document.body.append(node);
+  window.clearTimeout(toastTimer);
+  toastTimer = window.setTimeout(() => node.remove(), 6000);
+}
+
 function reportError(err: unknown): void {
   if (err instanceof ApiError && err.status === 401) {
     toast(t("outside_telegram"));
@@ -743,6 +761,74 @@ function homeScreen(): HTMLElement {
  *  history worth repeating, so they are quiet until wanted — and the server answers 409
  *  when there is nothing to repeat, which is what the toast reports.
  */
+/** The Italian statement, with every word tappable.
+ *
+ *  Split on whitespace and rendered as spans, so a tap can be attributed to one token
+ *  without the client trying to guess where a word ends — the SERVER normalises, because
+ *  normalising in two places is normalising in two ways, and it is the server that keys a
+ *  shared cache on the result.
+ *
+ *  A plain tap, not a long press. In a Telegram WebView a long press raises native text
+ *  selection and the copy callout; suppressing that needs `user-select: none`, which then
+ *  stops a learner selecting the Italian at all — something people genuinely do. A tap has
+ *  no such conflict, needs no timer, and teaches itself the first time.
+ *
+ *  Punctuation stays OUTSIDE the tappable span. Otherwise the tap target for the last word
+ *  of a sentence includes the full stop, and a learner aiming at the word hits the gap.
+ */
+function tappableStatement(text: string): HTMLElement {
+  const p = el("p", "statement");
+  for (const chunk of text.split(/(\s+)/)) {
+    if (!chunk) continue;
+    if (/^\s+$/.test(chunk)) { p.append(document.createTextNode(chunk)); continue; }
+    const lead = chunk.match(/^[^\p{L}]*/u)?.[0] ?? "";
+    const tail = chunk.match(/[^\p{L}]*$/u)?.[0] ?? "";
+    const core = chunk.slice(lead.length, chunk.length - tail.length);
+    if (lead) p.append(document.createTextNode(lead));
+    if (core) {
+      const word = el("span", "word", core);
+      word.onclick = () => void lookUpWord(core, word);
+      p.append(word);
+    }
+    if (tail) p.append(document.createTextNode(tail));
+  }
+  return p;
+}
+
+/** Tap a word: save it, then say what it means.
+ *
+ *  The toast carries the TRANSLATION, not just "added". At the moment somebody is stuck on
+ *  a word mid-question, what they want is what it means — a toast that only confirms a
+ *  filing action gives them nothing until they open the Vocabulary screen later.
+ *
+ *  Undo is the existing DELETE for a learner's own words, so a mis-tap costs one tap to
+ *  reverse and there is only ever one way to remove one of these rows.
+ */
+async function lookUpWord(word: string, node: HTMLElement): Promise<void> {
+  if (node.classList.contains("busy")) return;
+  node.classList.add("busy");
+  try {
+    const found = await vocab.lookUp(word);
+    node.classList.add("saved");
+    actionToast(`${found.it} — ${found.gloss}`, t("undo"), () => {
+      node.classList.remove("saved");
+      void vocab.removeTerm(found.id).catch(reportError);
+    });
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 429) {
+      toast(t("lookup_enough_today"));
+    } else if (err instanceof ApiError && err.status === 402) {
+      toast(t("lookup_premium"));
+    } else if (err instanceof ApiError && err.status === 503) {
+      toast(t("lookup_unavailable"));
+    } else {
+      reportError(err);
+    }
+  } finally {
+    node.classList.remove("busy");
+  }
+}
+
 /** Everything practice can be, one level under the card that offers it.
  *
  *  These four used to sit on the HOME screen: two repeat chips and a subject row beneath
@@ -1298,7 +1384,7 @@ function runScreen(): HTMLElement {
     body.append(plate);
   }
   if (question.stem_it) body.append(el("p", "caption", question.stem_it));
-  body.append(el("p", "statement", question.statement_it));
+  body.append(tappableStatement(question.statement_it));
   if (run.warming) {
     // The question stays readable and answerable — only the strip that is about to hold a
     // translation says it is being fetched.

@@ -13,6 +13,8 @@ from api.models.content import (
 from api.models.vocab import (
     VocabProgress,
     VocabTerm,
+    WordForm,
+    WordGloss,
 )
 from api.models.activity import (
     Analysis,
@@ -37,6 +39,6 @@ __all__ = [
     "Topic", "Quesito", "Figure", "Question", "Translation", "Cluster", "Explanation",
     "User", "Progress", "Purchase", "Event", "Report", "ReferralLink",
     "QuizSession", "QuizSessionItem", "WebhookDelivery",
-    "VocabTerm", "VocabProgress", "Analysis", "StreakDay",
+    "VocabTerm", "VocabProgress", "WordGloss", "WordForm", "Analysis", "StreakDay",
     "LeagueSlot", "LeagueDay", "LeagueScore",
 ]

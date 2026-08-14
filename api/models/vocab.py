@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, ForeignKey, Index, Text, UniqueConstraint, text
+from sqlalchemy import BigInteger, ForeignKey, Index, Text, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from api.models.base import Base, utcnow
@@ -85,6 +85,73 @@ class VocabTerm(Base):
         """The rendering in `lang`. Italian falls back to English, because a vocabulary
         test needs two different languages and it/it is not a question."""
         return {"en": self.en, "ru": self.ru, "uz": self.uz}.get(lang, self.en)
+
+
+class WordGloss(Base):
+    """The shared translation memory for words tapped inside a question.
+
+    NOT THE GLOSSARY, and the separation is the point. `vocab_terms` with a NULL owner is a
+    curated, frequency-ranked sheet of 1,104 exam words that the drill draws from in teaching
+    order — dumping every word anybody ever tapped into it would destroy both the curation
+    and the ordering. This is a cache of "what does this Italian word mean", nothing more,
+    and the drill never reads it.
+
+    WHY IT IS SHARED WHEN THE SAVED WORDS ARE PERSONAL
+
+    Measured against the real bank before this was built: the glossary covers only 14.5% of
+    the word tokens in the questions, and the words a learner is most likely to tap are the
+    ones missing from it — `raffigurato` appears 2,796 times and is not there, nor are
+    `veicolo`, `veicoli` or `velocità`. So nearly every tap would be a model call.
+
+    But there are only 5,239 distinct words in the entire bank. Cached and shared, the first
+    learner to tap `raffigurato` pays for it and every learner after that gets it instantly.
+    The worst case is the whole bank translated once, ever, rather than a cost that grows
+    with users.
+
+    KEYED ON THE DICTIONARY FORM, not on what was tapped. `veicolo` and `veicoli` are two
+    tokens and one word; keying on the surface form would double the cache and fill learners'
+    vocabularies with duplicates of the same noun. The model returns the lemma, which is what
+    a dictionary would do and what a stemmer would get wrong on Italian.
+    """
+
+    __tablename__ = "word_glosses"
+
+    # The dictionary form, lowercased. Primary key rather than an id: every read is "do we
+    # already know this word", and a surrogate key would need a unique index over this
+    # column anyway.
+    lemma: Mapped[str] = mapped_column(Text, primary_key=True)
+
+    en: Mapped[str] = mapped_column(Text)
+    ru: Mapped[str] = mapped_column(Text)
+    uz: Mapped[str] = mapped_column(Text)
+
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+    def gloss(self, lang: str) -> str:
+        return {"en": self.en, "ru": self.ru, "uz": self.uz}.get(lang, self.en)
+
+
+class WordForm(Base):
+    """Every surface form ever tapped, pointing at its dictionary form.
+
+    THE CACHE IS USELESS WITHOUT THIS, and it took a test to notice. The glosses are keyed on
+    the lemma — `raffigurare` — but a learner taps `raffigurato`, which is a different string.
+    Looking the cache up by what was tapped therefore missed on every inflected word, so the
+    second learner to tap `raffigurato` paid for it again, and the third, and the fourth. The
+    text they got back was identical and correct; only the bill was wrong, which is the kind
+    of defect that is invisible until somebody reads an invoice.
+
+    One row per form, so a word with six inflections costs ONE model call and five cheap
+    inserts. `raffigurato`, `raffigurata` and `raffigurati` all arrive at `raffigurare`.
+    """
+
+    __tablename__ = "word_forms"
+
+    # What was tapped, lowercased and trimmed. The key, because this table exists to be
+    # looked up by exactly the string the client sends.
+    form: Mapped[str] = mapped_column(Text, primary_key=True)
+    lemma: Mapped[str] = mapped_column(ForeignKey("word_glosses.lemma", ondelete="CASCADE"))
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
 
 class VocabProgress(Base):

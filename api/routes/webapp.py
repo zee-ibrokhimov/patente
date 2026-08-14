@@ -40,6 +40,8 @@ from api.routes import quiz as quiz_route
 from api.routes import users as users_route
 from api.schemas import (
     CategoryOut,
+    WordLookupIn,
+    WordLookupOut,
     CoachOut,
     OwnTermIn,
     OwnTermPatch,
@@ -70,6 +72,7 @@ from api.schemas import (
 )
 from api.services import (
     categories,
+    wordlookup,
     coaching,
     display_name,
     suggestions,
@@ -445,6 +448,30 @@ async def add_own_term(
     except vocab_service.VocabError as exc:
         raise HTTPException(exc.status, str(exc)) from exc
     return {"id": row.id}
+
+
+@router.post("/vocab/lookup", response_model=WordLookupOut, status_code=201)
+async def look_up_word(
+    body: WordLookupIn,
+    user: User = Depends(webapp_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """A word tapped inside a question: translate it, cache it, keep it.
+
+    Returns the term's id so the client can offer to undo through the existing
+    DELETE /vocab/terms/{id} — the same path the learner's own words already use, rather
+    than a second way to remove the same row.
+
+    429 for the daily limit, so the client can say "that is enough new words for today"
+    instead of showing a failure. Every other refusal is one the learner can act on.
+    """
+    try:
+        row = await wordlookup.look_up(session, user, body.word, evaluate(user))
+    except wordlookup.TooMany as exc:
+        raise HTTPException(429, str(exc)) from exc
+    except vocab_service.VocabError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+    return WordLookupOut(id=row.id, it=row.it, gloss=row.gloss(user.lang))
 
 
 @router.patch("/vocab/terms/{term_id}")
