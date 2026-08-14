@@ -814,9 +814,18 @@ function tappableStatement(text: string): HTMLElement {
   for (const chunk of text.split(/(\s+)/)) {
     if (!chunk) continue;
     if (/^\s+$/.test(chunk)) { p.append(document.createTextNode(chunk)); continue; }
+    // `tail` is measured from what is LEFT AFTER `lead`, and that is the whole point.
+    //
+    // Measuring both against the original chunk made them overlap whenever the token had
+    // no letters at all: for "110", the leading run of non-letters is "110" AND so is the
+    // trailing one, `core` came out empty, and the token was emitted twice. The learner saw
+    // "il limite massimo di velocità … è di 110110 km/h" — a corrupted question, on 594 of
+    // the 7,106 statements in the bank, which is every speed limit, engine size and duration
+    // in the product. Reported from a phone; no test had a number in it.
     const lead = chunk.match(/^[^\p{L}]*/u)?.[0] ?? "";
-    const tail = chunk.match(/[^\p{L}]*$/u)?.[0] ?? "";
-    const core = chunk.slice(lead.length, chunk.length - tail.length);
+    const rest = chunk.slice(lead.length);
+    const tail = rest.match(/[^\p{L}]*$/u)?.[0] ?? "";
+    const core = rest.slice(0, rest.length - tail.length);
     if (lead) p.append(document.createTextNode(lead));
     if (core) p.append(holdableWord(core));
     if (tail) p.append(document.createTextNode(tail));
